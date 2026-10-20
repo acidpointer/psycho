@@ -1,0 +1,404 @@
+Interpretation: exploratory SAVE_CALL_WINDOW probes may start inside instructions and are not contract authority. The 0x008509F0 probe is quicksave scheduling; the later ACTUAL_AUTOSAVE_OWNER at 0x00850A40 identifies autosave from its complete aligned body and literal argument. Only aligned function bodies, exact call instructions, and presence-helper accesses are used by the correction.
+
+Supported executable SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Arguments: ['r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true', '-c', 'aar', '-c', '?e SAVE_OWNER_CALLERS', '-c', 'axtj @ 0x8503b0', '-c', '?e EXTRA_LOOKUP_PRESENCE_GATE', '-c', 's 0x410220', '-c', 'af', '-c', 'pdf', '-c', 'q', 'fnv_reverse/FalloutNV.exe']
+SAVE_OWNER_CALLERS
+[{"from":6050999,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+1852599","refname":"section..text+4518832"},{"from":8215485,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4017085","refname":"section..text+4518832"},{"from":8677208,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4478808","refname":"section..text+4518832"},{"from":8677255,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4478855","refname":"section..text+4518832"},{"from":8718811,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4520411","refname":"section..text+4518832"},{"from":8718972,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4520572","refname":"section..text+4518832"},{"from":8719137,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4520737","refname":"section..text+4518832"},{"from":8724074,"type":"CALL","perm":"--x","opcode":"call 0x8503b0","name":"section..text+4525674","refname":"section..text+4518832"}]
+EXTRA_LOOKUP_PRESENCE_GATE
+            ; XREFS(478)
+┌ 174: fcn.00410220 (int8_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])
+│           0x00410220      55             push ebp
+│           0x00410221      8bec           mov ebp, esp
+│           0x00410223      83ec0c         sub esp, 0xc
+│           0x00410226      894df4         mov dword [var_ch], ecx
+│           0x00410229      0fb64508       movzx eax, byte [arg_8h]
+│           0x0041022d      50             push eax
+│           0x0041022e      8b4df4         mov ecx, dword [var_ch]
+│           0x00410231      e84afcffff     call 0x40fe80
+│           0x00410236      0fb6c8         movzx ecx, al
+│           0x00410239      85c9           test ecx, ecx
+│       ┌─< 0x0041023b      7507           jne 0x410244
+│       │   0x0041023d      33c0           xor eax, eax
+│      ┌──< 0x0041023f      e984000000     jmp 0x4102c8
+│      ││   ; CODE XREF from fcn.00410220 @ 0x41023b(x)
+│      │└─> 0x00410244      c745fc0000..   mov dword [var_4h], 0
+│      │    0x0041024b      0fb65508       movzx edx, byte [arg_8h]
+│      │    0x0041024f      52             push edx
+│      │    0x00410250      8b45f4         mov eax, dword [var_ch]
+│      │    0x00410253      50             push eax
+│      │    0x00410254      e887f7ffff     call 0x40f9e0
+│      │    0x00410259      83c408         add esp, 8
+│      │    0x0041025c      8945fc         mov dword [var_4h], eax
+│      │    0x0041025f      837dfc00       cmp dword [var_4h], 0
+│      │┌─< 0x00410263      7560           jne 0x4102c5
+│      ││   0x00410265      68a0430101     push str.BaseExtraList::GetExtraData__ ; 0x10143a0 ; "BaseExtraList::GetExtraData()"
+│      ││   0x0041026a      b920391c01     mov ecx, 0x11c3920
+│      ││   0x0041026f      e87cf9ffff     call 0x40fbf0
+│      ││   0x00410274      8b4df4         mov ecx, dword [var_ch]
+│      ││   0x00410277      8b5104         mov edx, dword [ecx + 4]
+│      ││   0x0041027a      8955f8         mov dword [var_8h], edx
+│      ││   ; CODE XREF from fcn.00410220 @ 0x4102b9(x)
+│     ┌───> 0x0041027d      837df800       cmp dword [var_8h], 0
+│    ┌────< 0x00410281      7438           je 0x4102bb
+│    │╎││   0x00410283      8b4df8         mov ecx, dword [var_8h]
+│    │╎││   0x00410286      e8b5120e00     call 0x4f1540
+│    │╎││   0x0041028b      0fb6c0         movzx eax, al
+│    │╎││   0x0041028e      0fb64d08       movzx ecx, byte [arg_8h]
+│    │╎││   0x00410292      3bc1           cmp eax, ecx
+│   ┌─────< 0x00410294      7518           jne 0x4102ae
+│   ││╎││   0x00410296      8b55f8         mov edx, dword [var_8h]
+│   ││╎││   0x00410299      52             push edx
+│   ││╎││   0x0041029a      8b45f4         mov eax, dword [var_ch]
+│   ││╎││   0x0041029d      50             push eax
+│   ││╎││   0x0041029e      e89df7ffff     call 0x40fa40
+│   ││╎││   0x004102a3      83c408         add esp, 8
+│   ││╎││   0x004102a6      8b4df8         mov ecx, dword [var_8h]
+│   ││╎││   0x004102a9      894dfc         mov dword [var_4h], ecx
+│  ┌──────< 0x004102ac      eb0d           jmp 0x4102bb
+│  │││╎││   ; CODE XREF from fcn.00410220 @ 0x410294(x)
+│  │└─────> 0x004102ae      8b4df8         mov ecx, dword [var_8h]
+│  │ │╎││   0x004102b1      e80adb0300     call 0x44ddc0
+│  │ │╎││   0x004102b6      8945f8         mov dword [var_8h], eax
+│  │ │└───< 0x004102b9      ebc2           jmp 0x41027d
+│  │ │ ││   ; CODE XREFS from fcn.00410220 @ 0x410281(x), 0x4102ac(x)
+│  └─└────> 0x004102bb      b920391c01     mov ecx, 0x11c3920
+│      ││   0x004102c0      e8dbf8ffff     call 0x40fba0
+│      ││   ; CODE XREF from fcn.00410220 @ 0x410263(x)
+│      │└─> 0x004102c5      8b45fc         mov eax, dword [var_4h]
+│      │    ; CODE XREF from fcn.00410220 @ 0x41023f(x)
+│      └──> 0x004102c8      8be5           mov esp, ebp
+│           0x004102ca      5d             pop ebp
+└           0x004102cb      c20400         ret 4
+
+WARN: Invalid certificate table
+
+Arguments: ['r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true', '-c', '?e SAVE_CALL_WINDOW 0x5c54b7', '-c', 'pd 18 @ 6050977', '-c', '?e SAVE_CALL_WINDOW 0x7d5bbd', '-c', 'pd 18 @ 8215463', '-c', '?e SAVE_CALL_WINDOW 0x846758', '-c', 'pd 18 @ 8677186', '-c', '?e SAVE_CALL_WINDOW 0x846787', '-c', 'pd 18 @ 8677233', '-c', '?e SAVE_CALL_WINDOW 0x8509db', '-c', 'pd 18 @ 8718789', '-c', '?e SAVE_CALL_WINDOW 0x850a7c', '-c', 'pd 18 @ 8718950', '-c', '?e SAVE_CALL_WINDOW 0x850b21', '-c', 'pd 18 @ 8719115', '-c', '?e SAVE_CALL_WINDOW 0x851e6a', '-c', 'pd 18 @ 8724052', '-c', '?e PRESENCE_BIT_HELPER', '-c', 's 0x40fe80', '-c', 'af', '-c', 'pdf', '-c', 'q', 'fnv_reverse/FalloutNV.exe']
+SAVE_CALL_WINDOW 0x5c54b7
+            0x005c54a1      0f95c1         setne cl
+            0x005c54a4      0fb6d1         movzx edx, cl
+            0x005c54a7      52             push edx
+            0x005c54a8      6aff           push 0xffffffffffffffff
+            0x005c54aa      8d85f8fdffff   lea eax, [ebp - 0x208]
+            0x005c54b0      50             push eax
+            0x005c54b1      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+            0x005c54b7      e8f4ae2800     call 0x8503b0
+            0x005c54bc      b001           mov al, 1
+            0x005c54be      8b4dfc         mov ecx, dword [ebp - 4]
+            0x005c54c1      33cd           xor ecx, ebp
+            0x005c54c3      e8c4eb8f00     call 0xec408c
+            0x005c54c8      8be5           mov esp, ebp
+            0x005c54ca      5d             pop ebp
+            0x005c54cb      c3             ret
+            0x005c54cc      cc             int3
+            0x005c54cd      cc             int3
+            0x005c54ce      cc             int3
+SAVE_CALL_WINDOW 0x7d5bbd
+            0x007d5ba7      ec             in al, dx
+            0x007d5ba8      83b9b00100..   cmp dword [ecx + 0x1b0], 0
+        ┌─< 0x007d5baf      7529           jne 0x7d5bda
+        │   0x007d5bb1      6a00           push 0
+        │   0x007d5bb3      6aff           push 0xffffffffffffffff
+        │   0x007d5bb5      6a00           push 0
+        │   0x007d5bb7      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+        │   0x007d5bbd      e8eea70700     call 0x8503b0
+        │   0x007d5bc2      0fb6d0         movzx edx, al
+        │   0x007d5bc5      85d2           test edx, edx
+       ┌──< 0x007d5bc7      7411           je 0x7d5bda
+       ││   0x007d5bc9      6a01           push 1                      ; 1
+       ││   0x007d5bcb      6800000010     push 0x10000000
+       ││   0x007d5bd0      8b4dec         mov ecx, dword [ebp - 0x14]
+       ││   0x007d5bd3      e8189bf8ff     call 0x75f6f0
+      ┌───< 0x007d5bd8      eb7a           jmp 0x7d5c54
+      │└└─> 0x007d5bda      6800000010     push 0x10000000
+      │     0x007d5bdf      8b4dec         mov ecx, dword [ebp - 0x14]
+SAVE_CALL_WINDOW 0x846758
+            0x00846742      d085d2742b6a   rol byte [ebp + 0x6a2b74d2], 1
+            0x00846748      008b45fc8b48   add byte [ebx + 0x488bfc45], cl ; [0x488bfc45:1]=255
+            0x0084674e      3451           xor al, 0x51                ; 81
+            0x00846750      6a00           push 0
+            0x00846752      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+            0x00846758      e8539c0000     call 0x8503b0
+            0x0084675d      0fb6d0         movzx edx, al
+            0x00846760      85d2           test edx, edx
+        ┌─< 0x00846762      740c           je 0x846770
+        │   0x00846764      8b4dfc         mov ecx, dword [ebp - 4]
+        │   0x00846767      e874000000     call 0x8467e0
+        │   0x0084676c      b001           mov al, 1
+       ┌──< 0x0084676e      eb38           jmp 0x8467a8
+      ┌─└─> 0x00846770      eb34           jmp 0x8467a6
+      ││    0x00846772      6a00           push 0
+      ││    0x00846774      8b45fc         mov eax, dword [ebp - 4]
+      ││    0x00846777      8b4834         mov ecx, dword [eax + 0x34]
+      ││    0x0084677a      51             push ecx
+SAVE_CALL_WINDOW 0x846787
+            0x00846771      346a           xor al, 0x6a                ; 106
+            0x00846773      008b45fc8b48   add byte [ebx + 0x488bfc45], cl ; [0x488bfc45:1]=255
+            0x00846779      3451           xor al, 0x51                ; 81
+            0x0084677b      8b55fc         mov edx, dword [ebp - 4]
+            0x0084677e      8b02           mov eax, dword [edx]
+            0x00846780      50             push eax
+            0x00846781      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+            0x00846787      e8249c0000     call 0x8503b0
+            0x0084678c      0fb6c8         movzx ecx, al
+            0x0084678f      85c9           test ecx, ecx
+        ┌─< 0x00846791      7413           je 0x8467a6
+        │   0x00846793      8b55fc         mov edx, dword [ebp - 4]
+        │   0x00846796      52             push edx
+        │   0x00846797      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+        │   0x0084679d      e87eae0000     call 0x851620
+        │   0x008467a2      b001           mov al, 1
+       ┌──< 0x008467a4      eb02           jmp 0x8467a8
+       │└─> 0x008467a6      32c0           xor al, al
+SAVE_CALL_WINDOW 0x8509db
+            0x008509c5      ff50e8         call dword [eax - 0x18]
+            0x008509c8      2449           and al, 0x49                ; 73
+        ┌─< 0x008509ca      ebff           jmp 0x8509cb
+            0x008509cc      83c418         add esp, 0x18
+            0x008509cf      6a00           push 0
+            0x008509d1      6aff           push 0xffffffffffffffff
+            0x008509d3      68d4fa0701     push str.quicksave          ; 0x107fad4 ; "quicksave"
+            0x008509d8      8b4dfc         mov ecx, dword [ebp - 4]
+            0x008509db      e8d0f9ffff     call 0x8503b0
+            0x008509e0      8be5           mov esp, ebp
+            0x008509e2      5d             pop ebp
+            0x008509e3      c3             ret
+            0x008509e4      cc             int3
+            0x008509e5      cc             int3
+            0x008509e6      cc             int3
+            0x008509e7      cc             int3
+            0x008509e8      cc             int3
+            0x008509e9      cc             int3
+SAVE_CALL_WINDOW 0x850a7c
+        ┌─< 0x00850a66      7a08           jp 0x850a70
+        │   0x00850a68      008bc8e800a2   add byte [ebx - 0x5dff1738], cl
+        │   0x00850a6e      deff           fdivp st(7)
+        └─> 0x00850a70      6a00           push 0
+            0x00850a72      6aff           push 0xffffffffffffffff
+            0x00850a74      68e0fa0701     push str.autosave           ; 0x107fae0 ; "autosave"
+            0x00850a79      8b4dfc         mov ecx, dword [ebp - 4]
+            0x00850a7c      e82ff9ffff     call 0x8503b0
+            0x00850a81      8be5           mov esp, ebp
+            0x00850a83      5d             pop ebp
+            0x00850a84      c3             ret
+            0x00850a85      cc             int3
+            0x00850a86      cc             int3
+            0x00850a87      cc             int3
+            0x00850a88      cc             int3
+            0x00850a89      cc             int3
+            0x00850a8a      cc             int3
+            0x00850a8b      cc             int3
+SAVE_CALL_WINDOW 0x850b21
+            0x00850b0b      e8e02cbbff     call 0x4037f0
+            0x00850b10      6a00           push 0
+            0x00850b12      6aff           push 0xffffffffffffffff
+            0x00850b14      8d8df0feffff   lea ecx, [ebp - 0x110]
+            0x00850b1a      51             push ecx
+            0x00850b1b      8b8decfeffff   mov ecx, dword [ebp - 0x114]
+            0x00850b21      e88af8ffff     call 0x8503b0
+            0x00850b26      8b4dfc         mov ecx, dword [ebp - 4]
+            0x00850b29      33cd           xor ecx, ebp
+            0x00850b2b      e85c356700     call 0xec408c
+            0x00850b30      8be5           mov esp, ebp
+            0x00850b32      5d             pop ebp
+            0x00850b33      c3             ret
+            0x00850b34      cc             int3
+            0x00850b35      cc             int3
+            0x00850b36      cc             int3
+            0x00850b37      cc             int3
+            0x00850b38      cc             int3
+SAVE_CALL_WINDOW 0x851e6a
+            0x00851e54      40             inc eax
+        ┌─< 0x00851e55      ebff           jmp 0x851e56
+            0x00851e57      0fb6c8         movzx ecx, al
+            0x00851e5a      85c9           test ecx, ecx
+        ┌─< 0x00851e5c      7518           jne 0x851e76
+        │   0x00851e5e      6a00           push 0
+        │   0x00851e60      6aff           push 0xffffffffffffffff
+        │   0x00851e62      6a00           push 0
+        │   0x00851e64      8b0d34e11d01   mov ecx, dword [0x11de134]  ; [0x11de134:4]=0
+        │   0x00851e6a      e841e5ffff     call 0x8503b0
+        │   0x00851e6f      8b55fc         mov edx, dword [ebp - 4]
+        │   0x00851e72      c6421000       mov byte [edx + 0x10], 0
+       ┌└─> 0x00851e76      eb67           jmp 0x851edf
+       │    0x00851e78      8b45fc         mov eax, dword [ebp - 4]
+       │    0x00851e7b      0fb64811       movzx ecx, byte [eax + 0x11]
+       │    0x00851e7f      85c9           test ecx, ecx
+       │┌─< 0x00851e81      745c           je 0x851edf
+       ││   0x00851e83      8b55fc         mov edx, dword [ebp - 4]
+PRESENCE_BIT_HELPER
+┌ 87: fcn.0040fe80 (int8_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(3:sp[0x5..0x10])
+│           0x0040fe80      55             push ebp
+│           0x0040fe81      8bec           mov ebp, esp
+│           0x0040fe83      83ec0c         sub esp, 0xc
+│           0x0040fe86      894df4         mov dword [var_ch], ecx
+│           0x0040fe89      0fb64508       movzx eax, byte [arg_8h]
+│           0x0040fe8d      c1f803         sar eax, 3
+│           0x0040fe90      8945f8         mov dword [var_8h], eax
+│           0x0040fe93      837df815       cmp dword [var_8h], 0x15
+│       ┌─< 0x0040fe97      7331           jae 0x40feca
+│       │   0x0040fe99      8b4df4         mov ecx, dword [var_ch]
+│       │   0x0040fe9c      034df8         add ecx, dword [var_8h]
+│       │   0x0040fe9f      0fb65108       movzx edx, byte [ecx + 8]
+│       │   0x0040fea3      0fb64508       movzx eax, byte [arg_8h]
+│       │   0x0040fea7      8bc8           mov ecx, eax
+│       │   0x0040fea9      81e107000080   and ecx, 0x80000007
+│      ┌──< 0x0040feaf      7905           jns 0x40feb6
+│      ││   0x0040feb1      49             dec ecx
+│      ││   0x0040feb2      83c9f8         or ecx, 0xfffffff8          ; 4294967288
+│      ││   0x0040feb5      41             inc ecx
+│      └──> 0x0040feb6      b801000000     mov eax, 1
+│       │   0x0040febb      d3e0           shl eax, cl
+│       │   0x0040febd      23d0           and edx, eax
+│       │   0x0040febf      f7da           neg edx
+│       │   0x0040fec1      1bd2           sbb edx, edx
+│       │   0x0040fec3      f7da           neg edx
+│       │   0x0040fec5      8855ff         mov byte [var_1h], dl
+│      ┌──< 0x0040fec8      eb04           jmp 0x40fece
+│      │└─> 0x0040feca      c645ff00       mov byte [var_1h], 0
+│      │    ; CODE XREF from fcn.0040fe80 @ 0x40fec8(x)
+│      └──> 0x0040fece      8a45ff         mov al, byte [var_1h]
+│           0x0040fed1      8be5           mov esp, ebp
+│           0x0040fed3      5d             pop ebp
+└           0x0040fed4      c20400         ret 4
+
+WARN: Invalid certificate table
+
+Arguments: ['r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true', '-c', '?e AUTOSAVE_OWNER_BOUNDARY', '-c', 's 0x8509f0', '-c', 'af', '-c', 'afi', '-c', 'pdf', '-c', 'aar', '-c', '?e AUTOSAVE_OWNER_CALLERS', '-c', 'axtj @ 0x8509f0', '-c', 'q', 'fnv_reverse/FalloutNV.exe']
+AUTOSAVE_OWNER_BOUNDARY
+#
+addr: 0x008509f0
+name: fcn.008509f0
+size: 70
+is-pure: false
+realsz: 70
+stackframe: 32
+callconv: cdecl
+cyclic-cost: 33
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 25
+edges: 0
+minaddr: 0x008509f0
+maxaddr: 0x00850a36
+is-lineal: true
+end-bbs: 1
+maxbbins: 25
+midbbins: 25.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 3
+locals: 1
+args: 0
+
+┌ 70: fcn.008509f0 ();
+│ afv: vars(1:sp[0x8..0x8])
+│           0x008509f0      55             push ebp
+│           0x008509f1      8bec           mov ebp, esp
+│           0x008509f3      51             push ecx
+│           0x008509f4      894dfc         mov dword [var_4h], ecx
+│           0x008509f7      6a00           push 0
+│           0x008509f9      51             push ecx
+│           0x008509fa      d905c0620101   fld dword [0x10162c0]
+│           0x00850a00      d91c24         fstp dword [esp]
+│           0x00850a03      6a00           push 0
+│           0x00850a05      68e0080201     push str.InterfaceIconsMessage_Iconsglow_message_vaultboy_neutral.dds ; 0x10208e0 ; "Interface\\Icons\\Message Icons\\glow_message_vaultboy_neutral.dds"
+│           0x00850a0a      6a00           push 0
+│           0x00850a0c      b9ac351d01     mov ecx, 0x11d35ac
+│           0x00850a11      e8da33bbff     call fcn.00403df0
+│           0x00850a16      50             push eax
+│           0x00850a17      e8d448ebff     call fcn.007052f0
+│           0x00850a1c      83c418         add esp, 0x18
+│           0x00850a1f      6a01           push 1                      ; 1
+│           0x00850a21      6a00           push 0
+│           0x00850a23      6aff           push 0xffffffffffffffff
+│           0x00850a25      68d4fa0701     push str.quicksave          ; 0x107fad4 ; "quicksave"
+│           0x00850a2a      8b4dfc         mov ecx, dword [var_4h]
+│           0x00850a2d      e82efdffff     call fcn.00850760
+│           0x00850a32      8be5           mov esp, ebp
+│           0x00850a34      5d             pop ebp
+└           0x00850a35      c3             ret
+AUTOSAVE_OWNER_CALLERS
+[{"from":9700266,"type":"CALL","perm":"--x","opcode":"call fcn.008509f0","name":"fcn.009373f0+36794","refname":"fcn.008509f0"},{"from":9709688,"type":"CALL","perm":"--x","opcode":"call fcn.008509f0","name":"fcn.009373f0+46216","refname":"fcn.008509f0"},{"from":9730777,"type":"CALL","perm":"--x","opcode":"call fcn.008509f0","name":"fcn.009373f0+67305","refname":"fcn.008509f0"}]
+
+WARN: Invalid certificate table
+
+Arguments: ['r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true', '-c', '?e ACTUAL_AUTOSAVE_OWNER', '-c', 's 0x850a40', '-c', 'af', '-c', 'afi', '-c', 'pdf', '-c', 'aar', '-c', '?e ACTUAL_AUTOSAVE_CALLERS', '-c', 'axtj @ 0x850a40', '-c', 'q', 'fnv_reverse/FalloutNV.exe']
+ACTUAL_AUTOSAVE_OWNER
+#
+addr: 0x00850a40
+name: fcn.00850a40
+size: 69
+is-pure: false
+realsz: 69
+stackframe: 24
+callconv: cdecl
+cyclic-cost: 33
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 23
+edges: 0
+minaddr: 0x00850a40
+maxaddr: 0x00850a85
+is-lineal: true
+end-bbs: 1
+maxbbins: 23
+midbbins: 23.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 4
+locals: 1
+args: 0
+
+┌ 69: fcn.00850a40 ();
+│ afv: vars(1:sp[0x8..0x8])
+│           0x00850a40      55             push ebp
+│           0x00850a41      8bec           mov ebp, esp
+│           0x00850a43      51             push ecx
+│           0x00850a44      894dfc         mov dword [var_4h], ecx
+│           0x00850a47      8b45fc         mov eax, dword [var_4h]
+│           0x00850a4a      c6400f00       mov byte [eax + 0xf], 0
+│           0x00850a4e      8b4dfc         mov ecx, dword [var_4h]
+│           0x00850a51      c6410e00       mov byte [ecx + 0xe], 0
+│           0x00850a55      e8f62dc0ff     call fcn.00453850
+│           0x00850a5a      51             push ecx
+│           0x00850a5b      d91c24         fstp dword [esp]
+│           0x00850a5e      8b0d10ea1d01   mov ecx, dword [0x11dea10]  ; [0x11dea10:4]=0
+│           0x00850a64      e8b77a0800     call fcn.008d8520
+│           0x00850a69      8bc8           mov ecx, eax
+│           0x00850a6b      e800a2deff     call fcn.0063ac70
+│           0x00850a70      6a00           push 0
+│           0x00850a72      6aff           push 0xffffffffffffffff
+│           0x00850a74      68e0fa0701     push str.autosave           ; 0x107fae0 ; "autosave"
+│           0x00850a79      8b4dfc         mov ecx, dword [var_4h]
+│           0x00850a7c      e82ff9ffff     call fcn.008503b0
+│           0x00850a81      8be5           mov esp, ebp
+│           0x00850a83      5d             pop ebp
+└           0x00850a84      c3             ret
+ACTUAL_AUTOSAVE_CALLERS
+[{"from":8127147,"type":"CALL","perm":"--x","opcode":"call fcn.00850a40","name":"fcn.0063ac70+1594939","refname":"fcn.00850a40"},{"from":8723961,"type":"CALL","perm":"--x","opcode":"call fcn.00850a40","name":"fcn.00850a40+5049","refname":"fcn.00850a40"},{"from":9686749,"type":"CALL","perm":"--x","opcode":"call fcn.00850a40","name":"fcn.008d8520+412093","refname":"fcn.00850a40"}]
+
+WARN: Invalid certificate table
+
+SESSION CORRELATION: timestamps are observed log events, not per-guard timings.
+
+Source snapshot: .reports/20261020-list-admission-pause/reported-session.log
+2026-10-20T14:36:04.929Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Save committed durably: C:\users\steamuser\Documents\My Games\FalloutNV\__MO_Saves\quicksave.fos
+2026-10-20T14:36:10.649Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Save committed durably: C:\users\steamuser\Documents\My Games\FalloutNV\__MO_Saves\autosave.fos
+2026-10-20T14:36:28.204Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Save committed durably: C:\users\steamuser\Documents\My Games\FalloutNV\__MO_Saves\autosave.fos
+
+Source snapshot: .reports/20261020-list-admission-pause/omv-latest.log
+2026-10-20T14:36:04.941Z INFO  [omv::effects::shadows::pipeline] [SHADOWS] Producer summary per 1252ms: transactions=1, dirty_lights=9, moving_lights=4, rebuilt_faces=24, refresh_faces=5, publish_faces=13, merge_faces=6, root_all_changed=1, root_nolod_changed=1, moving_position=4, moving_radius=0, moving_both=0
+2026-10-20T14:36:10.662Z INFO  [omv::effects::shadows::pipeline] [SHADOWS] Producer summary per 2043ms: transactions=95, dirty_lights=415, moving_lights=0, rebuilt_faces=0, refresh_faces=18, publish_faces=1123, merge_faces=1112, root_all_changed=69, root_nolod_changed=69, moving_position=0, moving_radius=0, moving_both=0
+2026-10-20T14:36:26.457Z INFO  [omv::effects::pbr::hooks] [PBR] CloseTerrain PBR active vertex=C[100] pixel=B[108] textures=3 point_lights=0 native_canopy_row=false
+2026-10-20T14:36:26.457Z INFO  [omv::effects::pbr::hooks] [PBR] TerrainFade PBR active pass=560 vertex=C[80] pixel=B[82]
+2026-10-20T14:36:28.235Z INFO  [omv::effects::shadows::pipeline] [SHADOWS] Producer summary per 1784ms: transactions=2, dirty_lights=0, moving_lights=0, rebuilt_faces=0, refresh_faces=0, publish_faces=0, merge_faces=0, root_all_changed=0, root_nolod_changed=0, moving_position=0, moving_radius=0, moving_both=0

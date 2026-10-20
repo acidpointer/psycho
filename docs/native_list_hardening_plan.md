@@ -37,14 +37,16 @@ debug playtests; runtime integration and startup acceptance remain unverified.
   file/thread scope within the exclusive main-save owner; its audited
   record-bind call establishes buffer/form scope.
   Reference extra chains, their native cached-result membership and inventory
-  Data/list records are admitted before dependency collection. PlayerCharacter
+  Data prefixes are admitted before dependency collection. Item spines are
+  admitted at the actual list serializer, only when native flags consume them. PlayerCharacter
   array and Projectile optional-entry hooks cover the other two direct entry
   serializers. Shared EntryData admission checks outer/nested spines and full
   twelve-byte entries before forwarding valid data to the native serializer.
   The native form writer accepts NULL as ID zero; structural admission preserves
   that case and checks the FormID span only for a non-NULL form.
-  Reference dependency collection also requires the type-0x3D extra's scalar
-  at +0x0C; this exact read is admitted before that native getter executes.
+  Reference dependency collection requires type-0x3D's scalar at +0x0C;
+  reference pre-dispatch can also read type-0x41's scalar there. Both exact
+  payload spans are admitted before their native getters execute.
 - C5 local coverage: the existing linked-reference cleanup setting also admits
   the matched extra's child list before the native removal. Failure returns the
   same optional NULL result already tolerated by the removal owner. No child,
@@ -144,11 +146,140 @@ Existing outer traversal budgets are unchanged. They are not promoted into a
 native-wide maximum or evidence that a long list is corrupt. Their separate
 owner/performance gates remain open.
 
+### Save and transition pause correction
+
+The owner reports longer pauses on every save and an approximately one-second
+pause after the first visible frame of a location transition with this
+candidate. The preserved session confirms the new save guard was active.
+The performance defect in its admission path is repeated mapping queries:
+`entry_admission` constructed a new reader for every payload, discarding the
+walk's mapping knowledge, while the single cached mapping could not retain
+alternating node, entry and form regions. Native extra-cache admission also
+queried all `0x93` types for every list, including absent types and empty lists.
+All this work runs synchronously before native serialization; reference
+preflight additionally holds the existing extra-data lock during its walk.
+
+The existing runtime logs connect an exterior render to a subsequent autosave:
+terrain passes first log at `14:36:26.457`, autosave commits at `14:36:28.204`,
+and the next shadow producer summary at `14:36:28.235` covers 1,784 ms with
+only two transactions. A quicksave commit at `14:36:04.929` similarly precedes
+a 1,252 ms summary with one transaction at `14:36:04.941`. These observations
+support a common synchronous save pause after transition rendering; they are
+not per-guard timings or proof that every first-frame pause has this cause.
+The verified autosave owner `0x00850A40` calls the same main-save owner at
+`0x00850A7C`. The native and selected runtime evidence is preserved in the
+[pause investigation](../analysis/radare2/output/native_list_pause_save_calls_and_presence_20261020.txt).
+
+The correction shares one mapping reader through each uninterrupted entry walk
+and retains four recently used mapping capabilities. Cache eviction simply
+queries again; it never rejects a valid list or imposes a length limit. Every
+copy still executes the guarded process reader, every first mapping admission
+still checks its page policy, and read/write capabilities remain distinct.
+Payload bytes, object identities and successful admission are never cached.
+Readers end before serializer/provider calls and are fresh for every operation.
+The exact native lock/cache helpers used during admission touch their own
+metadata, do not mutate these input mappings, and invoke no provider callback.
+Native extra-cache queries now use only set presence bits, matching the lookup
+gate at `0x00410220` / `0x0040FE80`; relevant cached membership checks remain.
+
+Qualification uses the actual production `entry_list` on owned eight-byte
+nodes, twelve-byte entries and sixteen-byte form prefixes, with empty extend
+lists and five release rounds under Wine. The unchanged 65,536-entry workload
+took a 166,935.0 us median (166,754.9-168,213.3 us). Scoped mapping reuse took
+34,054.5 us (33,988.5-34,170.2 us), about 4.9 times faster. At 1,024 entries,
+the medians were 2,566.2 us and 491.8 us. These measurements isolate structural
+admission, excluding native serialization, legacy filtering, native extra
+callbacks, disk IO, contention and the reporter's actual inventory population.
+They cannot be converted into a promised total save time or frame-time gain.
+
+Removing mapping queries altogether was rejected by a real-page regression:
+the current Wine process reader could successfully copy a guard page and
+consume its one-shot guard bit. The documented
+[ReadProcessMemory access contract](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-readprocessmemory)
+alone is insufficient to preserve that admission policy on this runtime.
+The final correction retains those checks and
+passes guard-bit preservation, cross-region capability, inaccessible-copy,
+cache-eviction/fresh-byte and existing corruption regressions. Mapping reuse
+introduces no unchecked direct reads, persistent pointer cache, setting, hook,
+native ABI, WinAPI wrapper, dependency or startup owner. The existing
+configuration and helper descriptions remain unchanged. Runtime integration
+of this performance correction is unverified; no debug playtest is requested.
+
+### Admission at the consuming save boundary
+
+The owner reports that the pauses remain after deploying the mapping-cache
+correction. The later session shows exterior terrain rendering at
+`15:15:41.693`, an autosave commit at `15:15:42.978`, and a shadow summary at
+`15:15:43.033` covering 1,347 ms with two transactions. This connects the
+location-entry interval with an autosave; neither that interval nor the earlier
+isolated admission benchmark attributes its full duration to a particular phase.
+
+The remaining structural defect is duplicated and unused inventory traversal.
+The record-bind guard descended from every reference's type-0x15 extra into
+the whole inventory, including records without inventory save flags. That
+complete walk ran while holding the global extra-data lock. The shared list
+hook then repeated structural admission and the enabled legacy filter made
+another complete pass with three fresh mapping queries per accepted entry.
+
+The supported executable's reference serializer `0x00562230` calls the
+inventory getter `0x004BF220` and list save `0x004D4090` only when the current
+buffer flags at `+0x17` intersect `0x08000020`. The getter and existing-Data
+helper `0x00418520` return the Data pointer without walking its item head.
+General extra serialization skips type 0x15. Reference and Actor pre-dispatch
+`0x00562140` / `0x008AAEE0`, dependency collection, and the intervening
+MobileObject parent save were inspected before deferring that item walk.
+Actor pre-dispatch's process virtual `+0x1B8` resolves to `0x00602150`
+(return process `+0x1C0`) or `0x00ACBB70` (return NULL); it does not walk items.
+Reference pre-dispatch reaches `0x004228F0`, whose type-0x41 getter reads
+extra `+0x0C`, so the early prefix check also covers that scalar.
+The [consumer disassembly](../analysis/radare2/output/native_list_save_admission_consumers_20261020.txt)
+preserves exact calls, branches, layouts and verified executable identity.
+
+The correction retains early chain/cache membership, type-0x15 payload/Data
+prefix, and type-0x3D/0x41 scalar checks. It defers the item spine to one complete
+preflight at the shared list consumer, before any count, flag or stream write.
+Thus the native final flags determine whether an inventory is visited, without
+caching flags or admission across callbacks. The global extra lock now covers
+only the relevant extra chain/cache inspection, without an enclosing item walk.
+The enabled legacy form predicate shares the same outer walk and mapping
+reader; its original NULL, low-address, single-region, vtable and code-range
+rules remain. Its rejection fails the entire owned save. Load admission and
+out-of-owner filtering remain independently configured and unchanged.
+PlayerCharacter's array and Projectile's optional entry retain their own
+preflights: their native contracts do not share the reference inventory mask.
+
+An offline regression failed on the unchanged production early-admission
+routine because it touched an inaccessible item head. After correction the
+same early routine admits only the required prefix and the actual list
+preflight rejects that head unchanged. Other regressions compare the fused
+policy with the retained production load predicate using real readable process
+memory, including a span split by page protection; they also retain cache,
+cycle, inaccessible-memory and guard-page coverage. These tests do not execute
+native save/load framing, provider composition, failure UI or disk promotion.
+No reduction in whole-save or transition latency is established offline.
+
+The existing main-save owner now publishes a stack-owned timing scope through
+one inert atomic pointer. It adds no TLS, worker, lazy owner, config change,
+hook installation or startup callback. Actual runtime saves measure the owner,
+outermost authenticated snapshot, whole admission operations and durable commit;
+no timing or counters run per entry. Raw QPC ticks accumulate before conversion,
+and native LastError survives timing calls. One `[SAVE] Timing` line is emitted
+at owner return. Admission is nested inside snapshot time; they must not be
+added together. Commit covers completed-file validation, durable flush,
+recovery and promotion, excluding the earlier native close. Unaccounted time
+remains unclassified. A zero phase can mean no observed invocation; a missing
+total or nonzero `clock_misses` means timing is unavailable or incomplete.
+The summary is available during ordinary saves without changing hitch profiling.
+It introduces no claim that guards, storage, rendering or a particular mod
+explain all remaining latency. Startup and game performance remain unverified;
+the existing plan-specific static/offline exception permits only an unreleased
+candidate, not release or deployment acceptance.
+
 ### Costs, qualification and startup limits
 
 Save admission adds linear guarded-copy/query work and native extra-lock
 acquisitions. Cached membership uses a fixed `0x93`-pointer stack image; it does
-not allocate a shadow ownership map. It adds no worker, timer or PE TLS owner.
+not allocate a shadow ownership map. It adds no worker, periodic timer or PE TLS owner.
 Healthy-save round trips, native failure UI, physical no-promotion integration,
 lock timing and mod-provider composition have not been executed in the game.
 

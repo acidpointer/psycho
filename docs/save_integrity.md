@@ -38,8 +38,13 @@ Failed handling retain responsibility for preventing promotion. No item or live
 inventory link is removed or rewritten to manufacture a successful save.
 
 The shared EntryData hook gives this policy precedence in an owned main save.
-If the old entry filter is enabled, its original main-list form check still
-applies; a rejection fails the whole owned save before list serialization.
+If the old entry filter is enabled, its original main-list form check shares
+the structural walk and mapping reader; a rejection fails the whole owned save
+before list serialization. Early reference admission retains extra/Data prefix
+checks without descending into item spines. Native final change flags determine
+whether the engine reaches the one complete list preflight. The extra-data lock
+therefore does not enclose an additional inventory-wide walk. PlayerCharacter
+and Projectile alternate entry preflights retain their separate native roles.
 Outside that scope, the old `entrydata_invalid_form_guard` keeps its configured
 behavior; its load filter remains independent. There is one hook owner for the
 shared save entry. No new exported dashboard ABI or core/helper loading path is
@@ -52,6 +57,28 @@ been executed for this change. It admits the documented structural fields;
 it does not validate every subtype payload, allocation identity or arbitrary
 external writer. The complete addresses, ABI, scope, evidence, costs and
 remaining gates are in [the native-list contract](native_list_hardening_plan.md).
+
+The admission reader is shared across one uninterrupted list walk and caches
+four recently used mapping capabilities, with a fresh guarded copy for every
+field. This avoids the original per-entry query restart without retaining
+payload bytes or admission across native serialization. Extra-cache queries
+follow native presence bits. The [pause correction](native_list_hardening_plan.md#save-and-transition-pause-correction)
+records the reported save/transition pauses, measured production-path cost,
+guard-page policy regression and runtime limits.
+
+The existing main-save owner emits one `[SAVE] Timing` summary on return:
+`total_us` covers the native owner, `snapshot_us` the outermost authenticated
+snapshot, `inventory_admission_us` its nested guard contribution, and
+`commit_us` completed-file validation/flush/recovery/promotion. Commit excludes
+the earlier native file close; remaining owner time is unclassified. Do not
+add admission time to snapshot time. `inventory_admissions` counts whole guard
+operations, not entries. Zero phases may be unobserved; a missing total or
+nonzero `clock_misses` makes timing incomplete. Measurement uses existing QPC
+wrappers with constant stack storage, no per-entry timing, and native LastError
+preservation. It is available during ordinary saves regardless of hitch
+profiling; it does not weaken any durability or admission policy. The scope's
+single inert atomic publication adds no TLS or initialization callback. Native
+runtime latency and startup acceptance remain unverified.
 
 ## Proven engine contract
 

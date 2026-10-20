@@ -1,9 +1,9 @@
 //! Guarded byte admission shared by owner-specific native list guards.
 //!
 //! Copies require the requested mapping capability and use libpsycho's process
-//! reader. A cache belongs to one uninterrupted owner lifetime; it never pins
-//! allocations, proves identity, or survives a native callback. Embedded-head
-//! traversal compares links only and assigns no payload ownership or recovery
+//! reader. A small mapping cache belongs to one uninterrupted owner lifetime;
+//! it never pins allocations, proves identity, or survives a provider callback.
+//! Embedded-head traversal compares links only and assigns no payload ownership or recovery
 //! policy. Work is linear, with constant storage and no arbitrary length cap.
 //! Failures retain the original query/copy evidence without a diagnostic retry.
 
@@ -116,16 +116,51 @@ impl fmt::Display for MemoryFailure {
     }
 }
 
-/// One invocation's last admitted mapping; never shared or retained globally.
-#[derive(Default)]
-pub(super) struct RegionReader {
+#[derive(Clone, Copy)]
+struct CachedRegion {
     start: usize,
     end: usize,
-    access: Option<Access>,
+    access: Access,
+    region: Region,
+}
+
+impl CachedRegion {
+    fn contains(self, address: usize, access: Access) -> bool {
+        self.access == access && address >= self.start && address < self.end
+    }
+}
+
+/// One uninterrupted walk's mapping cache; never shared or retained globally.
+/// Four entries cover the alternating node/entry/form mappings without a
+/// per-item OS query. Eviction affects cost only, never admission or capacity.
+#[derive(Default)]
+pub(super) struct RegionReader {
+    current: Option<CachedRegion>,
+    previous: [Option<CachedRegion>; 3],
     region: Option<Region>,
 }
 
 impl RegionReader {
+    /// Retain predicates that require a span to fit inside one queried region.
+    /// Ordinary structural copies may span adjacent accessible regions instead.
+    pub fn within_single_region(
+        &mut self,
+        address: usize,
+        length: usize,
+        access: Access,
+    ) -> Result<bool, MemoryFailure> {
+        self.range(address, length, access)?;
+        Ok(self.region.is_some_and(|region| {
+            address >= region.base
+                && address.checked_add(length).is_some_and(|end| {
+                    region
+                        .base
+                        .checked_add(region.size)
+                        .is_some_and(|limit| end <= limit)
+                })
+        }))
+    }
+
     /// Admit the entire checked span without dereferencing its contents.
     /// The cached capability remains valid only under the owner's stable lifetime.
     pub fn range(
@@ -150,8 +185,23 @@ impl RegionReader {
         }
         let mut current = address;
         while current < end {
-            if self.access == Some(access) && current >= self.start && current < self.end {
-                current = end.min(self.end);
+            if let Some(cached) = self
+                .current
+                .filter(|cached| cached.contains(current, access))
+            {
+                self.region = Some(cached.region);
+                current = end.min(cached.end);
+                continue;
+            }
+            if let Some(index) = self
+                .previous
+                .iter()
+                .position(|cached| cached.is_some_and(|cached| cached.contains(current, access)))
+            {
+                let promoted = self.previous[index];
+                self.previous.copy_within(0..index, 1);
+                self.previous[0] = self.current;
+                self.current = promoted;
                 continue;
             }
             let info = virtual_query(current as *mut c_void)
@@ -178,9 +228,16 @@ impl RegionReader {
             if let Some(kind) = kind {
                 return Err(failure(kind, current, region, None));
             }
-            self.start = start;
-            self.end = region_end;
-            self.access = Some(access);
+            if self.current.is_some() {
+                self.previous.rotate_right(1);
+                self.previous[0] = self.current;
+            }
+            self.current = Some(CachedRegion {
+                start,
+                end: region_end,
+                access,
+                region: Region::from(&info),
+            });
             self.region = region;
             current = end.min(region_end);
         }
@@ -389,5 +446,55 @@ mod tests {
             })
         }
         .expect("scope inaccessible page");
+    }
+
+    #[test]
+    fn production_read_admission_preserves_guard_page_policy() {
+        let size = native_system_layout().page_size as usize;
+        let pages = Pages(unsafe { virtual_reserve_commit(None, size) });
+        assert!(!pages.0.is_null());
+        let mut protection = virtual_query(pages.0).expect("query page").protect;
+        protection.0 = 0x104;
+        // SAFETY: The fixture owns the page; the wrapper restores protection.
+        // Admission must reject it without consuming its one-shot guard bit.
+        unsafe {
+            with_virtual_protect(pages.0, protection, size, || {
+                assert!(
+                    RegionReader::default()
+                        .copy::<8>(pages.0 as usize, Access::Read)
+                        .is_err()
+                );
+                assert_eq!(
+                    virtual_query(pages.0)
+                        .expect("query rejected guard")
+                        .protect
+                        .0,
+                    0x104
+                );
+            })
+        }
+        .expect("scope guard page");
+    }
+
+    #[test]
+    fn production_mapping_reuse_preserves_fresh_bytes_and_eviction() {
+        let size = native_system_layout().page_size as usize;
+        let pages: Vec<_> = (0..7)
+            .map(|_| Pages(unsafe { virtual_reserve_commit(None, size) }))
+            .collect();
+        let mut reader = RegionReader::default();
+        for round in 0u32..3 {
+            for (index, page) in pages.iter().enumerate() {
+                assert!(!page.0.is_null());
+                let value = round * 7 + index as u32;
+                // SAFETY: Exclusively owned, initialized committed storage.
+                // Mapping reuse must never cache these mutable payload bytes.
+                unsafe { page.0.cast::<u32>().write(value) };
+                assert_eq!(
+                    reader.copy::<4>(page.0 as usize, Access::Read),
+                    Ok(value.to_le_bytes())
+                );
+            }
+        }
     }
 }

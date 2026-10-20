@@ -15,6 +15,13 @@
 //! it never accesses native TLS directly. Traversal uses constant stack storage,
 //! no arbitrary length cap and no routine allocation. OS-copy and lock cost is
 //! additional save work; it is not an established gameplay-performance claim.
+//! One mapping reader spans each uninterrupted walk, including entry/form reads.
+//! Only queried capabilities are reused; every byte read remains guarded. The
+//! exact native cache/lock helpers do not mutate those input mappings or invoke
+//! providers. No mapping reader survives a serializer/provider invocation.
+//! Reference admission does not descend into inventory items: the native
+//! inventory flag gates their one complete preflight at the list serializer.
+//! Optional legacy form policy shares that walk only in its original list role.
 
 mod native;
 
@@ -45,6 +52,11 @@ type Save = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 type CacheQuery = unsafe extern "cdecl" fn(*mut c_void, u32) -> *mut c_void;
 type Lock = unsafe extern "thiscall" fn(*mut c_void, *const c_char);
 type Unlock = unsafe extern "thiscall" fn(*mut c_void);
+
+/// Optional original-role policy sharing the immediate entry/form snapshots.
+/// No native/provider callback or byte retention is allowed during this check.
+pub(super) type EntryFilter =
+    fn(&mut RegionReader, usize, &[u8; 12], Option<&[u8; 16]>) -> Result<bool, MemoryFailure>;
 
 const BIND_CALL: usize = 0x00847A86;
 const RECORD_SKIP: usize = 0x00847BD9;
@@ -197,7 +209,7 @@ unsafe extern "thiscall" fn bind_and_admit(buffer: *mut c_void, form: *mut c_voi
         return 1;
     }
     let _error = LastError::preserve();
-    match reference_extra_admission(form as usize) {
+    match save_integrity::measure_inventory_admission(|| reference_extra_admission(form as usize)) {
         Ok(()) => 1,
         Err(reason) => u8::from(!reject(buffer as usize, "record extras", reason)),
     }
@@ -207,7 +219,8 @@ unsafe extern "thiscall" fn player(owner: *mut c_void, buffer: *mut c_void) {
     let original: Save = unsafe { std::mem::transmute(PLAYER_PROVIDER.load(Ordering::Acquire)) };
     let rejected = if owns(buffer as usize) {
         let _error = LastError::preserve();
-        match player_array_admission(owner as usize) {
+        match save_integrity::measure_inventory_admission(|| player_array_admission(owner as usize))
+        {
             Ok(()) => false,
             Err(reason) => reject(buffer as usize, "player entry array", reason),
         }
@@ -224,7 +237,9 @@ unsafe extern "thiscall" fn projectile(owner: *mut c_void, buffer: *mut c_void) 
         unsafe { std::mem::transmute(PROJECTILE_PROVIDER.load(Ordering::Acquire)) };
     let rejected = if owns(buffer as usize) {
         let _error = LastError::preserve();
-        match projectile_entry_admission(owner as usize) {
+        match save_integrity::measure_inventory_admission(|| {
+            projectile_entry_admission(owner as usize)
+        }) {
             Ok(()) => false,
             Err(reason) => reject(buffer as usize, "projectile entry", reason),
         }
@@ -238,19 +253,25 @@ unsafe extern "thiscall" fn projectile(owner: *mut c_void, buffer: *mut c_void) 
 
 /// Admit the shared list before its existing wrapper writes any flags/count.
 /// None means this is outside the owned main save and must retain old behavior.
-pub(super) fn admit_list(list: usize, buffer: usize) -> Option<bool> {
+pub(super) fn admit_list(list: usize, buffer: usize, filter: Option<EntryFilter>) -> Option<bool> {
     if !owns(buffer) {
         return None;
     }
     let _error = LastError::preserve();
-    let result = (|| {
-        let mut reader = RegionReader::default();
-        let head = word(&mut reader, list)? as usize;
-        entry_list(head)
-    })();
+    let result = save_integrity::measure_inventory_admission(|| validate_list(list, filter));
     Some(match result {
         Ok(()) => true,
         Err(reason) => !reject(buffer, "entry list", reason),
+    })
+}
+
+/// One complete preflight immediately before the native list writes any bytes.
+/// No reader or admitted result survives the subsequent provider invocation.
+pub(super) fn validate_list(list: usize, filter: Option<EntryFilter>) -> Result<(), Rejection> {
+    let mut reader = RegionReader::default();
+    let head = word(&mut reader, list)? as usize;
+    walk_entries(&mut reader, head, |reader, entry| {
+        entry_admission_with_filter(reader, entry, filter)
     })
 }
 
@@ -259,12 +280,13 @@ fn owns(buffer: usize) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Rejection {
+pub(super) enum Rejection {
     Memory(MemoryFailure),
     Cycle(usize),
     Overflow,
     MissingArrayEntry(usize),
     CachedExtraOutsideChain(u32, usize),
+    LegacyForm(usize),
 }
 impl From<MemoryFailure> for Rejection {
     fn from(failure: MemoryFailure) -> Self {
@@ -311,10 +333,10 @@ fn image_word<const N: usize>(image: &[u8; N], offset: usize) -> u32 {
 /// admission executes no engine callbacks and may recurse only through the
 /// fixed EntryData -> extend-list -> extra-prefix schema below.
 fn walk_entries(
+    reader: &mut RegionReader,
     mut current: usize,
-    mut payload: impl FnMut(usize) -> Result<(), Rejection>,
+    mut payload: impl FnMut(&mut RegionReader, usize) -> Result<(), Rejection>,
 ) -> Result<(), Rejection> {
-    let mut reader = RegionReader::default();
     let mut checkpoint = current;
     let mut power = 1usize;
     let mut distance = 0usize;
@@ -322,7 +344,7 @@ fn walk_entries(
     while current != 0 {
         let (data, next) = reader.node(current, Access::Read)?;
         if data != 0 {
-            payload(data as usize)?;
+            payload(reader, data as usize)?;
             count = count
                 .checked_add(1)
                 .filter(|count| *count < 0x40000000)
@@ -345,20 +367,35 @@ fn walk_entries(
     Ok(())
 }
 
+#[cfg(test)]
 fn entry_list(head: usize) -> Result<(), Rejection> {
-    walk_entries(head, entry_admission)
+    walk_entries(&mut RegionReader::default(), head, entry_admission)
 }
 
-fn entry_admission(entry: usize) -> Result<(), Rejection> {
-    let mut reader = RegionReader::default();
+fn entry_admission(reader: &mut RegionReader, entry: usize) -> Result<(), Rejection> {
+    entry_admission_with_filter(reader, entry, None)
+}
+
+fn entry_admission_with_filter(
+    reader: &mut RegionReader,
+    entry: usize,
+    filter: Option<EntryFilter>,
+) -> Result<(), Rejection> {
     let image = reader.copy::<12>(entry, Access::Read)?;
     let form = image_word(&image, 8) as usize;
-    if form != 0 {
+    let form_image = if form != 0 {
         // Native 0x00865DF0 serializes NULL as ID zero; otherwise it reads
         // only the form ID at +0x0C without any virtual dispatch.
-        reader.copy::<16>(form, Access::Read)?;
+        Some(reader.copy::<16>(form, Access::Read)?)
+    } else {
+        None
+    };
+    if let Some(filter) = filter
+        && !filter(reader, entry, &image, form_image.as_ref())?
+    {
+        return Err(Rejection::LegacyForm(entry));
     }
-    walk_entries(image_word(&image, 0) as usize, |list| {
+    walk_entries(reader, image_word(&image, 0) as usize, |_, list| {
         extra_admission(list, false)
     })
 }
@@ -381,7 +418,7 @@ fn player_array_admission(owner: usize) -> Result<(), Rejection> {
         if entry == 0 {
             return Err(Rejection::MissingArrayEntry(slot));
         }
-        entry_admission(entry)?;
+        entry_admission(&mut reader, entry)?;
     }
     Ok(())
 }
@@ -390,7 +427,7 @@ fn projectile_entry_admission(owner: usize) -> Result<(), Rejection> {
     let mut reader = RegionReader::default();
     let entry = word(&mut reader, offset(owner, 0x144)?)? as usize;
     if entry != 0 {
-        entry_admission(entry)?;
+        entry_admission(&mut reader, entry)?;
     }
     Ok(())
 }
@@ -430,22 +467,29 @@ impl Drop for ExtraLock {
 
 fn extra_admission(list: usize, inventory_owner: bool) -> Result<(), Rejection> {
     let _lock = ExtraLock::acquire();
+    let mut reader = RegionReader::default();
+    let list_image = reader.copy::<32>(list, Access::Read)?;
     let query: CacheQuery = unsafe { std::mem::transmute(native::CACHE_QUERY_ADDRESS) };
     let mut cached = [0usize; CACHE_ENTRIES];
     for (kind, pointer) in cached.iter_mut().enumerate() {
+        if list_image[8 + kind / 8] & (1 << (kind % 8)) == 0 {
+            continue;
+        }
         // The native query never dereferences the returned extra. It owns its
         // existing per-thread generation check; we never inspect TLS storage.
+        // Native lookup also gates cache use on this presence bit. Absent
+        // types cannot be consumed, including on a completely empty list.
         *pointer = unsafe { query(list as *mut c_void, kind as u32) } as usize;
     }
-    extra_image_admission(list, inventory_owner, cached)
+    extra_image_admission(&mut reader, list, inventory_owner, cached)
 }
 
 fn extra_image_admission(
+    reader: &mut RegionReader,
     list: usize,
     inventory_owner: bool,
     mut cached: [usize; CACHE_ENTRIES],
 ) -> Result<(), Rejection> {
-    let mut reader = RegionReader::default();
     let list_image = reader.copy::<32>(list, Access::Read)?;
     // Cached results are relevant only when the presence gate permits lookup.
     for (kind, pointer) in cached.iter_mut().enumerate() {
@@ -463,16 +507,18 @@ fn extra_image_admission(
         if kind < CACHE_ENTRIES && cached[kind] == current {
             cached[kind] = 0;
         }
-        if inventory_owner && kind == 0x3D {
-            // Reference dependency collection calls 0x00422B90 before the
-            // serializer. Its type-0x3D getter reads the scalar at +0x0C.
-            word(&mut reader, offset(current, 12)?)?;
+        if inventory_owner && matches!(kind, 0x3D | 0x41) {
+            // Dependency collection (0x00422B90) and reference pre-dispatch
+            // (0x004228F0) read these extras' scalar payload at +0x0C.
+            word(reader, offset(current, 12)?)?;
         }
         if inventory_owner && kind == 0x15 {
-            let data = word(&mut reader, offset(current, 12)?)? as usize;
+            let data = word(reader, offset(current, 12)?)? as usize;
             if data != 0 {
-                let data_image = reader.copy::<20>(data, Access::Read)?;
-                entry_list(image_word(&data_image, 0) as usize)?;
+                // GetExistingData returns this pointer without walking items.
+                // Retain the Data-prefix check, but admit items only when the
+                // engine reaches ListSave under its final inventory flags.
+                reader.copy::<20>(data, Access::Read)?;
             }
         }
         let next = image_word(&image, 8) as usize;
@@ -533,6 +579,45 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "offline production save-admission timing; run serially with --nocapture"]
+    fn production_save_admission_timing() {
+        use std::{hint::black_box, time::Instant};
+
+        for count in [1, 1024, 65536] {
+            let forms = vec![[0u32, 0, 0, 0x1234]; count];
+            let entries: Vec<_> = forms
+                .iter()
+                .map(|form| Entry {
+                    extend: 0,
+                    count: 1,
+                    form: form.as_ptr() as u32,
+                })
+                .collect();
+            let mut nodes: Vec<_> = entries
+                .iter()
+                .map(|entry| Node {
+                    data: entry as *const Entry as u32,
+                    next: 0,
+                })
+                .collect();
+            for index in 0..count - 1 {
+                nodes[index].next = &nodes[index + 1] as *const Node as u32;
+            }
+            let mut samples = [0.0; 5];
+            for sample in &mut samples {
+                let started = Instant::now();
+                assert_eq!(entry_list(black_box(nodes.as_ptr() as usize)), Ok(()));
+                *sample = started.elapsed().as_secs_f64() * 1e6;
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "save admission: entries={count}, rounds=5, us/call min={:.1} median={:.1} max={:.1}",
+                samples[0], samples[2], samples[4]
+            );
+        }
+    }
+
+    #[test]
     fn production_save_admission_keeps_valid_entries_and_borrowed_duplicates() {
         let form = [0u32, 0, 0, 0x1234];
         let mut entry = Entry {
@@ -540,7 +625,13 @@ mod tests {
             count: -17,
             form: form.as_ptr() as u32,
         };
-        assert_eq!(entry_admission(&entry as *const Entry as usize), Ok(()));
+        assert_eq!(
+            entry_admission(
+                &mut RegionReader::default(),
+                &entry as *const Entry as usize
+            ),
+            Ok(())
+        );
         let mut nodes = vec![
             Node {
                 data: &entry as *const Entry as u32,
@@ -567,7 +658,10 @@ mod tests {
         extend.next = &extend as *const Node as u32;
         entry.extend = &extend as *const Node as u32;
         assert!(matches!(
-            entry_admission(&entry as *const Entry as usize),
+            entry_admission(
+                &mut RegionReader::default(),
+                &entry as *const Entry as usize
+            ),
             Err(Rejection::Cycle(_))
         ));
         assert_eq!(entry.count, -17);
@@ -581,12 +675,21 @@ mod tests {
             form: 7,
         };
         assert!(matches!(
-            entry_admission(&entry as *const Entry as usize),
+            entry_admission(
+                &mut RegionReader::default(),
+                &entry as *const Entry as usize
+            ),
             Err(Rejection::Memory(_))
         ));
         entry.form = 0;
         // Native 0x00865DF0 explicitly serializes a NULL form as ID zero.
-        assert_eq!(entry_admission(&entry as *const Entry as usize), Ok(()));
+        assert_eq!(
+            entry_admission(
+                &mut RegionReader::default(),
+                &entry as *const Entry as usize
+            ),
+            Ok(())
+        );
         assert_eq!(entry.count, 9);
     }
 
@@ -603,69 +706,125 @@ mod tests {
         let mut cached = [0; CACHE_ENTRIES];
         cached[0x16] = &extra as *const Extra as usize;
         assert_eq!(
-            extra_image_admission(image.as_ptr() as usize, false, cached),
+            extra_image_admission(
+                &mut RegionReader::default(),
+                image.as_ptr() as usize,
+                false,
+                cached
+            ),
             Ok(())
         );
         cached[0x16] = 7;
         assert_eq!(
-            extra_image_admission(image.as_ptr() as usize, false, cached),
+            extra_image_admission(
+                &mut RegionReader::default(),
+                image.as_ptr() as usize,
+                false,
+                cached
+            ),
             Err(Rejection::CachedExtraOutsideChain(0x16, 7))
         );
         cached[0x16] = 0;
         extra.next = &extra as *const Extra as u32;
         std::hint::black_box(&extra);
         assert!(matches!(
-            extra_image_admission(image.as_ptr() as usize, false, cached),
+            extra_image_admission(
+                &mut RegionReader::default(),
+                image.as_ptr() as usize,
+                false,
+                cached
+            ),
             Err(Rejection::Cycle(_))
         ));
         extra.next = 7;
         std::hint::black_box(&extra);
         assert!(matches!(
-            extra_image_admission(image.as_ptr() as usize, false, cached),
+            extra_image_admission(
+                &mut RegionReader::default(),
+                image.as_ptr() as usize,
+                false,
+                cached
+            ),
             Err(Rejection::Memory(_))
         ));
     }
 
     #[test]
-    fn production_reference_admission_covers_pre_serializer_extra_flags() {
-        let page_size = native_system_layout().page_size as usize;
-        // SAFETY: The fixture exclusively owns both committed pages. The extra
-        // prefix ends at their boundary; its flags occupy the second page.
-        let pages = Pages(unsafe { virtual_reserve_commit(None, page_size * 2) });
-        assert!(!pages.0.is_null());
-        let boundary = pages.0 as usize + page_size;
-        let extra = (boundary - 12) as *mut Extra;
-        unsafe {
-            extra.write(Extra {
-                vtable: 0,
-                kind: 0x3D,
-                next: 0,
-            });
-            (boundary as *mut u32).write(0);
-        }
+    fn production_reference_admission_defers_items_until_the_list_consumer() {
+        // The early native getters consume the extra payload and Data header,
+        // not its item spine. Only the actual list serializer may consume it.
+        let data = [7u32, 0, 0, 0, 0];
+        let extra = [0u32, 0x15, 0, data.as_ptr() as u32];
         let mut list = [0u32; 8];
-        list[1] = extra as u32;
-        let cached = [0; CACHE_ENTRIES];
+        list[1] = extra.as_ptr() as u32;
         assert_eq!(
-            extra_image_admission(list.as_ptr() as usize, true, cached),
+            extra_image_admission(
+                &mut RegionReader::default(),
+                list.as_ptr() as usize,
+                true,
+                [0; CACHE_ENTRIES],
+            ),
             Ok(())
         );
-        let mut protection = virtual_query(boundary as *mut c_void)
-            .expect("query page")
-            .protect;
-        protection.0 = 0x01;
-        // SAFETY: Only the owned flags page changes and protection is restored
-        // before the reservation is released. Production admission must stop
-        // before the native reference dependency getter reads extra + 0x0C.
-        unsafe {
-            with_virtual_protect(boundary as *mut c_void, protection, page_size, || {
-                assert!(matches!(
-                    extra_image_admission(list.as_ptr() as usize, true, cached),
-                    Err(Rejection::Memory(_))
-                ));
-            })
+        assert!(matches!(
+            entry_list(data[0] as usize),
+            Err(Rejection::Memory(_))
+        ));
+        assert_eq!(data[0], 7);
+    }
+
+    #[test]
+    fn production_reference_admission_covers_pre_serializer_extra_flags() {
+        for kind in [0x3D, 0x41] {
+            let page_size = native_system_layout().page_size as usize;
+            // SAFETY: The fixture exclusively owns both committed pages. The extra
+            // prefix ends at their boundary; its flags occupy the second page.
+            let pages = Pages(unsafe { virtual_reserve_commit(None, page_size * 2) });
+            assert!(!pages.0.is_null());
+            let boundary = pages.0 as usize + page_size;
+            let extra = (boundary - 12) as *mut Extra;
+            unsafe {
+                extra.write(Extra {
+                    vtable: 0,
+                    kind,
+                    next: 0,
+                });
+                (boundary as *mut u32).write(0);
+            }
+            let mut list = [0u32; 8];
+            list[1] = extra as u32;
+            let cached = [0; CACHE_ENTRIES];
+            assert_eq!(
+                extra_image_admission(
+                    &mut RegionReader::default(),
+                    list.as_ptr() as usize,
+                    true,
+                    cached
+                ),
+                Ok(())
+            );
+            let mut protection = virtual_query(boundary as *mut c_void)
+                .expect("query page")
+                .protect;
+            protection.0 = 0x01;
+            // SAFETY: Only the owned flags page changes and protection is restored
+            // before the reservation is released. Production admission must stop
+            // before the native reference dependency getter reads extra + 0x0C.
+            unsafe {
+                with_virtual_protect(boundary as *mut c_void, protection, page_size, || {
+                    assert!(matches!(
+                        extra_image_admission(
+                            &mut RegionReader::default(),
+                            list.as_ptr() as usize,
+                            true,
+                            cached
+                        ),
+                        Err(Rejection::Memory(_))
+                    ));
+                })
+            }
+            .expect("scope flags page protection");
         }
-        .expect("scope flags page protection");
     }
 
     #[test]

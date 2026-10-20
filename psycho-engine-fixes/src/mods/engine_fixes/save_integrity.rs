@@ -70,14 +70,16 @@ use libpsycho::{
         memory::validate_memory_range,
         winapi::{
             DurableFile, copy_file_new, delete_file_if_exists, file_exists,
-            flush_instructions_cache, get_current_thread_id, move_file_replace_write_through,
-            move_file_write_through, open_existing_file_for_flush, virtual_alloc_rwx,
+            flush_instructions_cache, get_current_thread_id, get_last_error_code,
+            move_file_replace_write_through, move_file_write_through, open_existing_file_for_flush,
+            set_last_error, virtual_alloc_rwx,
         },
     },
 };
 use parking_lot::Mutex;
 
 use super::{actor_container_guard, patching};
+use crate::mods::diagnostics::{self, Stopwatch};
 
 const SAVE_FACTORY_ADDR: usize = 0x0085_0030;
 const SAVE_OWNER_ADDR: usize = 0x0085_03B0;
@@ -249,6 +251,9 @@ static FCLOSE_HOOK: LazyLock<InlineHookContainer<FcloseFn>> =
 
 static SAVE_INSTALLED: AtomicBool = AtomicBool::new(false);
 static CURRENT_SAVE_SNAPSHOT: AtomicPtr<InventorySaveSnapshot> = AtomicPtr::new(ptr::null_mut());
+// Inert until the exclusive runtime save owner publishes its own stack scope.
+// No TLS, heap owner, callback, worker, import or initialization is introduced.
+static CURRENT_SAVE_TIMING: AtomicPtr<SaveTiming> = AtomicPtr::new(ptr::null_mut());
 
 static ACTIVE_SAVE_FILE: AtomicUsize = AtomicUsize::new(0);
 static ACTIVE_SAVE_MANAGER: AtomicUsize = AtomicUsize::new(0);
@@ -448,6 +453,85 @@ impl Drop for InventorySnapshotPublication {
     }
 }
 
+/// Constant-storage totals owned by one synchronous main save. Snapshot time
+/// includes admission; commit time covers validation/flush/recovery/promotion.
+/// No counter is updated per entry and nothing is logged until the owner exits.
+#[derive(Default)]
+struct SaveTiming {
+    snapshot_ticks: Cell<u64>,
+    admission_ticks: Cell<u64>,
+    admission_calls: Cell<u64>,
+    commit_ticks: Cell<u64>,
+    clock_misses: Cell<u32>,
+}
+
+struct SaveTimingPublication;
+
+impl Drop for SaveTimingPublication {
+    fn drop(&mut self) {
+        // Only the exclusive save owner publishes this pointer. Clear it before
+        // that owner releases its thread claim or its stack storage goes away.
+        CURRENT_SAVE_TIMING.store(ptr::null_mut(), Ordering::Release);
+    }
+}
+
+fn with_save_timing<T>(operation: impl FnOnce(Option<&SaveTiming>) -> T) -> T {
+    let timing = CURRENT_SAVE_TIMING.load(Ordering::Acquire);
+    if timing.is_null() || SAVE_OWNER_THREAD.load(Ordering::Acquire) != get_current_thread_id() {
+        return operation(None);
+    }
+    // SAFETY: Only the exclusive owner thread can reach this dereference. The
+    // synchronous caller retains the stack publication throughout this access;
+    // reentrant saves fail before publishing and foreign threads return above.
+    // This reference must stay within the owner call, never be stored or escape.
+    operation(Some(unsafe { &*timing }))
+}
+
+enum SavePhase {
+    Snapshot,
+    Admission,
+    Commit,
+}
+
+fn measure_save_phase<T>(phase: SavePhase, operation: impl FnOnce() -> T) -> T {
+    with_save_timing(|timing| {
+        let Some(timing) = timing else {
+            return operation();
+        };
+        let before = get_last_error_code();
+        let started = diagnostics::perf_counter();
+        set_last_error(before);
+        let result = operation();
+        let after = get_last_error_code();
+        let ended = diagnostics::perf_counter();
+        let counter = match phase {
+            SavePhase::Snapshot => &timing.snapshot_ticks,
+            SavePhase::Admission => {
+                timing
+                    .admission_calls
+                    .set(timing.admission_calls.get().saturating_add(1));
+                &timing.admission_ticks
+            }
+            SavePhase::Commit => &timing.commit_ticks,
+        };
+        if started != 0 && ended >= started {
+            counter.set(counter.get().saturating_add(ended - started));
+        } else {
+            timing
+                .clock_misses
+                .set(timing.clock_misses.get().saturating_add(1));
+        }
+        set_last_error(after);
+        result
+    })
+}
+
+/// Time whole admission operations, including lock waits, never individual
+/// entries. This is a nested contribution to snapshot time, not an extra phase.
+pub(super) fn measure_inventory_admission<T>(operation: impl FnOnce() -> T) -> T {
+    measure_save_phase(SavePhase::Admission, operation)
+}
+
 /// Bind only the real native snapshot's file argument to the active save.
 /// The closure preserves native snapshot cleanup on every normal return.
 pub(super) fn with_inventory_save_snapshot(file: usize, operation: impl FnOnce()) {
@@ -469,7 +553,12 @@ pub(super) fn with_inventory_save_snapshot(file: usize, operation: impl FnOnce()
     let current = &raw mut snapshot;
     let previous = CURRENT_SAVE_SNAPSHOT.swap(current, Ordering::AcqRel);
     let _publication = InventorySnapshotPublication { current, previous };
-    operation();
+    if previous.is_null() {
+        // Nested snapshots are already included in the outer measurement.
+        measure_save_phase(SavePhase::Snapshot, operation);
+    } else {
+        operation();
+    }
 }
 
 /// Access context only after the exclusive file owner and current thread match.
@@ -849,7 +938,16 @@ unsafe extern "thiscall" fn hook_save_owner(
         log::error!("[SAVE] Concurrent or reentrant save rejected before serialization");
         return 0;
     }
+    let mut timing = SaveTiming::default();
+    CURRENT_SAVE_TIMING.store(&raw mut timing, Ordering::Release);
+    let publication = SaveTimingPublication;
+    let before = get_last_error_code();
+    let total = Stopwatch::start();
+    set_last_error(before);
     let result = unsafe { original(manager, name, argument, show_success) };
+    let after = get_last_error_code();
+    let total_us = total.elapsed_us();
+    drop(publication);
     SAVE_OWNER_THREAD.store(0, Ordering::Release);
     if ACTIVE_SAVE_THREAD.load(Ordering::Acquire) == thread {
         log::error!(
@@ -857,6 +955,15 @@ unsafe extern "thiscall" fn hook_save_owner(
         );
         clear_save_tracking();
     }
+    log::info!(
+        "[SAVE] Timing: total_us={total_us:?} snapshot_us={} inventory_admission_us={} inventory_admissions={} commit_us={} clock_misses={} result={result}; snapshot includes admission; remaining time is unclassified",
+        diagnostics::ticks_to_us(timing.snapshot_ticks.get()),
+        diagnostics::ticks_to_us(timing.admission_ticks.get()),
+        timing.admission_calls.get(),
+        diagnostics::ticks_to_us(timing.commit_ticks.get()),
+        timing.clock_misses.get(),
+    );
+    set_last_error(after);
     result
 }
 
@@ -1078,7 +1185,7 @@ unsafe extern "fastcall" fn hook_save_result(manager_state: *mut c_void) -> u8 {
         }
     };
 
-    if let Err(error) = commit_save(&paths) {
+    if let Err(error) = measure_save_phase(SavePhase::Commit, || commit_save(&paths)) {
         latch_save_failure(FAILURE_PROMOTION);
         log::error!(
             "[SAVE] Commit failed after recovery handling: {error:#} temp={}",
@@ -2241,6 +2348,43 @@ mod tests {
     use std::{cell::Cell, collections::HashMap};
 
     use super::*;
+
+    #[test]
+    fn production_save_timing_preserves_error_and_rejects_foreign_access() {
+        let thread = get_current_thread_id();
+        assert!(
+            SAVE_OWNER_THREAD
+                .compare_exchange(0, thread, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        );
+        let mut timing = SaveTiming::default();
+        CURRENT_SAVE_TIMING.store(&raw mut timing, Ordering::Release);
+        let publication = SaveTimingPublication;
+        set_last_error(123);
+        assert_eq!(
+            measure_inventory_admission(|| {
+                assert_eq!(get_last_error_code(), 123);
+                set_last_error(456);
+                17
+            }),
+            17
+        );
+        assert_eq!(get_last_error_code(), 456);
+        assert_eq!(timing.admission_calls.get(), 1);
+        std::thread::spawn(|| {
+            // A foreign thread must not dereference the published Cell storage.
+            measure_inventory_admission(|| set_last_error(789));
+            assert_eq!(get_last_error_code(), 789);
+        })
+        .join()
+        .expect("foreign access returns");
+        assert_eq!(timing.admission_calls.get(), 1);
+        drop(publication);
+        SAVE_OWNER_THREAD.store(0, Ordering::Release);
+        assert!(CURRENT_SAVE_TIMING.load(Ordering::Acquire).is_null());
+        assert_eq!(measure_inventory_admission(|| 19), 19);
+        assert_eq!(timing.admission_calls.get(), 1);
+    }
 
     #[test]
     fn inventory_rejection_cannot_claim_an_unowned_snapshot_or_buffer() {

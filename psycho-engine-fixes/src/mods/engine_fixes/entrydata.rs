@@ -20,15 +20,12 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use libc::c_void;
-use libpsycho::{
-    ffi::fnptr::FnPtr,
-    os::windows::winapi::{get_last_error_code, set_last_error, virtual_query},
-};
+use libpsycho::{ffi::fnptr::FnPtr, os::windows::winapi::virtual_query};
 
 use super::{
     inventory_save_guard,
     list_validation::{Access, MemoryFailure, RegionReader},
-    save_integrity, statics,
+    statics,
 };
 
 const ENTRYDATA_EXTEND_LIST_OFFSET: usize = 0x00;
@@ -79,41 +76,15 @@ pub unsafe extern "thiscall" fn hook_entrydata_list_save(
     list: *mut c_void,
     save_buffer: *mut c_void,
 ) {
-    if let Some(admitted) = inventory_save_guard::admit_list(list as usize, save_buffer as usize) {
-        if !admitted {
-            return;
+    let filter = LEGACY_FILTER
+        .load(Ordering::Acquire)
+        .then_some(admit_legacy_entry as inventory_save_guard::EntryFilter);
+    if let Some(admitted) =
+        inventory_save_guard::admit_list(list as usize, save_buffer as usize, filter)
+    {
+        if admitted {
+            call_original_list_save(list, save_buffer);
         }
-        // Keep the existing filter's coverage in its original save-list role.
-        // Its old policy remains independently configured; the new structural
-        // guard introduces no vtable/code allowlist. Inside an owned save, an
-        // old-filter rejection must fail that save rather than drop one entry.
-        if LEGACY_FILTER.load(Ordering::Acquire) {
-            let last_error = get_last_error_code();
-            let rejected = match legacy_first_invalid(list as usize) {
-                Ok(Some(entry)) => {
-                    let rejected = save_integrity::reject_inventory_save(save_buffer as usize);
-                    if rejected {
-                        log_invalid_entry(&SAVE_SKIP_COUNT, "save-reject-legacy-type", entry);
-                    }
-                    rejected
-                }
-                Err(failure) => {
-                    let rejected = save_integrity::reject_inventory_save(save_buffer as usize);
-                    if rejected {
-                        log::warn!(
-                            "[ENTRYDATA] Save rejected before legacy form admission: {failure}"
-                        );
-                    }
-                    rejected
-                }
-                Ok(None) => false,
-            };
-            set_last_error(last_error);
-            if rejected {
-                return;
-            }
-        }
-        call_original_list_save(list, save_buffer);
         return;
     }
     if !LEGACY_FILTER.load(Ordering::Acquire) || list.is_null() || save_buffer.is_null() {
@@ -154,20 +125,32 @@ pub unsafe extern "thiscall" fn hook_entrydata_list_save(
     write_unaligned_u32(save_buffer, SAVE_BUFFER_CHANGE_FLAGS_OFFSET, old_flags);
 }
 
-/// Preserve the old entry/form predicate after structural admission, before
-/// any serializer flags or count markers are written. The caller retains the
-/// admitted acyclic list and payload lifetimes; no engine callback runs here.
-fn legacy_first_invalid(list: usize) -> Result<Option<*mut EntryData>, MemoryFailure> {
-    let mut reader = RegionReader::default();
-    let mut node = u32::from_le_bytes(reader.copy::<4>(list, Access::Read)?) as usize;
-    while node != 0 {
-        let (entry, next) = reader.node(node, Access::Read)?;
-        if entry != 0 && !is_valid_entry(entry as *mut EntryData) {
-            return Ok(Some(entry as *mut EntryData));
-        }
-        node = next;
+/// Preserve the old NULL, low-address, single-region and vtable/code predicates
+/// within structural admission's existing walk. Every dereference is a fresh
+/// guarded copy; only mapping capabilities are reused until the provider call.
+fn admit_legacy_entry(
+    reader: &mut RegionReader,
+    entry: usize,
+    image: &[u8; 12],
+    form_image: Option<&[u8; 16]>,
+) -> Result<bool, MemoryFailure> {
+    if entry < 0x10000 || !reader.within_single_region(entry, ENTRYDATA_SIZE, Access::Read)? {
+        return Ok(false);
     }
-    Ok(None)
+    let form = u32::from_le_bytes([image[8], image[9], image[10], image[11]]) as usize;
+    if form < 0x10000 || !reader.within_single_region(form, 0x10, Access::Read)? {
+        return Ok(false);
+    }
+    let Some(form_image) = form_image else {
+        return Ok(false);
+    };
+    let vtable =
+        u32::from_le_bytes([form_image[0], form_image[1], form_image[2], form_image[3]]) as usize;
+    if !is_rdata_ptr(vtable) || !reader.within_single_region(vtable, 4, Access::Read)? {
+        return Ok(false);
+    }
+    let first_method = u32::from_le_bytes(reader.copy::<4>(vtable, Access::Read)?) as usize;
+    Ok(is_text_ptr(first_method))
 }
 
 pub unsafe extern "thiscall" fn hook_entrydata_load(entry: *mut c_void, load_buffer: *mut c_void) {
@@ -348,6 +331,128 @@ fn log_invalid_entry(counter: &AtomicU64, reason: &'static str, entry: *mut Entr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libpsycho::os::windows::winapi::{
+        native_system_layout, virtual_release, virtual_reserve_commit, with_virtual_protect,
+    };
+
+    struct Pages(*mut c_void);
+    impl Drop for Pages {
+        fn drop(&mut self) {
+            unsafe { virtual_release(self.0) };
+        }
+    }
+
+    #[test]
+    fn production_fused_legacy_admission_preserves_the_load_predicate() {
+        let layout = native_system_layout();
+        // Reserve a vacant page in the existing native range when available.
+        // A large test image can occupy that range, in which case inspect its
+        // real readable storage instead. Never overwrite an occupied image or
+        // widen the production predicate to accommodate a fixture allocation.
+        let _reservation = (FNV_RDATA_START..FNV_RDATA_END)
+            .step_by(layout.allocation_granularity as usize)
+            .find_map(|address| {
+                let page = unsafe {
+                    virtual_reserve_commit(
+                        Some(address as *const c_void),
+                        layout.page_size as usize,
+                    )
+                };
+                if page.is_null() {
+                    None
+                } else {
+                    unsafe { page.cast::<u32>().write(FNV_TEXT_START as u32) };
+                    Some(Pages(page))
+                }
+            });
+        let mut reader = RegionReader::default();
+        let mut vtable = None;
+        let mut invalid_vtable = None;
+        for address in (FNV_RDATA_START..FNV_RDATA_END).step_by(4096) {
+            if let Ok(image) = reader.copy::<4096>(address, Access::Read) {
+                for (index, word) in image.chunks_exact(4).enumerate() {
+                    let value = u32::from_le_bytes([word[0], word[1], word[2], word[3]]) as usize;
+                    if is_text_ptr(value) {
+                        vtable.get_or_insert(address + index * 4);
+                    } else {
+                        invalid_vtable.get_or_insert(address + index * 4);
+                    }
+                }
+            }
+            if vtable.is_some() && invalid_vtable.is_some() {
+                break;
+            }
+        }
+        let vtable = vtable.expect("readable image code-pointer cell in native range");
+        let invalid_vtable = invalid_vtable.expect("readable image non-code cell in native range");
+        let mut form = [vtable as u32, 0, 0, 0x1234];
+        let mut entry = EntryData {
+            extend_data: ptr::null_mut(),
+            count_delta: -17,
+            type_form: form.as_mut_ptr().cast(),
+        };
+        let check = |entry: *mut EntryData| {
+            let node = [entry as u32, 0];
+            let data = [node.as_ptr() as u32, 0, 0, 0, 0];
+            assert_eq!(
+                inventory_save_guard::validate_list(
+                    data.as_ptr() as usize,
+                    Some(admit_legacy_entry)
+                )
+                .is_ok(),
+                is_valid_entry(entry),
+            );
+        };
+        check(&raw mut entry);
+        assert!(is_valid_entry(&raw mut entry));
+        for candidate in [0, FNV_RDATA_END, invalid_vtable, vtable] {
+            form[0] = candidate as u32;
+            std::hint::black_box(&form);
+            check(&raw mut entry);
+        }
+        for form_address in [
+            ptr::null_mut(),
+            7usize as *mut c_void,
+            form.as_mut_ptr().cast(),
+        ] {
+            entry.type_form = form_address;
+            check(&raw mut entry);
+        }
+        // A NULL form remains legal when the legacy filter is disabled.
+        entry.type_form = ptr::null_mut();
+        let node = [&entry as *const EntryData as u32, 0];
+        let data = [node.as_ptr() as u32, 0, 0, 0, 0];
+        assert_eq!(
+            inventory_save_guard::validate_list(data.as_ptr() as usize, None),
+            Ok(())
+        );
+        entry.type_form = form.as_mut_ptr().cast();
+
+        let page_size = layout.page_size as usize;
+        let pages = Pages(unsafe { virtual_reserve_commit(None, page_size * 2) });
+        assert!(!pages.0.is_null());
+        let boundary = pages.0 as usize + page_size;
+        let crossing = (boundary - 4) as *mut EntryData;
+        unsafe { crossing.write(entry) };
+        assert!(is_valid_entry(crossing));
+        let mut protection = virtual_query(boundary as *mut c_void)
+            .expect("query fixture")
+            .protect;
+        protection.0 = 0x02; // PAGE_READONLY creates a second readable region.
+        unsafe {
+            with_virtual_protect(boundary as *mut c_void, protection, page_size, || {
+                assert!(!is_valid_entry(crossing));
+                check(crossing);
+                let node = [crossing as u32, 0];
+                let data = [node.as_ptr() as u32, 0, 0, 0, 0];
+                assert_eq!(
+                    inventory_save_guard::validate_list(data.as_ptr() as usize, None),
+                    Ok(())
+                );
+            })
+        }
+        .expect("scope fixture protection");
+    }
 
     #[test]
     fn production_legacy_admission_keeps_existing_invalid_form_coverage() {
@@ -364,11 +469,16 @@ mod tests {
         let mut data = [0u32; 5];
         data[0] = node.as_ptr() as u32;
         assert_eq!(
-            legacy_first_invalid(data.as_ptr() as usize),
-            Ok(Some(&entry as *const EntryData as *mut EntryData))
+            inventory_save_guard::validate_list(data.as_ptr() as usize, Some(admit_legacy_entry)),
+            Err(inventory_save_guard::Rejection::LegacyForm(
+                &entry as *const EntryData as usize
+            ))
         );
         assert_eq!(entry.count_delta, 3);
         data[0] = 7;
-        assert!(legacy_first_invalid(data.as_ptr() as usize).is_err());
+        assert!(
+            inventory_save_guard::validate_list(data.as_ptr() as usize, Some(admit_legacy_entry))
+                .is_err()
+        );
     }
 }
