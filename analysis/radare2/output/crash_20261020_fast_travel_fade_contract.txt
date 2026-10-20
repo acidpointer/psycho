@@ -1,0 +1,786 @@
+Fast-travel BSFadeNode list-clear investigation, 2026-10-20
+Interface: radare2 CLI, via repository r2q.py. MCP disassembly was also read;
+MCP global analysis did not finish, so targeted CLI analysis was used.
+Relocations: bin.relocs.apply=true for every CLI query below.
+Scope: failing list clear, fade constructor/destructor, native reference release,
+array drain and immediate locking/caller path. No live process bytes or heap
+snapshot. The complete list-writer/allocator/thread contract is unresolved.
+Known warning: Invalid certificate table, retained below.
+Disassembly and exact bytes establish the static consuming path. Decompiler
+prototypes and names are not ABI authority. This file is not patch authority.
+Each query below retains its tool version, binary identity and exact command.
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:03+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00B4DF30 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00B4DF30 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b4df30
+name: fcn.00b4df30
+size: 71
+is-pure: false
+realsz: 68
+stackframe: 16
+callconv: cdecl
+cyclic-cost: 36
+cyclomatic-complexity: 4
+bits: 32
+type: fcn [NEW]
+num-bbs: 7
+num-instrs: 26
+edges: 9
+minaddr: 0x00b4df30
+maxaddr: 0x00b4df77
+is-lineal: false
+end-bbs: 1
+maxbbins: 6
+midbbins: 3.71
+ratbbins: 1.62
+noreturn: false
+recursive: true
+in-degree: 1
+out-degree: 2
+locals: 0
+args: 0
+
+            ; CALL XREF from fcn.00b4df30 @ 0xb4df56(x)
+┌ 68: fcn.00b4df30 ();
+│           0x00b4df30      56             push esi
+│           0x00b4df31      8bf1           mov esi, ecx
+│           0x00b4df33      837e0400       cmp dword [esi + 4], 0
+│       ┌─< 0x00b4df37      7436           je 0xb4df6f
+│       │   0x00b4df39      53             push ebx
+│       │   0x00b4df3a      57             push edi
+│      ┌──< 0x00b4df3b      eb03           jmp 0xb4df40
+..
+│      ││   ; CODE XREF from fcn.00b4df30 @ 0xb4df3b(x)
+│     ┌└──> 0x00b4df40      8b4604         mov eax, dword [esi + 4]
+│     ╎ │   0x00b4df43      8b5804         mov ebx, dword [eax + 4]
+│     ╎ │   0x00b4df46      c740040000..   mov dword [eax + 4], 0
+│     ╎ │   0x00b4df4d      8b7e04         mov edi, dword [esi + 4]
+│     ╎ │   0x00b4df50      85ff           test edi, edi
+│     ╎┌──< 0x00b4df52      7412           je 0xb4df66
+│     ╎││   0x00b4df54      8bcf           mov ecx, edi
+│     ╎││   0x00b4df56      e8d5ffffff     call fcn.00b4df30
+│     ╎││   0x00b4df5b      57             push edi
+│     ╎││   0x00b4df5c      b938621f01     mov ecx, 0x11f6238
+│     ╎││   0x00b4df61      e8fa60f5ff     call 0xaa4060
+│     ╎└──> 0x00b4df66      895e04         mov dword [esi + 4], ebx
+│     ╎ │   0x00b4df69      85db           test ebx, ebx
+│     └───< 0x00b4df6b      75d3           jne 0xb4df40
+│       │   0x00b4df6d      5f             pop edi
+│       │   0x00b4df6e      5b             pop ebx
+│       └─> 0x00b4df6f      c70600000000   mov dword [esi], 0
+│           0x00b4df75      5e             pop esi
+└           0x00b4df76      c3             ret
+
+void __fastcall fcn.00b4df30(uint *param_1)
+
+{
+    int iVar1;
+    int iVar2;
+
+    iVar1 = param_1[1];
+    while (iVar1 != 0) {
+        iVar1 = *(param_1[1] + 4);
+        *(param_1[1] + 4) = 0;
+        iVar2 = param_1[1];
+        if (iVar2 != 0) {
+            fcn.00b4df30();
+            func_0x00aa4060(iVar2);
+        }
+        param_1[1] = iVar1;
+    }
+    *param_1 = 0;
+    return;
+}
+
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:15+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c aar -c axt 0x00B4DF30 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: aar | axt 0x00B4DF30
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+(nofunc) 0xb4df56 [CALL:--x] call 0xb4df30
+(nofunc) 0xb4e140 [CODE:--x] jmp 0xb4df30
+(nofunc) 0xb4e220 [CALL:--x] call 0xb4df30
+(nofunc) 0xb4e22d [CALL:--x] call 0xb4df30
+(nofunc) 0xb4e239 [CALL:--x] call 0xb4df30
+(nofunc) 0xb4e245 [CALL:--x] call 0xb4df30
+(nofunc) 0xc706d1 [CALL:--x] call 0xb4df30
+(nofunc) 0xc70c3a [CALL:--x] call 0xb4df30
+(nofunc) 0xcbc85d [CALL:--x] call 0xb4df30
+(nofunc) 0xcbc88c [CALL:--x] call 0xb4df30
+(nofunc) 0xcbc9d4 [CALL:--x] call 0xb4df30
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:47+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00B4E150 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00B4E150 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b4e150
+name: fcn.00b4e150
+size: 116
+is-pure: false
+realsz: 116
+stackframe: 12
+callconv: cdecl
+cyclic-cost: 31
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 27
+edges: 0
+minaddr: 0x00b4e150
+maxaddr: 0x00b4e1c4
+is-lineal: true
+end-bbs: 1
+maxbbins: 27
+midbbins: 27.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 1
+locals: 0
+args: 0
+
+┌ 116: fcn.00b4e150 ();
+│           0x00b4e150      56             push esi
+│           0x00b4e151      57             push edi
+│           0x00b4e152      33ff           xor edi, edi
+│           0x00b4e154      57             push edi
+│           0x00b4e155      8bf1           mov esi, ecx
+│           0x00b4e157      e8540bf1ff     call fcn.00a5ecb0
+│           0x00b4e15c      d90570690101   fld dword [0x1016970]
+│           0x00b4e162      c706908f0a01   mov dword [esi], 0x10a8f90  ; [0x10a8f90:4]=0xb4ed40
+│           0x00b4e168      89bed4000000   mov dword [esi + 0xd4], edi
+│           0x00b4e16e      89bed8000000   mov dword [esi + 0xd8], edi
+│           0x00b4e174      89bedc000000   mov dword [esi + 0xdc], edi
+│           0x00b4e17a      89bee0000000   mov dword [esi + 0xe0], edi
+│           0x00b4e180      d996ac000000   fst dword [esi + 0xac]
+│           0x00b4e186      816630ff3f..   and dword [esi + 0x30], 0xfffd3fff ; [0xfffd3fff:4]=-1
+│           0x00b4e18d      d99eb0000000   fstp dword [esi + 0xb0]
+│           0x00b4e193      d9ee           fldz
+│           0x00b4e195      89bed0000000   mov dword [esi + 0xd0], edi
+│           0x00b4e19b      d996b4000000   fst dword [esi + 0xb4]
+│           0x00b4e1a1      89bec4000000   mov dword [esi + 0xc4], edi
+│           0x00b4e1a7      d996b8000000   fst dword [esi + 0xb8]
+│           0x00b4e1ad      89becc000000   mov dword [esi + 0xcc], edi
+│           0x00b4e1b3      d996bc000000   fst dword [esi + 0xbc]
+│           0x00b4e1b9      5f             pop edi
+│           0x00b4e1ba      d99ec0000000   fstp dword [esi + 0xc0]
+│           0x00b4e1c0      8bc6           mov eax, esi
+│           0x00b4e1c2      5e             pop esi
+└           0x00b4e1c3      c3             ret
+
+uint * __fastcall fcn.00b4e150(uint *param_1)
+
+{
+    uint uVar1;
+
+    fcn.00a5ecb0(0);
+    uVar1 = *0x1016970;
+    *param_1 = 0x10a8f90;
+    param_1[0x35] = 0;
+    param_1[0x36] = 0;
+    param_1[0x37] = 0;
+    param_1[0x38] = 0;
+    param_1[0x2b] = uVar1;
+    param_1[0xc] = param_1[0xc] & 0xfffd3fff;
+    param_1[0x2c] = uVar1;
+    param_1[0x34] = 0;
+    param_1[0x2d] = 0;
+    param_1[0x31] = 0;
+    param_1[0x2e] = 0;
+    param_1[0x33] = 0;
+    param_1[0x2f] = 0;
+    param_1[0x30] = 0;
+    return param_1;
+}
+
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:32+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00B4E1E0 -c af -c afi -c pdf -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00B4E1E0 | af | afi | pdf
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b4e1e0
+name: fcn.00b4e1e0
+size: 140
+is-pure: false
+realsz: 140
+stackframe: 32
+callconv: cdecl
+cyclic-cost: 52
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 40
+edges: 0
+minaddr: 0x00b4e1e0
+maxaddr: 0x00b4e26c
+is-lineal: true
+end-bbs: 1
+maxbbins: 40
+midbbins: 40.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 5
+locals: 3
+args: 0
+
+┌ 140: fcn.00b4e1e0 ();
+│ afv: vars(3:sp[0x4..0x10])
+│           0x00b4e1e0      6aff           push 0xffffffffffffffff
+│           0x00b4e1e2      68d46cf200     push 0xf26cd4
+│           0x00b4e1e7      64a100000000   mov eax, dword fs:[0]
+│           0x00b4e1ed      50             push eax
+│           0x00b4e1ee      51             push ecx
+│           0x00b4e1ef      53             push ebx
+│           0x00b4e1f0      56             push esi
+│           0x00b4e1f1      57             push edi
+│           0x00b4e1f2      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x00b4e1f7      33c4           xor eax, esp
+│           0x00b4e1f9      50             push eax
+│           0x00b4e1fa      8d442414       lea eax, [var_14h]
+│           0x00b4e1fe      64a300000000   mov dword fs:[0], eax
+│           0x00b4e204      8bf1           mov esi, ecx
+│           0x00b4e206      89742410       mov dword [var_10h], esi
+│           0x00b4e20a      c706908f0a01   mov dword [esi], 0x10a8f90  ; [0x10a8f90:4]=0xb4ed40
+│           0x00b4e210      8dbed4000000   lea edi, [esi + 0xd4]
+│           0x00b4e216      8bcf           mov ecx, edi
+│           0x00b4e218      c744241c02..   mov dword [var_1ch], 2
+│           0x00b4e220      e80bfdffff     call fcn.00b4df30
+│           0x00b4e225      8d9edc000000   lea ebx, [esi + 0xdc]
+│           0x00b4e22b      8bcb           mov ecx, ebx
+│           0x00b4e22d      e8fefcffff     call fcn.00b4df30
+│           0x00b4e232      8bcb           mov ecx, ebx
+│           0x00b4e234      c644241c01     mov byte [var_1ch], 1
+│           0x00b4e239      e8f2fcffff     call fcn.00b4df30
+│           0x00b4e23e      8bcf           mov ecx, edi
+│           0x00b4e240      c644241c00     mov byte [var_1ch], 0
+│           0x00b4e245      e8e6fcffff     call fcn.00b4df30
+│           0x00b4e24a      8bce           mov ecx, esi
+│           0x00b4e24c      c744241cff..   mov dword [var_1ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│           0x00b4e254      e8d706f1ff     call fcn.00a5e930
+│           0x00b4e259      8b4c2414       mov ecx, dword [var_14h]
+│           0x00b4e25d      64890d0000..   mov dword fs:[0], ecx
+│           0x00b4e264      59             pop ecx
+│           0x00b4e265      5f             pop edi
+│           0x00b4e266      5e             pop esi
+│           0x00b4e267      5b             pop ebx
+│           0x00b4e268      83c410         add esp, 0x10
+└           0x00b4e26b      c3             ret
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:47+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00C46080 -c af -c afi -c pdf -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00C46080 | af | afi | pdf
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00c46080
+name: fcn.00c46080
+size: 229
+is-pure: false
+realsz: 229
+stackframe: 60
+callconv: cdecl
+cyclic-cost: 90
+cyclomatic-complexity: 5
+bits: 32
+type: fcn [NEW]
+num-bbs: 10
+num-instrs: 72
+edges: 13
+minaddr: 0x00c46080
+maxaddr: 0x00c46165
+is-lineal: true
+end-bbs: 1
+maxbbins: 16
+midbbins: 7.20
+ratbbins: 2.22
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 3
+locals: 8
+args: 0
+
+┌ 229: fcn.00c46080 ();
+│ afv: vars(8:sp[0x8..0x30])
+│           0x00c46080      55             push ebp
+│           0x00c46081      8bec           mov ebp, esp
+│           0x00c46083      6aff           push 0xffffffffffffffff
+│           0x00c46085      6818e6f200     push 0xf2e618
+│           0x00c4608a      64a100000000   mov eax, dword fs:[0]
+│           0x00c46090      50             push eax
+│           0x00c46091      83ec20         sub esp, 0x20
+│           0x00c46094      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x00c46099      33c5           xor eax, ebp
+│           0x00c4609b      50             push eax
+│           0x00c4609c      8d45f4         lea eax, [var_ch]
+│           0x00c4609f      64a300000000   mov dword fs:[0], eax
+│           0x00c460a5      894dd8         mov dword [var_28h], ecx
+│           0x00c460a8      33c0           xor eax, eax
+│           0x00c460aa      668945f0       mov word [var_10h], ax
+│       ┌─< 0x00c460ae      eb0c           jmp 0xc460bc
+│       │   ; CODE XREF from fcn.00c46080 @ 0xc4613f(x)
+│      ┌──> 0x00c460b0      668b4df0       mov cx, word [var_10h]
+│      ╎│   0x00c460b4      6683c101       add cx, 1
+│      ╎│   0x00c460b8      66894df0       mov word [var_10h], cx
+│      ╎│   ; CODE XREF from fcn.00c46080 @ 0xc460ae(x)
+│      ╎└─> 0x00c460bc      0fb755f0       movzx edx, word [var_10h]
+│      ╎    0x00c460c0      8b45d8         mov eax, dword [var_28h]
+│      ╎    0x00c460c3      0fb7480a       movzx ecx, word [eax + 0xa]
+│      ╎    0x00c460c7      3bd1           cmp edx, ecx
+│      ╎┌─< 0x00c460c9      7d79           jge 0xc46144
+│      ╎│   0x00c460cb      c745ec0000..   mov dword [var_14h], 0
+│      ╎│   0x00c460d2      837dec00       cmp dword [var_14h], 0
+│     ┌───< 0x00c460d6      7413           je 0xc460eb
+│     │╎│   0x00c460d8      8b55ec         mov edx, dword [var_14h]
+│     │╎│   0x00c460db      8955e8         mov dword [var_18h], edx
+│     │╎│   0x00c460de      8b45e8         mov eax, dword [var_18h]
+│     │╎│   0x00c460e1      83c004         add eax, 4
+│     │╎│   0x00c460e4      50             push eax
+│     │╎│   0x00c460e5      ff15c0f1fd00   call dword [sym.imp.KERNEL32.dll_InterlockedIncrement] ; 0xfdf1c0
+│     └───> 0x00c460eb      8d4dec         lea ecx, [var_14h]
+│      ╎│   0x00c460ee      894dd4         mov dword [var_2ch], ecx
+│      ╎│   0x00c460f1      c745fc0000..   mov dword [var_4h], 0
+│      ╎│   0x00c460f8      8b55d4         mov edx, dword [var_2ch]
+│      ╎│   0x00c460fb      52             push edx
+│      ╎│   0x00c460fc      0fb745f0       movzx eax, word [var_10h]
+│      ╎│   0x00c46100      8b4dd8         mov ecx, dword [var_28h]
+│      ╎│   0x00c46103      8b5104         mov edx, dword [ecx + 4]
+│      ╎│   0x00c46106      8d0c82         lea ecx, [edx + eax*4]
+│      ╎│   0x00c46109      e862010000     call 0xc46270
+│      ╎│   0x00c4610e      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│      ╎│   0x00c46115      837dec00       cmp dword [var_14h], 0
+│     ┌───< 0x00c46119      7424           je 0xc4613f
+│     │╎│   0x00c4611b      8b45ec         mov eax, dword [var_14h]
+│     │╎│   0x00c4611e      8945dc         mov dword [var_24h], eax
+│     │╎│   0x00c46121      8b4ddc         mov ecx, dword [var_24h]
+│     │╎│   0x00c46124      83c104         add ecx, 4
+│     │╎│   0x00c46127      51             push ecx
+│     │╎│   0x00c46128      ff15c4f1fd00   call dword [sym.imp.KERNEL32.dll_InterlockedDecrement] ; 0xfdf1c4
+│     │╎│   0x00c4612e      85c0           test eax, eax
+│    ┌────< 0x00c46130      750d           jne 0xc4613f
+│    ││╎│   0x00c46132      8b55dc         mov edx, dword [var_24h]
+│    ││╎│   0x00c46135      8b02           mov eax, dword [edx]
+│    ││╎│   0x00c46137      8b4ddc         mov ecx, dword [var_24h]
+│    ││╎│   0x00c4613a      8b5004         mov edx, dword [eax + 4]
+│    ││╎│   0x00c4613d      ffd2           call edx
+│    └└└──< 0x00c4613f      e96cffffff     jmp 0xc460b0
+│       └─> 0x00c46144      33c0           xor eax, eax
+│           0x00c46146      8b4dd8         mov ecx, dword [var_28h]
+│           0x00c46149      6689410a       mov word [ecx + 0xa], ax
+│           0x00c4614d      33d2           xor edx, edx
+│           0x00c4614f      8b45d8         mov eax, dword [var_28h]
+│           0x00c46152      6689500c       mov word [eax + 0xc], dx
+│           0x00c46156      8b4df4         mov ecx, dword [var_ch]
+│           0x00c46159      64890d0000..   mov dword fs:[0], ecx
+│           0x00c46160      59             pop ecx
+│           0x00c46161      8be5           mov esp, ebp
+│           0x00c46163      5d             pop ebp
+└           0x00c46164      c3             ret
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:11+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00C46270 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00C46270 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00c46270
+name: fcn.00c46270
+size: 115
+is-pure: true
+realsz: 115
+stackframe: 20
+callconv: cdecl
+cyclic-cost: 58
+cyclomatic-complexity: 5
+bits: 32
+type: fcn [NEW]
+num-bbs: 7
+num-instrs: 44
+edges: 10
+minaddr: 0x00c46270
+maxaddr: 0x00c462e3
+is-lineal: true
+end-bbs: 1
+maxbbins: 9
+midbbins: 6.29
+ratbbins: 1.43
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 2
+locals: 3
+args: 1
+
+┌ 115: fcn.00c46270 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])
+│           0x00c46270      55             push ebp
+│           0x00c46271      8bec           mov ebp, esp
+│           0x00c46273      83ec0c         sub esp, 0xc
+│           0x00c46276      894df4         mov dword [var_ch], ecx
+│           0x00c46279      8b45f4         mov eax, dword [var_ch]
+│           0x00c4627c      8b4d08         mov ecx, dword [arg_8h]
+│           0x00c4627f      8b10           mov edx, dword [eax]
+│           0x00c46281      3b11           cmp edx, dword [ecx]
+│       ┌─< 0x00c46283      7455           je 0xc462da
+│       │   0x00c46285      8b45f4         mov eax, dword [var_ch]
+│       │   0x00c46288      833800         cmp dword [eax], 0
+│      ┌──< 0x00c4628b      7426           je 0xc462b3
+│      ││   0x00c4628d      8b4df4         mov ecx, dword [var_ch]
+│      ││   0x00c46290      8b11           mov edx, dword [ecx]
+│      ││   0x00c46292      8955fc         mov dword [var_4h], edx
+│      ││   0x00c46295      8b45fc         mov eax, dword [var_4h]
+│      ││   0x00c46298      83c004         add eax, 4
+│      ││   0x00c4629b      50             push eax
+│      ││   0x00c4629c      ff15c4f1fd00   call dword [sym.imp.KERNEL32.dll_InterlockedDecrement] ; 0xfdf1c4
+│      ││   0x00c462a2      85c0           test eax, eax
+│     ┌───< 0x00c462a4      750d           jne 0xc462b3
+│     │││   0x00c462a6      8b4dfc         mov ecx, dword [var_4h]
+│     │││   0x00c462a9      8b11           mov edx, dword [ecx]
+│     │││   0x00c462ab      8b4dfc         mov ecx, dword [var_4h]
+│     │││   0x00c462ae      8b4204         mov eax, dword [edx + 4]
+│     │││   0x00c462b1      ffd0           call eax
+│     └└──> 0x00c462b3      8b4df4         mov ecx, dword [var_ch]
+│       │   0x00c462b6      8b5508         mov edx, dword [arg_8h]
+│       │   0x00c462b9      8b02           mov eax, dword [edx]
+│       │   0x00c462bb      8901           mov dword [ecx], eax
+│       │   0x00c462bd      8b4df4         mov ecx, dword [var_ch]
+│       │   0x00c462c0      833900         cmp dword [ecx], 0
+│      ┌──< 0x00c462c3      7415           je 0xc462da
+│      ││   0x00c462c5      8b55f4         mov edx, dword [var_ch]
+│      ││   0x00c462c8      8b02           mov eax, dword [edx]
+│      ││   0x00c462ca      8945f8         mov dword [var_8h], eax
+│      ││   0x00c462cd      8b4df8         mov ecx, dword [var_8h]
+│      ││   0x00c462d0      83c104         add ecx, 4
+│      ││   0x00c462d3      51             push ecx
+│      ││   0x00c462d4      ff15c0f1fd00   call dword [sym.imp.KERNEL32.dll_InterlockedIncrement] ; 0xfdf1c0
+│      └└─> 0x00c462da      8b45f4         mov eax, dword [var_ch]
+│           0x00c462dd      8be5           mov esp, ebp
+│           0x00c462df      5d             pop ebp
+└           0x00c462e0      c20400         ret 4
+
+int * __cdecl fcn.00c46270(int32_t arg_8h)
+
+{
+    int *piVar1;
+    int iVar2;
+    int *in_ECX;
+    int32_t var_ch;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    if (*in_ECX != *arg_8h) {
+        if (*in_ECX != 0) {
+            piVar1 = *in_ECX;
+            iVar2 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar1 + 1);
+            if (iVar2 == 0) {
+                (**(*piVar1 + 4))();
+            }
+        }
+        *in_ECX = *arg_8h;
+        if (*in_ECX != 0) {
+            (*_sym.imp.KERNEL32.dll_InterlockedIncrement)(*in_ECX + 4);
+        }
+    }
+    return in_ECX;
+}
+
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:47+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00C459D0 -c af -c afi -c pdf -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00C459D0 | af | afi | pdf
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00c459d0
+name: fcn.00c459d0
+size: 172
+is-pure: false
+realsz: 172
+stackframe: 52
+callconv: cdecl
+cyclic-cost: 71
+cyclomatic-complexity: 7
+bits: 32
+type: fcn [NEW]
+num-bbs: 12
+num-instrs: 47
+edges: 17
+minaddr: 0x00c459d0
+maxaddr: 0x00c45a7c
+is-lineal: true
+end-bbs: 1
+maxbbins: 9
+midbbins: 3.92
+ratbbins: 2.30
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 6
+locals: 2
+args: 1
+
+┌ 172: fcn.00c459d0 (int8_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(2:sp[0x5..0x6])
+│           0x00c459d0      55             push ebp
+│           0x00c459d1      8bec           mov ebp, esp
+│           0x00c459d3      83ec28         sub esp, 0x28
+│           0x00c459d6      c645ff01       mov byte [var_1h], 1
+│           0x00c459da      0fb64508       movzx eax, byte [arg_8h]
+│           0x00c459de      85c0           test eax, eax
+│       ┌─< 0x00c459e0      740f           je 0xc459f1
+│       │   0x00c459e2      b9402e2001     mov ecx, 0x1202e40
+│       │   0x00c459e7      e81478b4ff     call 0x78d200
+│       │   0x00c459ec      8845ff         mov byte [var_1h], al
+│      ┌──< 0x00c459ef      eb0c           jmp 0xc459fd
+│      │└─> 0x00c459f1      6a00           push 0
+│      │    0x00c459f3      b9402e2001     mov ecx, 0x1202e40
+│      │    0x00c459f8      e8f3a17cff     call 0x40fbf0
+│      │    ; CODE XREF from fcn.00c459d0 @ 0xc459ef(x)
+│      └──> 0x00c459fd      0fb64dff       movzx ecx, byte [var_1h]
+│           0x00c45a01      85c9           test ecx, ecx
+│       ┌─< 0x00c45a03      7438           je 0xc45a3d
+│       │   0x00c45a05      6880431f01     push 0x11f4380
+│       │   0x00c45a0a      ff15b0f1fd00   call dword [sym.imp.KERNEL32.dll_TryEnterCriticalSection] ; 0xfdf1b0 ; "N\r\xd8" ; BOOL TryEnterCriticalSection(LPCRITICAL_SECTION lpCriticalSection)
+│       │   0x00c45a10      85c0           test eax, eax
+│       │   0x00c45a12      0f95c2         setne dl
+│       │   0x00c45a15      8855fe         mov byte [var_2h], dl
+│       │   0x00c45a18      0fb645fe       movzx eax, byte [var_2h]
+│       │   0x00c45a1c      85c0           test eax, eax
+│      ┌──< 0x00c45a1e      751d           jne 0xc45a3d
+│      ││   0x00c45a20      8b0d442e2001   mov ecx, dword [0x1202e44]  ; [0x1202e44:4]=0
+│      ││   0x00c45a26      83e901         sub ecx, 1
+│      ││   0x00c45a29      890d442e2001   mov dword [0x1202e44], ecx  ; [0x1202e44:4]=0
+│     ┌───< 0x00c45a2f      750a           jne 0xc45a3b
+│     │││   0x00c45a31      c705402e20..   mov dword [0x1202e40], 0    ; [0x1202e40:4]=0
+│    ┌└───> 0x00c45a3b      eb3b           jmp 0xc45a78
+│    │ └└─> 0x00c45a3d      0fb655ff       movzx edx, byte [var_1h]
+│    │      0x00c45a41      85d2           test edx, edx
+│    │  ┌─< 0x00c45a43      7433           je 0xc45a78
+│    │  │   0x00c45a45      b9202e2001     mov ecx, 0x1202e20
+│    │  │   0x00c45a4a      e831060000     call 0xc46080
+│    │  │   0x00c45a4f      e82c000000     call 0xc45a80
+│    │  │   0x00c45a54      6880431f01     push 0x11f4380
+│    │  │   0x00c45a59      ff1500f1fd00   call dword [sym.imp.KERNEL32.dll_LeaveCriticalSection] ; 0xfdf100 ; "h\r\xd8" ; VOID LeaveCriticalSection(LPCRITICAL_SECTION lpCriticalSection)
+│    │  │   0x00c45a5f      a1442e2001     mov eax, dword [0x1202e44]  ; [0x1202e44:4]=0
+│    │  │   0x00c45a64      83e801         sub eax, 1
+│    │  │   0x00c45a67      a3442e2001     mov dword [0x1202e44], eax  ; [0x1202e44:4]=0
+│    │ ┌──< 0x00c45a6c      750a           jne 0xc45a78
+│    │ ││   0x00c45a6e      c705402e20..   mov dword [0x1202e40], 0    ; [0x1202e40:4]=0
+│    │ ││   ; CODE XREF from fcn.00c459d0 @ 0xc45a3b(x)
+│    └─└└─> 0x00c45a78      8be5           mov esp, ebp
+│           0x00c45a7a      5d             pop ebp
+└           0x00c45a7b      c3             ret
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:53+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c pd 20 @ 0x00878250 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 20 @ 0x00878250
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x00878250      55             push ebp
+            0x00878251      8bec           mov ebp, esp
+            0x00878253      6a01           push 1                      ; 1
+            0x00878255      e8160bffff     call 0x868d70
+            0x0087825a      83c404         add esp, 4
+            0x0087825d      6a00           push 0
+            0x0087825f      e81c89bdff     call 0x450b80
+            0x00878264      83c404         add esp, 4
+            0x00878267      8bc8           mov ecx, eax
+            0x00878269      e8f27a2e00     call 0xb5fd60
+            0x0087826e      6a00           push 0
+            0x00878270      e85bd73c00     call 0xc459d0
+            0x00878275      83c404         add esp, 4
+            0x00878278      0fb64508       movzx eax, byte [ebp + 8]
+            0x0087827c      85c0           test eax, eax
+        ┌─< 0x0087827e      740a           je 0x87828a
+        │   0x00878280      e8ab9bddff     call 0x651e30
+        │   0x00878285      e8b69cddff     call 0x651f40
+        └─> 0x0087828a      6a01           push 1                      ; 1
+            0x0087828c      8b0d3c3b1c01   mov ecx, dword [0x11c3b3c]  ; [0x11c3b3c:4]=0
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:36:32+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c s 0x00C45A80 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00C45A80 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00c45a80
+name: fcn.00c45a80
+size: 34
+is-pure: false
+realsz: 34
+stackframe: 112
+callconv: cdecl
+cyclic-cost: 17
+cyclomatic-complexity: 2
+bits: 32
+type: fcn [NEW]
+num-bbs: 3
+num-instrs: 12
+edges: 3
+minaddr: 0x00c45a80
+maxaddr: 0x00c45aa2
+is-lineal: true
+end-bbs: 1
+maxbbins: 6
+midbbins: 4.00
+ratbbins: 1.50
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 1
+locals: 0
+args: 0
+
+┌ 34: fcn.00c45a80 ();
+│           0x00c45a80      55             push ebp
+│           0x00c45a81      8bec           mov ebp, esp
+│           0x00c45a83      83ec68         sub esp, 0x68
+│           0x00c45a86      0fb7052a2e..   movzx eax, word [0x1202e2a] ; [0x1202e2a:2]=0
+│           0x00c45a8d      83f864         cmp eax, 0x64               ; 'd' ; 100
+│       ┌─< 0x00c45a90      760c           jbe 0xc45a9e
+│       │   0x00c45a92      6a64           push 0x64                   ; 'd' ; 100
+│       │   0x00c45a94      b9202e2001     mov ecx, 0x1202e20
+│       │   0x00c45a99      e882000000     call fcn.00c45b20
+│       └─> 0x00c45a9e      8be5           mov esp, ebp
+│           0x00c45aa0      5d             pop ebp
+└           0x00c45aa1      c3             ret
+
+void fcn.00c45a80(void)
+
+{
+    if (100 < *0x1202e2a) {
+        fcn.00c45b20(100);
+    }
+    return;
+}
+
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:37:32+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c pd 12 @ 0x00CFCC20 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 12 @ 0x00CFCC20
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x00cfcc20      85c9           test ecx, ecx
+        ┌─< 0x00cfcc22      7408           je 0xcfcc2c
+        │   0x00cfcc24      8b01           mov eax, dword [ecx]
+        │   0x00cfcc26      8b10           mov edx, dword [eax]
+        │   0x00cfcc28      6a01           push 1                      ; 1
+        │   0x00cfcc2a      ffd2           call edx
+        └─> 0x00cfcc2c      c3             ret
+            0x00cfcc2d      cc             int3
+            0x00cfcc2e      cc             int3
+            0x00cfcc2f      cc             int3
+            0x00cfcc30      56             push esi
+            0x00cfcc31      8bf1           mov esi, ecx
+
+
+Psycho radare2 evidence
+UTC: 2026-10-20T00:37:32+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c pd 16 @ 0x00B4ED40 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 16 @ 0x00B4ED40
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x00b4ed40      56             push esi
+            0x00b4ed41      8bf1           mov esi, ecx
+            0x00b4ed43      e898f4ffff     call 0xb4e1e0
+            0x00b4ed48      f644240801     test byte [esp + 8], 1
+        ┌─< 0x00b4ed4d      740e           je 0xb4ed5d
+        │   0x00b4ed4f      68e4000000     push 0xe4                   ; 228
+        │   0x00b4ed54      56             push esi
+        │   0x00b4ed55      e80627f5ff     call 0xaa1460
+        │   0x00b4ed5a      83c408         add esp, 8
+        └─> 0x00b4ed5d      8bc6           mov eax, esi
+            0x00b4ed5f      5e             pop esi
+            0x00b4ed60      c20400         ret 4
+            0x00b4ed63      cc             int3
+            0x00b4ed64      cc             int3
+            0x00b4ed65      cc             int3
+            0x00b4ed66      cc             int3

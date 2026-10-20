@@ -474,6 +474,8 @@ pub struct EngineFixesConfig {
     pub occlusion_link_guard: bool,
     /// Return no scene reference when its owner base-form reads are inaccessible.
     pub scene_reference_owner_guard: bool,
+    /// Cut invalid successor links and cycle back edges before native list cleanup.
+    pub list_cleanup_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -513,6 +515,7 @@ impl Default for EngineFixesConfig {
             fade_linked_owner_guard: true,
             occlusion_link_guard: true,
             scene_reference_owner_guard: true,
+            list_cleanup_guard: true,
         }
     }
 }
@@ -628,6 +631,7 @@ impl EngineFixesConfig {
             scene_reference_owner_guard: raw
                 .scene_reference_owner_guard
                 .unwrap_or(default.scene_reference_owner_guard),
+            list_cleanup_guard: raw.list_cleanup_guard.unwrap_or(default.list_cleanup_guard),
         }
     }
 }
@@ -763,6 +767,7 @@ struct RawEngineFixesConfig {
     fade_linked_owner_guard: Option<bool>,
     occlusion_link_guard: Option<bool>,
     scene_reference_owner_guard: Option<bool>,
+    list_cleanup_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -916,6 +921,15 @@ actor_container_retirement_guard = false
                 .expect("parse scene-reference setting");
         assert!(default.engine_fixes.scene_reference_owner_guard);
         assert!(!disabled.engine_fixes.scene_reference_owner_guard);
+    }
+
+    #[test]
+    fn list_cleanup_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str("[engine_fixes]\nlist_cleanup_guard = false\n")
+            .expect("parse list-cleanup setting");
+        assert!(default.engine_fixes.list_cleanup_guard);
+        assert!(!disabled.engine_fixes.list_cleanup_guard);
     }
 
     #[test]

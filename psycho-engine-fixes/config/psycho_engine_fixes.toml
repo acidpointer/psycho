@@ -119,6 +119,10 @@ fade_linked_owner_guard = true
 # Valid links are unchanged.
 scene_reference_owner_guard = true
 
+# Stop cleanup at broken list links instead of crashing.
+# Valid lists are unchanged; a damaged tail may leak.
+list_cleanup_guard = true
+
 # Skip unreadable occlusion-plane data during visibility checks instead of
 # crashing. Valid occlusion is unchanged.
 occlusion_link_guard = true

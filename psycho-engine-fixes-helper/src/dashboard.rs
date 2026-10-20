@@ -69,7 +69,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 29] = [
+const ENGINE_FIX_HELP: [(&str, &str); 30] = [
     (
         "Fullscreen / Alt-Tab fix",
         "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
@@ -129,6 +129,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 29] = [
     (
         "Occlusion link guard",
         "Skips unreadable occlusion-plane data during visibility checks instead of crashing. Valid occlusion is unchanged.",
+    ),
+    (
+        "List cleanup guard",
+        "Stops cleanup at broken list links instead of crashing. Valid lists are unchanged; a damaged tail may leak.",
     ),
     (
         "Ragdoll bone guard",
@@ -2314,6 +2318,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.fade_linked_owner_guard,
         &mut config.scene_reference_owner_guard,
         &mut config.occlusion_link_guard,
+        &mut config.list_cleanup_guard,
         &mut config.ragdoll_null_bone_guard,
         &mut config.ragdoll_detached_phantom_guard,
         &mut config.havok_add_entity_batch_null_guard,
@@ -2572,8 +2577,8 @@ fn engine_fix_group(index: usize) -> Option<&'static str> {
     match index {
         0 => Some("Display and saves"),
         4 => Some("Actors and world"),
-        15 => Some("Physics"),
-        22 => Some("Memory and tasks"),
+        16 => Some("Physics"),
+        23 => Some("Memory and tasks"),
         _ => None,
     }
 }
@@ -3052,7 +3057,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 29);
+        assert_eq!(ENGINE_FIX_HELP.len(), 30);
         for (index, expected) in [
             (0, "Fullscreen / Alt-Tab fix"),
             (1, "Save file integrity"),
@@ -3066,28 +3071,29 @@ mod tests {
             (9, "Cell cleanup fix"),
             (10, "Linked-reference cleanup"),
             (11, "Linked-reference target guard"),
-            (15, "Ragdoll bone guard"),
-            (16, "Ragdoll raycast guard"),
-            (17, "Physics add-batch guard"),
-            (18, "Physics pending-add guard"),
-            (19, "Physics collision-pair guard"),
-            (20, "Physics callback guard"),
-            (21, "Physics unlock guard"),
-            (22, "Out-of-memory write guard"),
-            (23, "Actor location-list guard"),
-            (24, "Model load serialization"),
-            (26, "Queued-task guard"),
-            (27, "Texture cache guard"),
-            (28, "Tile cleanup guard"),
+            (15, "List cleanup guard"),
+            (16, "Ragdoll bone guard"),
+            (17, "Ragdoll raycast guard"),
+            (18, "Physics add-batch guard"),
+            (19, "Physics pending-add guard"),
+            (20, "Physics collision-pair guard"),
+            (21, "Physics callback guard"),
+            (22, "Physics unlock guard"),
+            (23, "Out-of-memory write guard"),
+            (24, "Actor location-list guard"),
+            (25, "Model load serialization"),
+            (27, "Queued-task guard"),
+            (28, "Texture cache guard"),
+            (29, "Tile cleanup guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }
         assert_eq!(engine_fix_group(0), Some("Display and saves"));
         assert_eq!(engine_fix_group(4), Some("Actors and world"));
-        assert_eq!(engine_fix_group(15), Some("Physics"));
-        assert_eq!(engine_fix_group(22), Some("Memory and tasks"));
+        assert_eq!(engine_fix_group(16), Some("Physics"));
+        assert_eq!(engine_fix_group(23), Some("Memory and tasks"));
         assert_eq!(engine_fix_group(1), None);
-        assert_eq!(engine_fix_group(25), None);
+        assert_eq!(engine_fix_group(26), None);
         let mut labels = std::collections::BTreeSet::new();
         for (label, help) in ENGINE_FIX_HELP {
             assert!(!label.trim().is_empty());

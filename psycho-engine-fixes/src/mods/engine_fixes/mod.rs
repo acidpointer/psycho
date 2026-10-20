@@ -23,6 +23,7 @@ mod havok_sparse;
 mod install_paths;
 mod io;
 mod linkedrefs;
+mod list_cleanup_guard;
 mod lod;
 mod lowprocess;
 mod memset;
@@ -210,6 +211,7 @@ pub fn install(
     install_model_cache_keys(config)?;
     install_fade_linked_owner_guard(config)?;
     install_scene_reference_owner_guard(config);
+    install_list_cleanup_guard(config);
     install_occlusion_link_guard(config)?;
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
@@ -223,6 +225,19 @@ pub fn install(
     install_patrol_ref_in_use_guard(config);
 
     Ok(())
+}
+
+fn install_list_cleanup_guard(config: &EngineFixesConfig) {
+    if !config.list_cleanup_guard {
+        log::info!("[LIST_CLEANUP] List cleanup guard disabled by config");
+        return;
+    }
+    match list_cleanup_guard::install() {
+        Ok(()) => log::info!(
+            "[LIST_CLEANUP] Guard active: stops cleanup at invalid list links and removes cycles"
+        ),
+        Err(error) => log::warn!("[LIST_CLEANUP] List cleanup guard unavailable: {error:#}"),
+    }
 }
 
 fn install_patrol_ref_in_use_guard(config: &EngineFixesConfig) {
