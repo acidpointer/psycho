@@ -60,7 +60,9 @@ remaining gates are in [the native-list contract](native_list_hardening_plan.md)
 
 The admission reader is shared across one uninterrupted list walk and caches
 four recently used mapping capabilities, with a fresh guarded copy for every
-field. This avoids the original per-entry query restart without retaining
+read through a followed pointer. Native-owned record type and embedded header
+fields use their proven caller lifetime; mutable header reads hold the native
+extra lock. This avoids the original per-entry query restart without retaining
 payload bytes or admission across native serialization. Extra-cache queries
 follow native presence bits. The [pause correction](native_list_hardening_plan.md#save-and-transition-pause-correction)
 records the reported save/transition pauses, measured production-path cost,
@@ -79,6 +81,16 @@ preservation. It is available during ordinary saves regardless of hitch
 profiling; it does not weaken any durability or admission policy. The scope's
 single inert atomic publication adds no TLS or initialization callback. Native
 runtime latency and startup acceptance remain unverified.
+
+The same summary separates `record_admission_us` / `record_admissions`,
+`list_admission_us` / `list_admissions`, and `alternate_admission_us` /
+`alternate_admissions`. Record admission includes extra-lock waits and native
+cache queries. List admission includes nested extra lists. Alternate admission
+covers the PlayerCharacter array and Projectile optional entry. These are
+components of the existing admission total, measured at whole-operation
+boundaries; no per-entry timing or logging is added. The native-owned-root and
+nested-reader correction, measured costs and remaining runtime limits are in
+[the native-list contract](native_list_hardening_plan.md#native-owned-record-and-embedded-header-cost).
 
 ## Proven engine contract
 

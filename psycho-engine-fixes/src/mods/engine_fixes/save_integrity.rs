@@ -459,8 +459,8 @@ impl Drop for InventorySnapshotPublication {
 #[derive(Default)]
 struct SaveTiming {
     snapshot_ticks: Cell<u64>,
-    admission_ticks: Cell<u64>,
-    admission_calls: Cell<u64>,
+    admission_ticks: [Cell<u64>; 3],
+    admission_calls: [Cell<u64>; 3],
     commit_ticks: Cell<u64>,
     clock_misses: Cell<u32>,
 }
@@ -489,7 +489,7 @@ fn with_save_timing<T>(operation: impl FnOnce(Option<&SaveTiming>) -> T) -> T {
 
 enum SavePhase {
     Snapshot,
-    Admission,
+    Admission(InventoryAdmission),
     Commit,
 }
 
@@ -506,11 +506,10 @@ fn measure_save_phase<T>(phase: SavePhase, operation: impl FnOnce() -> T) -> T {
         let ended = diagnostics::perf_counter();
         let counter = match phase {
             SavePhase::Snapshot => &timing.snapshot_ticks,
-            SavePhase::Admission => {
-                timing
-                    .admission_calls
-                    .set(timing.admission_calls.get().saturating_add(1));
-                &timing.admission_ticks
+            SavePhase::Admission(kind) => {
+                let calls = &timing.admission_calls[kind as usize];
+                calls.set(calls.get().saturating_add(1));
+                &timing.admission_ticks[kind as usize]
             }
             SavePhase::Commit => &timing.commit_ticks,
         };
@@ -526,10 +525,23 @@ fn measure_save_phase<T>(phase: SavePhase, operation: impl FnOnce() -> T) -> T {
     })
 }
 
+/// The existing operation boundaries, never per-entry samples. Record time
+/// includes native extra-lock waits and cache queries; list time includes nested
+/// extra admission. Alternate time covers Player/Projectile private storage.
+#[derive(Clone, Copy)]
+pub(super) enum InventoryAdmission {
+    Record,
+    EntryList,
+    Alternate,
+}
+
 /// Time whole admission operations, including lock waits, never individual
-/// entries. This is a nested contribution to snapshot time, not an extra phase.
-pub(super) fn measure_inventory_admission<T>(operation: impl FnOnce() -> T) -> T {
-    measure_save_phase(SavePhase::Admission, operation)
+/// entries. Contributions are nested in snapshot time, not extra save phases.
+pub(super) fn measure_inventory_admission<T>(
+    kind: InventoryAdmission,
+    operation: impl FnOnce() -> T,
+) -> T {
+    measure_save_phase(SavePhase::Admission(kind), operation)
 }
 
 /// Bind only the real native snapshot's file argument to the active save.
@@ -955,13 +967,19 @@ unsafe extern "thiscall" fn hook_save_owner(
         );
         clear_save_tracking();
     }
+    let admission_ticks = timing.admission_ticks.each_ref().map(Cell::get);
+    let admission_calls = timing.admission_calls.each_ref().map(Cell::get);
+    let [record_us, list_us, alternate_us] = admission_ticks.map(diagnostics::ticks_to_us);
     log::info!(
-        "[SAVE] Timing: total_us={total_us:?} snapshot_us={} inventory_admission_us={} inventory_admissions={} commit_us={} clock_misses={} result={result}; snapshot includes admission; remaining time is unclassified",
+        "[SAVE] Timing: total_us={total_us:?} snapshot_us={} inventory_admission_us={} inventory_admissions={} commit_us={} clock_misses={} result={result} record_admission_us={record_us} record_admissions={} list_admission_us={list_us} list_admissions={} alternate_admission_us={alternate_us} alternate_admissions={}; snapshot includes admission; remaining time is unclassified",
         diagnostics::ticks_to_us(timing.snapshot_ticks.get()),
-        diagnostics::ticks_to_us(timing.admission_ticks.get()),
-        timing.admission_calls.get(),
+        diagnostics::ticks_to_us(admission_ticks.into_iter().fold(0u64, u64::saturating_add)),
+        admission_calls.into_iter().fold(0u64, u64::saturating_add),
         diagnostics::ticks_to_us(timing.commit_ticks.get()),
         timing.clock_misses.get(),
+        admission_calls[0],
+        admission_calls[1],
+        admission_calls[2],
     );
     set_last_error(after);
     result
@@ -2362,7 +2380,7 @@ mod tests {
         let publication = SaveTimingPublication;
         set_last_error(123);
         assert_eq!(
-            measure_inventory_admission(|| {
+            measure_inventory_admission(InventoryAdmission::Record, || {
                 assert_eq!(get_last_error_code(), 123);
                 set_last_error(456);
                 17
@@ -2370,20 +2388,32 @@ mod tests {
             17
         );
         assert_eq!(get_last_error_code(), 456);
-        assert_eq!(timing.admission_calls.get(), 1);
+        assert_eq!(
+            timing.admission_calls[InventoryAdmission::Record as usize].get(),
+            1
+        );
         std::thread::spawn(|| {
             // A foreign thread must not dereference the published Cell storage.
-            measure_inventory_admission(|| set_last_error(789));
+            measure_inventory_admission(InventoryAdmission::Record, || set_last_error(789));
             assert_eq!(get_last_error_code(), 789);
         })
         .join()
         .expect("foreign access returns");
-        assert_eq!(timing.admission_calls.get(), 1);
+        assert_eq!(
+            timing.admission_calls[InventoryAdmission::Record as usize].get(),
+            1
+        );
         drop(publication);
         SAVE_OWNER_THREAD.store(0, Ordering::Release);
         assert!(CURRENT_SAVE_TIMING.load(Ordering::Acquire).is_null());
-        assert_eq!(measure_inventory_admission(|| 19), 19);
-        assert_eq!(timing.admission_calls.get(), 1);
+        assert_eq!(
+            measure_inventory_admission(InventoryAdmission::Record, || 19),
+            19
+        );
+        assert_eq!(
+            timing.admission_calls[InventoryAdmission::Record as usize].get(),
+            1
+        );
     }
 
     #[test]

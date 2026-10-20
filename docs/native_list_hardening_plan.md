@@ -275,6 +275,78 @@ explain all remaining latency. Startup and game performance remain unverified;
 the existing plan-specific static/offline exception permits only an unreleased
 candidate, not release or deployment acceptance.
 
+### Native-owned record and embedded-header cost
+
+The subsequent ordinary quicksave supplies direct phase attribution:
+756,443 us total, 707,381 us snapshot, 574,087 us inventory admission across
+32,868 operations, and 36,643 us durable commit, with no clock misses. Admission
+is 75.89 percent of that save; snapshot work outside admission is 133,294 us,
+and the unclassified remainder is 12,419 us. This identifies admission as the
+largest measured contributor, without assigning its entire duration to any
+particular query, list length, lock wait or provider.
+
+The measured guard queried/copied the caller-owned form's type byte on
+every record. Reference admission then queried/copied the embedded header,
+and copied it again after native cache queries. Nested extend-list admission
+also started a separate mapping reader despite belonging to the same
+uninterrupted preflight. Empty extra headers ran fixed full-type scans.
+
+The [native owner evidence](../analysis/radare2/output/native_list_save_record_owner_cost_20261020.txt)
+proves the boundary: snapshot `0x00847850` resolves a live form via `0x004839C0`,
+skips NULL, and calls type getter `0x00401170` (read form `+4`) before the bind
+hook. [Reference constructor evidence](../analysis/radare2/output/native_list_hardening_save_owner_admission_20261020.txt)
+at `0x0055A2F0` initializes embedded `BaseExtraList`
+at `+0x44`; constructor `0x0040F740` initializes its head and 21 presence bytes.
+The existing native extra lock protects head/presence reads. This is the same
+native-owned-root contract already used by shared list cleanup and actor-base
+retirement, not proof that a readable pointer reached through a list is valid.
+
+Implemented correction:
+
+1. Read only the live record's type and, under the existing extra lock, its
+   initialized embedded head/presence fields. Keep those unsafe native-owner
+   reads separate from guarded copies of every followed pointer. Do not read
+   vtable/padding bytes or cache a record result across callbacks.
+2. Use one header image per extra admission, enumerate only present cache types,
+   and reuse the parent reader for nested extra spines. Empty head plus no
+   consumable presence bit needs no cache query or successor walk; a non-NULL
+   head or present type still receives complete admission.
+3. Preserve native prefix/getter spans, cached-result membership, guard-page
+   policy, cycles, full entry/form checks, failed-save handling and durability.
+   Add record/list/alternate-owner timing totals at operation boundaries only.
+
+The actual production routines were compared before/after using five release
+rounds on Wine, the same initialized owned prefixes, and median/min/max elapsed
+microseconds per round:
+
+| Workload | Before median (min-max), us | After median (min-max), us |
+|---|---:|---:|
+| 32,868 non-reference record-type admissions | 49,809.0 (49,235.7-52,721.8) | 20.1 (20.1-20.4) |
+| 32,868 empty reference extra-prefix admissions | 59,109.3 (58,861.3-59,275.4) | 1,145.0 (1,062.1-1,195.4) |
+| 4,096 reference extra-prefix admissions, four links each | 16,365.9 (13,335.5-16,474.6) | 9,060.1 (8,995.3-9,149.8) |
+
+The record workload runs `reference_extra_admission` on type-0x29 prefixes;
+the extra workloads run the production extra-image admission on initialized
+headers, zero cached results and type-0x16 link prefixes with zero presence
+bits. They exclude native extra-lock/cache service, other save phases and the
+reporter's real object distribution. The counts do not assert that all 32,868
+reported operations were non-reference records or empty headers. The workloads
+cannot be added together or extrapolated to a promised whole-save duration.
+Guarded descendant reads remain in the four-link workload; its residual cost
+is retained containment, not permission to use unchecked link dereferences.
+
+Offline regressions execute the actual owned-field and guarded-header readers,
+including inaccessible followed storage, guard-bit preservation, final valid
+and spare cache bits, empty-head cache rejection and the no-cache empty path.
+Existing complete spines, prefix payloads, legacy form admission and failed-save
+ownership remain covered. Native save composition, lock contention, provider
+composition, transition latency and startup acceptance remain unverified under
+the existing unreleased-candidate exception. The correction adds no static,
+import, TLS, config field, hook installation or initialization callback. Timing
+subtotals use only the existing runtime owner's stack scope. Every followed
+header retains its full 32-byte guarded admission; only live native-owned root
+fields use the native lifetime precondition.
+
 ### Costs, qualification and startup limits
 
 Save admission adds linear guarded-copy/query work and native extra-lock

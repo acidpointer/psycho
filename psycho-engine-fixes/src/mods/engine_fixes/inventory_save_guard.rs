@@ -16,12 +16,15 @@
 //! no arbitrary length cap and no routine allocation. OS-copy and lock cost is
 //! additional save work; it is not an established gameplay-performance claim.
 //! One mapping reader spans each uninterrupted walk, including entry/form reads.
-//! Only queried capabilities are reused; every byte read remains guarded. The
-//! exact native cache/lock helpers do not mutate those input mappings or invoke
-//! providers. No mapping reader survives a serializer/provider invocation.
+//! Only queried capabilities are reused for followed pointers; their reads
+//! remain guarded. The exact native cache/lock helpers do not mutate those input
+//! mappings or invoke providers. No reader survives a serializer/provider call.
 //! Reference admission does not descend into inventory items: the native
 //! inventory flag gates their one complete preflight at the list serializer.
 //! Optional legacy form policy shares that walk only in its original list role.
+//! The snapshot's live record and embedded extra header retain native root
+//! ownership. Only their initialized fields are read directly, under the extra
+//! lock where mutable. Every followed pointer still uses guarded admission.
 
 mod native;
 
@@ -45,7 +48,8 @@ use libpsycho::os::windows::{
 
 use super::{
     list_validation::{Access, MemoryFailure, RegionReader},
-    save_integrity, statics,
+    save_integrity::{self, InventoryAdmission},
+    statics,
 };
 
 type Save = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
@@ -209,7 +213,11 @@ unsafe extern "thiscall" fn bind_and_admit(buffer: *mut c_void, form: *mut c_voi
         return 1;
     }
     let _error = LastError::preserve();
-    match save_integrity::measure_inventory_admission(|| reference_extra_admission(form as usize)) {
+    // SAFETY: The exact snapshot resolved this live form and read its type at
+    // 0x00847A58. Its native lifetime includes the following pre-save/Save calls.
+    match save_integrity::measure_inventory_admission(InventoryAdmission::Record, || unsafe {
+        reference_extra_admission(form as usize)
+    }) {
         Ok(()) => 1,
         Err(reason) => u8::from(!reject(buffer as usize, "record extras", reason)),
     }
@@ -219,8 +227,9 @@ unsafe extern "thiscall" fn player(owner: *mut c_void, buffer: *mut c_void) {
     let original: Save = unsafe { std::mem::transmute(PLAYER_PROVIDER.load(Ordering::Acquire)) };
     let rejected = if owns(buffer as usize) {
         let _error = LastError::preserve();
-        match save_integrity::measure_inventory_admission(|| player_array_admission(owner as usize))
-        {
+        match save_integrity::measure_inventory_admission(InventoryAdmission::Alternate, || {
+            player_array_admission(owner as usize)
+        }) {
             Ok(()) => false,
             Err(reason) => reject(buffer as usize, "player entry array", reason),
         }
@@ -237,7 +246,7 @@ unsafe extern "thiscall" fn projectile(owner: *mut c_void, buffer: *mut c_void) 
         unsafe { std::mem::transmute(PROJECTILE_PROVIDER.load(Ordering::Acquire)) };
     let rejected = if owns(buffer as usize) {
         let _error = LastError::preserve();
-        match save_integrity::measure_inventory_admission(|| {
+        match save_integrity::measure_inventory_admission(InventoryAdmission::Alternate, || {
             projectile_entry_admission(owner as usize)
         }) {
             Ok(()) => false,
@@ -258,7 +267,9 @@ pub(super) fn admit_list(list: usize, buffer: usize, filter: Option<EntryFilter>
         return None;
     }
     let _error = LastError::preserve();
-    let result = save_integrity::measure_inventory_admission(|| validate_list(list, filter));
+    let result = save_integrity::measure_inventory_admission(InventoryAdmission::EntryList, || {
+        validate_list(list, filter)
+    });
     Some(match result {
         Ok(()) => true,
         Err(reason) => !reject(buffer, "entry list", reason),
@@ -395,8 +406,8 @@ fn entry_admission_with_filter(
     {
         return Err(Rejection::LegacyForm(entry));
     }
-    walk_entries(reader, image_word(&image, 0) as usize, |_, list| {
-        extra_admission(list, false)
+    walk_entries(reader, image_word(&image, 0) as usize, |reader, list| {
+        extra_admission(reader, list)
     })
 }
 
@@ -432,13 +443,26 @@ fn projectile_entry_admission(owner: usize) -> Result<(), Rejection> {
     Ok(())
 }
 
-fn reference_extra_admission(form: usize) -> Result<(), Rejection> {
-    let image = RegionReader::default().copy::<5>(form, Access::Read)?;
+/// Admit extras of the native snapshot's live, initialized record.
+///
+/// # Safety
+/// The caller must own the native TESForm lifetime through this call. Reference
+/// family inputs must own their initialized embedded BaseExtraList at +0x44.
+/// Neither this contract nor this fast root read applies to followed pointers.
+unsafe fn reference_extra_admission(form: usize) -> Result<(), Rejection> {
+    // SAFETY: Native 0x00401170 has just read this same initialized type byte;
+    // the snapshot retains the form through its subsequent virtual dispatch.
+    let kind = unsafe { (form as *const u8).add(4).read() };
     // The supported engine's reference family: REFR, Character, Creature and
     // the four projectile kinds. All own BaseExtraList at +0x44. No vtable,
     // module identity or third-party-specific classification is performed.
-    if (0x3A..=0x40).contains(&image[4]) {
-        extra_admission(offset(form, 0x44)?, true)?;
+    if (0x3A..=0x40).contains(&kind) {
+        let list = offset(form, 0x44)?;
+        let _lock = ExtraLock::acquire();
+        // SAFETY: This is the live record's embedded object, not a list payload.
+        // The native lock excludes its cooperating head/presence mutators.
+        let header = unsafe { ExtraHeader::read_owned(list) };
+        extra_cached_admission(&mut RegionReader::default(), list, header, true)?;
     }
     Ok(())
 }
@@ -465,46 +489,111 @@ impl Drop for ExtraLock {
     }
 }
 
-fn extra_admission(list: usize, inventory_owner: bool) -> Result<(), Rejection> {
+/// Initialized semantic fields of BaseExtraList; native padding is never read
+/// directly. Owned roots and guarded child headers feed the same spine policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ExtraHeader {
+    head: usize,
+    presence: [u8; CACHE_ENTRIES.div_ceil(8)],
+}
+
+impl ExtraHeader {
+    fn copy(reader: &mut RegionReader, list: usize) -> Result<Self, Rejection> {
+        // Followed list pointers retain the full existing 32-byte admission.
+        let image = reader.copy::<32>(list, Access::Read)?;
+        let mut presence = [0; CACHE_ENTRIES.div_ceil(8)];
+        presence.copy_from_slice(&image[8..8 + CACHE_ENTRIES.div_ceil(8)]);
+        Ok(Self {
+            head: image_word(&image, 4) as usize,
+            presence,
+        })
+    }
+
+    /// Read only initialized fields of the native owner's embedded object.
+    ///
+    /// # Safety
+    /// The caller must retain a live initialized BaseExtraList and either own
+    /// exclusive access or hold the engine's extra lock through this read.
+    unsafe fn read_owned(list: usize) -> Self {
+        Self {
+            // SAFETY: The native constructor initializes this head and all
+            // presence bytes. Unrelated vtable and padding bytes are excluded.
+            head: unsafe { (list as *const u8).add(4).cast::<u32>().read_unaligned() } as usize,
+            presence: unsafe {
+                (list as *const u8)
+                    .add(8)
+                    .cast::<[u8; CACHE_ENTRIES.div_ceil(8)]>()
+                    .read_unaligned()
+            },
+        }
+    }
+
+    fn has_type(&self, kind: usize) -> bool {
+        kind < CACHE_ENTRIES && self.presence[kind / 8] & (1 << (kind % 8)) != 0
+    }
+
+    fn present_types(&self) -> impl Iterator<Item = usize> + '_ {
+        self.presence
+            .iter()
+            .enumerate()
+            .flat_map(|(index, byte)| {
+                let mut bits = *byte;
+                std::iter::from_fn(move || {
+                    if bits == 0 {
+                        return None;
+                    }
+                    let bit = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    Some(index * 8 + bit)
+                })
+            })
+            .take_while(|kind| *kind < CACHE_ENTRIES)
+    }
+}
+
+fn extra_admission(reader: &mut RegionReader, list: usize) -> Result<(), Rejection> {
     let _lock = ExtraLock::acquire();
-    let mut reader = RegionReader::default();
-    let list_image = reader.copy::<32>(list, Access::Read)?;
+    let header = ExtraHeader::copy(reader, list)?;
+    extra_cached_admission(reader, list, header, false)
+}
+
+/// The caller holds ExtraLock and retains the header's native object lifetime.
+/// Exact cache helpers mutate their own metadata only, without a provider call.
+fn extra_cached_admission(
+    reader: &mut RegionReader,
+    list: usize,
+    header: ExtraHeader,
+    inventory_owner: bool,
+) -> Result<(), Rejection> {
+    // With no head and no consumable presence bit, native lookup cannot consume
+    // a cached result. Do not query native TLS or initialize a cache image.
+    if header.head == 0 && header.present_types().next().is_none() {
+        return Ok(());
+    }
     let query: CacheQuery = unsafe { std::mem::transmute(native::CACHE_QUERY_ADDRESS) };
     let mut cached = [0usize; CACHE_ENTRIES];
-    for (kind, pointer) in cached.iter_mut().enumerate() {
-        if list_image[8 + kind / 8] & (1 << (kind % 8)) == 0 {
-            continue;
-        }
-        // The native query never dereferences the returned extra. It owns its
-        // existing per-thread generation check; we never inspect TLS storage.
-        // Native lookup also gates cache use on this presence bit. Absent
-        // types cannot be consumed, including on a completely empty list.
-        *pointer = unsafe { query(list as *mut c_void, kind as u32) } as usize;
+    for kind in header.present_types() {
+        // Native query returns a pointer without dereferencing its payload.
+        // Its existing generation check remains the authority for TLS reuse.
+        cached[kind] = unsafe { query(list as *mut c_void, kind as u32) } as usize;
     }
-    extra_image_admission(&mut reader, list, inventory_owner, cached)
+    extra_image_admission(reader, header, inventory_owner, cached)
 }
 
 fn extra_image_admission(
     reader: &mut RegionReader,
-    list: usize,
+    header: ExtraHeader,
     inventory_owner: bool,
     mut cached: [usize; CACHE_ENTRIES],
 ) -> Result<(), Rejection> {
-    let list_image = reader.copy::<32>(list, Access::Read)?;
-    // Cached results are relevant only when the presence gate permits lookup.
-    for (kind, pointer) in cached.iter_mut().enumerate() {
-        if list_image[8 + kind / 8] & (1 << (kind % 8)) == 0 {
-            *pointer = 0;
-        }
-    }
-    let mut current = image_word(&list_image, 4) as usize;
+    let mut current = header.head;
     let mut checkpoint = current;
     let mut power = 1usize;
     let mut distance = 0usize;
     while current != 0 {
         let image = reader.copy::<12>(current, Access::Read)?;
         let kind = image[4] as usize;
-        if kind < CACHE_ENTRIES && cached[kind] == current {
+        if header.has_type(kind) && cached[kind] == current {
             cached[kind] = 0;
         }
         if inventory_owner && matches!(kind, 0x3D | 0x41) {
@@ -536,7 +625,8 @@ fn extra_image_admission(
         }
         current = next;
     }
-    for (kind, pointer) in cached.into_iter().enumerate() {
+    for kind in header.present_types() {
+        let pointer = cached[kind];
         if pointer != 0 {
             return Err(Rejection::CachedExtraOutsideChain(kind as u32, pointer));
         }
@@ -576,6 +666,157 @@ mod tests {
         vtable: u32,
         kind: u32,
         next: u32,
+    }
+
+    #[test]
+    fn production_extra_headers_preserve_owned_fields_and_guard_followed_pointers() {
+        let mut image = [0u8; 32];
+        image[4..8].copy_from_slice(&7u32.to_le_bytes());
+        for kind in [0usize, 0x15, 0x92, 0x97] {
+            image[8 + kind / 8] |= 1 << (kind % 8);
+        }
+        // Both production mechanisms consume the same initialized semantic
+        // fields. Spare bits beyond the native cache range are not cache types.
+        let owned = unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) };
+        let copied = ExtraHeader::copy(&mut RegionReader::default(), image.as_ptr() as usize)
+            .expect("guarded header");
+        assert_eq!(owned, copied);
+        assert_eq!(owned.present_types().collect::<Vec<_>>(), [0, 0x15, 0x92]);
+        assert!(matches!(
+            extra_image_admission(
+                &mut RegionReader::default(),
+                owned,
+                false,
+                [0; CACHE_ENTRIES],
+            ),
+            Err(Rejection::Memory(_))
+        ));
+        assert!(matches!(
+            ExtraHeader::copy(&mut RegionReader::default(), 7),
+            Err(Rejection::Memory(_))
+        ));
+
+        // Empty heads must still reject a relevant cached pointer outside the
+        // chain. Conversely an absent type never consumes its stale cache slot.
+        image[4..8].copy_from_slice(&0u32.to_le_bytes());
+        let mut cached = [0; CACHE_ENTRIES];
+        cached[0x15] = 7;
+        let header = unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) };
+        assert_eq!(
+            extra_image_admission(&mut RegionReader::default(), header, false, cached),
+            Err(Rejection::CachedExtraOutsideChain(0x15, 7))
+        );
+        image[8 + 0x15 / 8] &= !(1 << (0x15 % 8));
+        let header = unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) };
+        assert_eq!(
+            extra_image_admission(&mut RegionReader::default(), header, false, cached),
+            Ok(())
+        );
+
+        // An exclusively owned empty fixture has no native cache service to
+        // consume. Spare presence bits must not turn it into a cache lookup.
+        image.fill(0);
+        image[26] = 0x80;
+        let empty = unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) };
+        assert_eq!(
+            extra_cached_admission(
+                &mut RegionReader::default(),
+                image.as_ptr() as usize,
+                empty,
+                true,
+            ),
+            Ok(())
+        );
+
+        let size = native_system_layout().page_size as usize;
+        let pages = Pages(unsafe { virtual_reserve_commit(None, size) });
+        assert!(!pages.0.is_null());
+        let mut protection = virtual_query(pages.0).expect("query fixture").protect;
+        protection.0 = 0x104;
+        unsafe {
+            with_virtual_protect(pages.0, protection, size, || {
+                assert!(ExtraHeader::copy(&mut RegionReader::default(), pages.0 as usize).is_err());
+                assert_eq!(
+                    virtual_query(pages.0).expect("guard remains").protect.0,
+                    0x104
+                );
+            })
+        }
+        .expect("scope fixture guard");
+    }
+
+    #[test]
+    #[ignore = "offline native-owned record admission timing; run serially with --nocapture"]
+    fn production_record_admission_timing() {
+        use std::{hint::black_box, time::Instant};
+
+        let count = 32868;
+        let mut forms = vec![[0u8; 5]; count];
+        for form in &mut forms {
+            // Native 0x00401170 consumes exactly this initialized type byte.
+            // Non-reference records never enter the native extra/cache helpers.
+            form[4] = 0x29;
+        }
+        let mut samples = [0.0; 5];
+        for sample in &mut samples {
+            let started = Instant::now();
+            for form in &forms {
+                assert_eq!(
+                    unsafe { reference_extra_admission(black_box(form.as_ptr() as usize)) },
+                    Ok(())
+                );
+            }
+            *sample = started.elapsed().as_secs_f64() * 1e6;
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "record admission: records={count}, rounds=5, us/round min={:.1} median={:.1} max={:.1}",
+            samples[0], samples[2], samples[4]
+        );
+    }
+
+    #[test]
+    #[ignore = "offline production save-admission timing; run serially with --nocapture"]
+    fn production_reference_extra_prefix_timing() {
+        use std::{hint::black_box, time::Instant};
+
+        for (count, length) in [(32868, 0), (4096, 4)] {
+            let mut extras: Vec<_> = (0..length)
+                .map(|_| Extra {
+                    vtable: 0,
+                    kind: 0x16,
+                    next: 0,
+                })
+                .collect();
+            for index in 1..length {
+                extras[index - 1].next = &extras[index] as *const Extra as u32;
+            }
+            let mut list = [0u32; 8];
+            if length != 0 {
+                list[1] = extras.as_ptr() as u32;
+            }
+            let mut samples = [0.0; 5];
+            for sample in &mut samples {
+                let started = Instant::now();
+                for _ in 0..count {
+                    assert_eq!(
+                        extra_image_admission(
+                            &mut RegionReader::default(),
+                            unsafe { ExtraHeader::read_owned(black_box(list.as_ptr() as usize)) },
+                            true,
+                            [0; CACHE_ENTRIES],
+                        ),
+                        Ok(())
+                    );
+                }
+                *sample = started.elapsed().as_secs_f64() * 1e6;
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "reference extra prefix: lists={count}, links={length}, rounds=5, us/round min={:.1} median={:.1} max={:.1}",
+                samples[0], samples[2], samples[4]
+            );
+        }
     }
 
     #[test]
@@ -708,7 +949,7 @@ mod tests {
         assert_eq!(
             extra_image_admission(
                 &mut RegionReader::default(),
-                image.as_ptr() as usize,
+                unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) },
                 false,
                 cached
             ),
@@ -718,7 +959,7 @@ mod tests {
         assert_eq!(
             extra_image_admission(
                 &mut RegionReader::default(),
-                image.as_ptr() as usize,
+                unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) },
                 false,
                 cached
             ),
@@ -730,7 +971,7 @@ mod tests {
         assert!(matches!(
             extra_image_admission(
                 &mut RegionReader::default(),
-                image.as_ptr() as usize,
+                unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) },
                 false,
                 cached
             ),
@@ -741,7 +982,7 @@ mod tests {
         assert!(matches!(
             extra_image_admission(
                 &mut RegionReader::default(),
-                image.as_ptr() as usize,
+                unsafe { ExtraHeader::read_owned(image.as_ptr() as usize) },
                 false,
                 cached
             ),
@@ -760,7 +1001,7 @@ mod tests {
         assert_eq!(
             extra_image_admission(
                 &mut RegionReader::default(),
-                list.as_ptr() as usize,
+                unsafe { ExtraHeader::read_owned(list.as_ptr() as usize) },
                 true,
                 [0; CACHE_ENTRIES],
             ),
@@ -797,7 +1038,7 @@ mod tests {
             assert_eq!(
                 extra_image_admission(
                     &mut RegionReader::default(),
-                    list.as_ptr() as usize,
+                    unsafe { ExtraHeader::read_owned(list.as_ptr() as usize) },
                     true,
                     cached
                 ),
@@ -815,7 +1056,7 @@ mod tests {
                     assert!(matches!(
                         extra_image_admission(
                             &mut RegionReader::default(),
-                            list.as_ptr() as usize,
+                            ExtraHeader::read_owned(list.as_ptr() as usize),
                             true,
                             cached
                         ),
