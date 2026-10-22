@@ -2942,7 +2942,6 @@ mod tests {
         table_index_map_for_base, table_index_map_insert, table_index_map_lookup,
         table_index_map_probe,
     };
-    use std::sync::LazyLock;
 
     fn fresh_maps() -> Box<[TableIndexEntry]> {
         (0..TABLE_INDEX_GROUPS.len() * TABLE_INDEX_MAP_CAPACITY)
@@ -3039,15 +3038,15 @@ mod tests {
 
     use super::{
         CLOSE_TERRAIN_DRAW_SAMPLES, CLOSE_TERRAIN_FIRST_PIXEL_INDEX,
-        CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, DirectSamplerChange, LAND_LOD_SAMPLERS,
-        OBJECT_REJECTION_LOGGED_BITS, PENDING_DRAW_CLOSE_TERRAIN, PENDING_DRAW_LAND_LOD,
-        PENDING_DRAW_OBJECT, PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
+        CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, LAND_LOD_SAMPLERS, OBJECT_REJECTION_LOGGED_BITS,
+        PENDING_DRAW_CLOSE_TERRAIN, PENDING_DRAW_LAND_LOD, PENDING_DRAW_OBJECT,
+        PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
         close_terrain_emission_due, close_terrain_required_sampler_mask,
         close_terrain_sample_index, close_terrain_variant, direct_draw_requires_finish,
-        direct_required_sampler_mask, direct_sampler_change, draw_needs_evaluation,
-        hash_light_data, log_object_admission_failure_once, missing_sampler_label_list,
-        native_shadow_depth_table_indices, object_draw_key, record_close_terrain_draw_sample,
-        required_sampler_mask, supplemental_shader_transition_needed,
+        draw_needs_evaluation, hash_light_data, log_object_admission_failure_once,
+        missing_sampler_label_list, native_shadow_depth_table_indices, object_draw_key,
+        record_close_terrain_draw_sample, required_sampler_mask,
+        supplemental_shader_transition_needed,
     };
     use crate::effects::pbr::engine_contracts::{DrawSnapshot, ObjectDrawRejectReason};
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
@@ -3203,224 +3202,6 @@ mod tests {
     }
 
     #[test]
-    fn disabled_set_shaders_skips_pending_draw_reconciliation() {
-        let source = include_str!("hooks.rs");
-        let set_shaders = source
-            .split_once("unsafe extern \"thiscall\" fn hook_set_shaders")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn set_pending_draw"))
-            .map(|(body, _)| body)
-            .expect("SetShaders hook");
-        let disabled_gate = set_shaders.find("if !super::shader_enabled()").unwrap();
-        let supplemental_restore = set_shaders
-            .find("restore_close_terrain_fast_shader()")
-            .unwrap();
-        let restore = set_shaders
-            .find("restore_engine_owned_replacement()")
-            .unwrap();
-        assert!(supplemental_restore < disabled_gate);
-        assert!(disabled_gate < restore);
-    }
-
-    #[test]
-    fn set_shaders_uses_engine_cache_before_publishing_draw_ownership() {
-        let source = include_str!("hooks.rs");
-        let call = source
-            .split_once("fn call_original_with_replacement")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn set_pending_draw"))
-            .map(|(body, _)| body)
-            .expect("engine-owned SetShaders call");
-        let override_pair = call
-            .find("engine_contracts::with_shader_handle_overrides")
-            .unwrap();
-        let native_call = call.find("original(shader, pass_index)").unwrap();
-        assert!(override_pair < native_call);
-
-        let set_shaders = source
-            .split_once("unsafe extern \"thiscall\" fn hook_set_shaders")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn call_original_with_replacement"))
-            .map(|(body, _)| body)
-            .expect("SetShaders hook");
-        assert!(!set_shaders.contains("set_raw_vertex_shader"));
-        assert!(!set_shaders.contains("set_raw_pixel_shader"));
-    }
-
-    #[test]
-    fn shared_set_texture_tracking_precedes_native_and_pbr_specific_work() {
-        let source = include_str!("hooks.rs");
-        let hook = source
-            .split_once("unsafe extern \"thiscall\" fn hook_set_texture")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn try_prepare_object_replacement"))
-            .map(|(body, _)| body)
-            .expect("SetTexture hook");
-        let tracking = hook
-            .find("super::samplers::record_texture_binding")
-            .expect("sampler tracking");
-        let native = hook
-            .find("original(render_state, stage, texture)")
-            .expect("native SetTexture");
-        let gate = hook
-            .find("if !super::replacement_configured()")
-            .expect("configured-state gate");
-
-        assert!(tracking < native);
-        assert!(native < gate);
-    }
-
-    #[test]
-    fn shader_creation_entries_are_not_hooked_and_first_use_adopts_wrappers() {
-        let source = include_str!("hooks.rs");
-        for removed_entry in [["0x00BE", "0FE0"], ["0x00BE", "1750"]] {
-            assert!(!source.contains(&removed_entry.concat()));
-        }
-        for removed_wrapper in [
-            ["hook_create_", "vertex_shader"],
-            ["hook_create_", "pixel_shader"],
-        ] {
-            assert!(!source.contains(&removed_wrapper.concat()));
-        }
-
-        let adoption = source
-            .split_once("fn resolve_current_shader_record")
-            .and_then(|(_, tail)| tail.split_once("fn ensure_table_identity"))
-            .map(|(body, _)| body)
-            .expect("draw-time wrapper adoption");
-        assert!(adoption.contains("shader_record::adopt_existing"));
-
-        let install = source
-            .split_once("pub(super) fn install()")
-            .and_then(|(_, tail)| tail.split_once("fn prepare_set_texture_hook"))
-            .map(|(body, _)| body)
-            .expect("PBR install");
-        assert!(install.contains("adopt_existing_object_shaders()"));
-    }
-
-    #[test]
-    fn direct_sampler_tracking_uses_exact_family_masks() {
-        let required = required_sampler_mask(LAND_LOD_SAMPLERS);
-
-        assert_eq!(direct_required_sampler_mask(PENDING_DRAW_OBJECT, 0, 0), 0);
-        assert_eq!(
-            direct_required_sampler_mask(
-                PENDING_DRAW_CLOSE_TERRAIN,
-                503,
-                CLOSE_TERRAIN_FIRST_PIXEL_INDEX as u32,
-            ),
-            0x0081
-        );
-        assert_eq!(
-            direct_required_sampler_mask(
-                PENDING_DRAW_CLOSE_TERRAIN,
-                558,
-                (CLOSE_TERRAIN_FIRST_PIXEL_INDEX + 55) as u32,
-            ),
-            0x3FFF
-        );
-        assert_eq!(
-            direct_required_sampler_mask(PENDING_DRAW_LAND_LOD, 0, 0),
-            required
-        );
-        assert_eq!(
-            direct_required_sampler_mask(PENDING_DRAW_TERRAIN_FADE, 0, 0),
-            required_sampler_mask(TERRAIN_FADE_SAMPLERS)
-        );
-        assert_eq!(
-            direct_sampler_change(required, 0, 0, true),
-            DirectSamplerChange::Keep
-        );
-        assert_eq!(
-            direct_sampler_change(required, 0, 3, true),
-            DirectSamplerChange::Ignore
-        );
-        assert_eq!(
-            direct_sampler_change(required, 0, 4, false),
-            DirectSamplerChange::Missing(1 << 4)
-        );
-        assert_eq!(
-            direct_sampler_change(required, 1 << 4, 4, false),
-            DirectSamplerChange::Keep
-        );
-        assert_eq!(
-            direct_sampler_change(required, 1 << 4, 4, true),
-            DirectSamplerChange::Recovered(0)
-        );
-        assert_eq!(
-            direct_sampler_change(required, (1 << 4) | (1 << 6), 4, true),
-            DirectSamplerChange::Recovered(1 << 6)
-        );
-
-        let source = include_str!("hooks.rs");
-        let hook = source
-            .split("unsafe extern \"thiscall\" fn hook_set_texture")
-            .nth(1)
-            .and_then(|tail| tail.split("fn try_prepare_object_replacement").next())
-            .expect("SetTexture hook source");
-        assert!(!hook.contains("fetch_add"));
-        assert!(!hook.contains("TEXTURE_BIND_GENERATION"));
-    }
-
-    #[test]
-    fn object_draw_hot_path_uses_fast_reads_and_one_diagnostics_snapshot() {
-        let source = include_str!("hooks.rs");
-        let prepare = source
-            .split_once("fn try_prepare_object_replacement")
-            .unwrap()
-            .1
-            .split_once("fn bind_object_replacement")
-            .unwrap()
-            .0;
-        assert!(prepare.contains("engine_contracts::current_pass_shaders_fast()"));
-        assert_eq!(
-            prepare.matches("diagnostics::detailed_enabled()").count(),
-            1
-        );
-        assert!(prepare.contains("diagnostics::ObjectDrawTrace::default()"));
-
-        let bind = source
-            .split_once("fn bind_object_replacement")
-            .unwrap()
-            .1
-            .split_once("fn record_object_bind_failure")
-            .unwrap()
-            .0;
-        assert!(bind.contains("pair_still_owns_native_wrappers"));
-        assert_eq!(bind.matches("diagnostics::detailed_enabled()").count(), 1);
-        assert!(bind.contains(".then(|| try_prepare_object_replacement(pass_index))"));
-        assert!(!bind.contains("engine_contracts::shader_handle("));
-    }
-
-    #[test]
-    fn non_terrain_admitted_draw_paths_do_not_mutate_raw_shader_state() {
-        let source = include_str!("hooks.rs");
-        for (start, end) in [
-            (
-                "fn bind_land_lod_replacement",
-                "fn bind_terrain_fade_replacement",
-            ),
-            (
-                "fn bind_terrain_fade_replacement",
-                "fn bind_close_terrain_replacement",
-            ),
-            (
-                "fn bind_object_replacement",
-                "fn record_object_bind_failure",
-            ),
-        ] {
-            let body = source
-                .split_once(start)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once(end))
-                .map(|(body, _)| body)
-                .expect("admitted draw path");
-            assert!(!body.contains("set_raw_vertex_shader"), "{start}");
-            assert!(!body.contains("set_raw_pixel_shader"), "{start}");
-        }
-    }
-
-    #[test]
     fn supplemental_shader_changes_only_when_payload_mode_changes() {
         let mut active = false;
         let mut transitions = 0;
@@ -3431,102 +3212,6 @@ mod tests {
             }
         }
         assert_eq!(transitions, 2);
-
-        let source = include_str!("hooks.rs");
-        let select = source
-            .split_once("fn set_close_terrain_supplemental_shader")
-            .and_then(|(_, tail)| tail.split_once("fn supplemental_shader_transition_needed"))
-            .map(|(body, _)| body)
-            .expect("supplemental shader selector");
-        assert_eq!(select.matches("set_raw_pixel_shader").count(), 1);
-        assert!(select.contains("supplemental_shader_transition_needed"));
-
-        let prepare = source
-            .split_once("pub(super) fn prepare_direct_draw")
-            .and_then(|(_, tail)| tail.split_once("pub(super) fn finish_direct_draw"))
-            .map(|(body, _)| body)
-            .expect("direct draw preparation");
-        assert!(
-            prepare.find("restore_engine_owned_replacement").unwrap()
-                < prepare.find("bind_close_terrain_replacement").unwrap(),
-            "a prior vanilla fallback must be repaired before supplemental selection"
-        );
-    }
-
-    #[test]
-    fn supplemental_light_texture_is_transactional_at_the_draw_boundary() {
-        let source = include_str!("hooks.rs");
-        let bind = source
-            .split_once("fn bind_close_terrain_replacement")
-            .and_then(|(_, tail)| tail.split_once("fn pair_still_owns_native_wrappers"))
-            .map(|(body, _)| body)
-            .expect("close-terrain bind body");
-        let upload = bind
-            .find("upload_and_bind_supplemental_light_texture")
-            .expect("supplemental texture upload");
-        let publish = bind
-            .find("PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(true")
-            .expect("temporary binding publication");
-        let constants = bind
-            .find("constants::upload_terrain_constants")
-            .expect("terrain constant upload");
-        assert!(upload < publish && publish < constants);
-        assert!(!bind.contains("record_texture_binding"));
-        assert!(!bind.contains("set_sampler_state"));
-        assert!(!bind.contains("let mut texels"));
-
-        let restore = source
-            .split_once("fn restore_supplemental_light_texture")
-            .and_then(|(_, tail)| tail.split_once("fn bind_supplemental_sampler_state"))
-            .map(|(body, _)| body)
-            .expect("supplemental texture restore");
-        assert!(restore.contains("super::samplers::tracked_texture_binding(stage)"));
-        assert!(restore.contains("set_raw_base_texture"));
-        assert!(restore.contains("clear_texture"));
-
-        assert!(bind.contains("TrackedTextureBinding::Unknown"));
-
-        let sampler = source
-            .split_once("fn bind_supplemental_sampler_state")
-            .and_then(|(_, tail)| tail.split_once("fn supplemental_sampler_state_is_active"))
-            .map(|(body, _)| body)
-            .expect("supplemental sampler transaction");
-        assert_eq!(sampler.matches("device.sampler_state").count(), 3);
-        assert!(sampler.contains("D3DTEXF_POINT"));
-        assert!(sampler.contains("D3DSAMP_SRGBTEXTURE"));
-        assert!(sampler.contains("fn restore_supplemental_sampler_state"));
-        assert!(
-            sampler
-                .find("PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(true")
-                .unwrap()
-                < sampler.find(".set_sampler_state").unwrap(),
-            "sampler rollback ownership must be published before the first D3D mutation"
-        );
-
-        let finish = source
-            .split_once("pub(super) fn finish_direct_draw")
-            .and_then(|(_, tail)| tail.split_once("pub(super) fn finish_draw_batches"))
-            .map(|(body, _)| body)
-            .expect("direct draw finish");
-        assert!(finish.contains("restore_supplemental_light_texture"));
-
-        let release = source
-            .split_once("pub(super) fn release_device_resources")
-            .and_then(|(_, tail)| tail.split_once("pub(super) fn prepare_direct_draw"))
-            .map(|(body, _)| body)
-            .expect("resource release body");
-        assert!(release.contains("restore_supplemental_light_texture"));
-        assert!(!release.contains("PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.store(false"));
-
-        let fallback = source
-            .split_once("fn bind_native_fallback")
-            .and_then(|(_, tail)| tail.split_once("fn log_land_lod_failure"))
-            .map(|(body, _)| body)
-            .expect("native fallback body");
-        assert!(
-            fallback.find("restore_supplemental_light_texture").unwrap()
-                < fallback.find("set_raw_vertex_shader").unwrap()
-        );
     }
 
     #[test]

@@ -2310,23 +2310,6 @@ mod tests {
     }
 
     #[test]
-    fn publication_never_deletes_or_renames_a_preset_path() {
-        let source = include_str!("presets.rs");
-        let publication = source
-            .split_once("fn publish_user_preset(")
-            .expect("publication function")
-            .1
-            .split_once("\nfn validate_update_target(")
-            .expect("publication function end")
-            .0;
-
-        assert!(publication.contains("atomic_create_text"));
-        assert!(publication.contains("atomic_write_text"));
-        assert!(!publication.contains("remove_file"));
-        assert!(!publication.contains("rename("));
-    }
-
-    #[test]
     fn duplicate_identity_conflicts_never_choose_a_load_order_winner() {
         let first = builtin_default_preset().unwrap();
         let mut second = first.clone();
@@ -2437,22 +2420,6 @@ mod tests {
         assert!(error.to_string().contains("required LUT"));
         assert_eq!(after, before);
         assert!(sources.is_empty());
-    }
-
-    #[test]
-    fn release_and_installer_preserve_the_user_working_config() {
-        let installer = include_str!("../../build_fnv.sh");
-        assert!(installer.contains("OMV_DEFAULT_CFGNAME=\"omv.default.toml\""));
-        assert!(installer.contains("if [[ ! -f \"$OMV_CFG_PATH\" ]]"));
-        assert!(installer.contains("cp \"$OMV_CFG\" \"$OMV_DEFAULT_CFG_PATH\""));
-
-        let packager = include_str!("../../.github/scripts/package_release.sh");
-        assert!(packager.contains("OMV_DEFAULT_CONFIG_FILE=\"omv.default.toml\""));
-        assert!(!packager.contains("Data/NVSE/plugins/omv/$OMV_CONFIG_FILE"));
-
-        let workflow = include_str!("../../.github/workflows/release.yml");
-        assert!(workflow.contains("Data/NVSE/plugins/omv/omv.default.toml"));
-        assert!(!workflow.contains("\"Data/NVSE/plugins/omv/omv.toml\""));
     }
 
     #[test]

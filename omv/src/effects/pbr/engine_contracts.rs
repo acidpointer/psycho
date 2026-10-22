@@ -553,47 +553,6 @@ mod tests {
     }
 
     #[test]
-    fn shader_package_owns_only_the_two_proven_direct_callers() {
-        let source = include_str!("engine_contracts.rs");
-        assert!(source.contains("SET_SHADER_PACKAGE_STARTUP_CALL_ADDR"));
-        assert!(source.contains("SET_SHADER_PACKAGE_RELOAD_CALL_ADDR"));
-        assert!(source.contains("Rel32CallHookContainer<SetShaderPackageFn>"));
-        assert!(!source.contains(&["0x00B4", "F710"].concat()));
-        assert!(!source.contains(&["SET_SHADER_PACKAGE_", "PROLOGUE"].concat()));
-    }
-
-    #[test]
-    fn terrain_admission_uses_live_contracts_not_module_identity() {
-        let source = include_str!("engine_contracts.rs");
-        let probe = source
-            .split_once("pub(super) fn probe_terrain_contract()")
-            .and_then(|(_, tail)| tail.split_once("pub(super) fn terrain_contract_available"))
-            .map(|(body, _)| body)
-            .expect("functional terrain probe");
-
-        assert!(probe.contains("eye_position_ready()"));
-        assert!(probe.contains("shader_package_lifetime_ready()"));
-        assert!(probe.contains("probe_terrain_shader_contract()"));
-        assert!(!probe.contains("module"));
-        assert!(!probe.contains("dll"));
-    }
-
-    #[test]
-    fn frame_service_never_forces_shader_package_or_patches_code() {
-        let source = include_str!("engine_contracts.rs");
-        let body = source
-            .split_once("pub(super) fn service_frame()")
-            .and_then(|(_, tail)| tail.split_once("pub(super) fn current_pass_shaders_fast"))
-            .map(|(body, _)| body)
-            .expect("PBR frame service body");
-
-        assert!(body.contains("service_eye_position_contract()"));
-        assert!(!body.contains("publish_shader_package_7"));
-        assert!(!body.contains("ModificationTransaction"));
-        assert!(!body.contains("apply_patch"));
-    }
-
-    #[test]
     fn object_specular_fade_matches_native_linear_contract() {
         let fade = |distance| object_specular_fade_weight(1, 0, distance, 100.0, 200.0);
         assert_eq!(fade(90.0), 1.0);

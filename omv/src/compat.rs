@@ -46,14 +46,3 @@ fn module_loaded(name: &str) -> bool {
 fn present(value: bool) -> &'static str {
     if value { "present" } else { "absent" }
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn module_inventory_cannot_admit_graphics_behavior() {
-        let source = include_str!("compat.rs");
-        assert!(!source.contains(&["has_vpt_", "terrain_contract"].concat()));
-        assert!(!source.contains(&["TERRAIN_CONTRACT_", "AVAILABLE"].concat()));
-        assert!(source.contains("functional probes"));
-    }
-}

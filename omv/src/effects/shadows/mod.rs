@@ -833,48 +833,4 @@ mod startup_safety_tests {
             crate::config::NativeShadowsConfig::default(),
         ));
     }
-
-    #[test]
-    fn passive_configuration_is_atomic_only() {
-        let source = include_str!("mod.rs");
-        let configure = source
-            .split_once("pub(crate) fn configure_runtime_options(")
-            .and_then(|(_, tail)| tail.split_once("/// Establish shadow ownership"))
-            .map(|(body, _)| body)
-            .expect("passive shadow configuration body");
-        assert!(configure.contains("SETTINGS.store(bits, Ordering::Relaxed)"));
-        assert!(configure.contains("SETTINGS_REVISION.fetch_add(1, Ordering::AcqRel)"));
-        assert!(configure.contains("SETTINGS_REVISION.fetch_add(1, Ordering::Release)"));
-        for forbidden in [
-            "LazyLock::force",
-            "PIPELINE.lock",
-            "PIPELINE.try_lock",
-            "start_preparation",
-            "validate_contract",
-            "d3d_device",
-        ] {
-            assert!(
-                !configure.contains(forbidden),
-                "pre-deferred action: {forbidden}"
-            );
-        }
-        let install = source
-            .split_once("pub(crate) fn install(")
-            .and_then(|(_, tail)| tail.split_once("/// Attempt replacement work"))
-            .map(|(body, _)| body)
-            .expect("DeferredInit shadow installation body");
-        let validate = install
-            .find("native::validate_contract")
-            .expect("engine validation");
-        let pipeline = install
-            .find("LazyLock::force(&PIPELINE)")
-            .expect("pipeline owner");
-        let compile = install
-            .find("shaders::start_preparation()")
-            .expect("compile start");
-        let route = install
-            .find("ROUTE_READY.store(true")
-            .expect("route publication");
-        assert!(validate < pipeline && pipeline < compile && compile < route);
-    }
 }

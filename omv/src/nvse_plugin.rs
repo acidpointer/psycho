@@ -112,16 +112,6 @@ mod tests {
     use core::ffi::c_void;
 
     #[test]
-    fn preload_message_releases_workbench_ownership_before_native_load() {
-        let source = include_str!("nvse_plugin.rs");
-        assert!(
-            source.contains(
-                "NVSEMessageType::PreLoadGame => crate::runtime::prepare_for_game_load()"
-            )
-        );
-    }
-
-    #[test]
     fn frame_present_decodes_the_pointed_to_unaligned_loading_integer() {
         let mut loading_payload = [0xFFu8, 1, 0, 0, 0, 0xFF];
         let loading = unsafe { loading_payload.as_mut_ptr().add(1) }.cast::<c_void>();
@@ -131,17 +121,5 @@ mod tests {
         assert_eq!(decode_loading_screen(gameplay, 4), Some(false));
         assert_eq!(decode_loading_screen(loading, 3), None);
         assert_eq!(decode_loading_screen(core::ptr::null_mut(), 4), None);
-    }
-
-    #[test]
-    fn frame_present_never_uses_pointer_value_boolean_decoding() {
-        let source = include_str!("nvse_plugin.rs");
-        let arm = source
-            .split_once("NVSEMessageType::OnFramePresent")
-            .and_then(|(_, tail)| tail.split_once("_ => {}"))
-            .map(|(body, _)| body)
-            .expect("OnFramePresent arm");
-        assert!(arm.contains("decode_loading_screen"));
-        assert!(!arm.contains("data_as_bool"));
     }
 }

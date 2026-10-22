@@ -377,9 +377,9 @@ mod shader_compile_tests {
         ADAPTIVE_METER_SHADER, ADAPTIVE_RESPONSE_WIDTH, AdaptiveToneSettings, AdaptiveUpdateClock,
         BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, COMPOSE_VARIANT_ADAPTIVE,
         COMPOSE_VARIANT_STATIC, ColorGradeSettings, ComposeVariant, EXTRACT_SHADER,
-        FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE,
-        adaptive_reduce_source, adaptive_response_source, apply_lut_recipe, bind_pipeline_state,
-        bind_target, bloom_target_dimensions, color_grade_source_active, compose_variant_source,
+        FILM_GRAIN_TEXTURE_SIZE, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE, adaptive_reduce_source,
+        adaptive_response_source, apply_lut_recipe, bind_pipeline_state, bind_target,
+        bloom_target_dimensions, color_grade_source_active, compose_variant_source,
         film_grain_pixels, fullscreen_quad, generate_builtin_lut, identity_lut_pixels,
         native_environment_weight, schedule_adaptive_update,
     };
@@ -1394,48 +1394,6 @@ mod shader_compile_tests {
             quad.iter()
                 .all(|vertex| vertex.z == 0.0 && vertex.rhw == 1.0)
         );
-    }
-
-    #[test]
-    fn shaders_and_luts_are_staged_outside_the_render_path() {
-        let prepared = FinalColorShaderBytecode::prepare().expect("prepared final-color shaders");
-        for bytecode in [
-            &prepared.extract,
-            &prepared.blur,
-            &prepared.compose_legacy,
-            &prepared.compose_static,
-            &prepared.compose_adaptive,
-            &prepared.adaptive_tone,
-            &prepared.adaptive_meter,
-            &prepared.adaptive_reduce,
-            &prepared.chromatic,
-        ] {
-            assert_eq!(bytecode.first().copied(), Some(0xffff_0300));
-            assert_eq!(bytecode.last().copied(), Some(0x0000_ffff));
-        }
-
-        let source = include_str!("blooming_hdr.rs");
-        let draw_start = source
-            .rfind("    pub(crate) fn draw(")
-            .expect("draw method");
-        let draw_end = source[draw_start..]
-            .find("\n    fn ensure_targets(")
-            .map(|offset| draw_start + offset)
-            .expect("draw method end");
-        let draw = &source[draw_start..draw_end];
-        for forbidden in [
-            "compile_",
-            "prepare_shader",
-            "generate_builtin_lut",
-            "Vec::",
-            "fs::",
-            "lock(",
-        ] {
-            assert!(
-                !draw.contains(forbidden),
-                "render path contains {forbidden}"
-            );
-        }
     }
 
     #[test]

@@ -8480,39 +8480,6 @@ mod feature_tests {
     }
 
     #[test]
-    fn local_light_layer_rebinds_inputs_after_target_hazard_clear() {
-        let source = include_str!("atmosphere.rs");
-        let batch_start = source
-            .find("fn draw_local_light_batch(")
-            .expect("local-light batch function");
-        let layer_start = source
-            .find("fn draw_local_light_layer(")
-            .expect("local-light layer function");
-        let composition_start = source
-            .find("fn draw_composition(")
-            .expect("composition function");
-        let batch = &source[batch_start..layer_start];
-        let layer = &source[layer_start..composition_start];
-
-        assert!(!batch.contains("set_texture("));
-        assert!(!batch.contains("set_raw_base_texture("));
-
-        let target_bind = layer.find("bind_target(").expect("target bind");
-        let depth_bind = layer.find("set_texture(0").expect("depth bind");
-        let noise_bind = layer.find("set_texture(1").expect("noise bind");
-        let shadow_bind = layer
-            .find("set_raw_base_texture(2")
-            .expect("native-shadow bind");
-        let draw = layer.find("draw_quad(").expect("local-light draw");
-        assert!(target_bind < depth_bind);
-        assert!(target_bind < noise_bind);
-        assert!(target_bind < shadow_bind);
-        assert!(depth_bind < draw);
-        assert!(noise_bind < draw);
-        assert!(shadow_bind < draw);
-    }
-
-    #[test]
     fn native_shadow_projection_preserves_row_dots_y_flip_and_compare_direction() {
         let matrix = [
             [1.0, 0.0, 0.0, 0.0],

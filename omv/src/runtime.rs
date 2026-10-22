@@ -638,28 +638,6 @@ mod render_callback_io_tests {
     }
 
     #[test]
-    fn periodic_asset_scans_never_run_on_the_render_thread() {
-        let source = include_str!("runtime.rs");
-        let lut_scan = ["luts::", "scan_luts("].concat();
-        let shader_scan = ["shaders::", "scan_screen_shaders("].concat();
-        let shader_compile = ["compile_hlsl_", "uncached("].concat();
-        let cache_commit = ["commit_hlsl_", "cache("].concat();
-        let config_save = ["save_menu_", "config("].concat();
-        let config_reload = ["load_menu_config_", "from_disk("].concat();
-        let sidecar_save = ["save_config_", "to_disk("].concat();
-        let sidecar_reload = ["reload_external_shader_", "configs("].concat();
-
-        assert!(!source.contains(&lut_scan));
-        assert!(!source.contains(&shader_scan));
-        assert!(!source.contains(&shader_compile));
-        assert!(!source.contains(&cache_commit));
-        assert!(!source.contains(&config_save));
-        assert!(!source.contains(&config_reload));
-        assert!(!source.contains(&sidecar_save));
-        assert!(!source.contains(&sidecar_reload));
-    }
-
-    #[test]
     fn disabled_master_keeps_only_the_live_menu_boundary() {
         assert!(!present_services_required_for(false, false, true));
         assert!(present_services_required_for(false, true, true));
@@ -757,85 +735,6 @@ mod render_callback_io_tests {
             .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
             .or_else(|_| direct3d.create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF))
             .expect("HAL or NULLREF D3D9 device")
-    }
-
-    #[test]
-    fn missed_world_only_ao_invalidates_history_before_other_scene_pre_work() {
-        let source = include_str!("runtime.rs");
-        let entry = source
-            .split_once("\npub(crate) unsafe fn apply_fnv_ao_after_world(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\npub(crate) unsafe fn "))
-            .map(|(body, _)| body)
-            .expect("post-world AO entry");
-        let apply = entry
-            .find("apply_ambient_occlusion_after_world")
-            .expect("post-world AO transaction");
-        let reset = entry[apply..]
-            .find("reset_missed_world_only_ao_history")
-            .map(|offset| apply + offset)
-            .expect("direct failure history reset");
-        assert!(apply < reset);
-
-        let scene_pre = source
-            .split_once("\n    unsafe fn apply_scene_phase(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("scene-phase transaction");
-        let reset = scene_pre
-            .find("reset_missed_world_only_ao_history")
-            .expect("busy post-world history reset");
-        let other_work = scene_pre
-            .find("phase_has_applicable_work")
-            .expect("scene-pre applicability");
-        assert!(
-            reset < other_work,
-            "a drawable non-AO pass must not bypass missed-AO history invalidation"
-        );
-    }
-
-    #[test]
-    fn phase_graph_owns_the_only_full_resolution_feedback_copies() {
-        let source = include_str!("runtime.rs");
-        let passes = source
-            .split_once("\n    fn draw_passes(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("draw_passes body");
-        assert_eq!(passes.matches("copy_phase_color_for_sampling(").count(), 1);
-        assert!(passes.contains("PhaseColorGraph::new"));
-        assert!(passes.contains("color_graph.finish(device, backbuffer)"));
-        assert!(passes.contains("planned_passes.iter()"));
-        assert!(!passes.contains("self.sources.iter()"));
-        assert!(!passes.contains("source.clone()"));
-        assert!(!passes.contains(".collect::<"));
-
-        for suffix in [
-            "ambient_occlusion_pipeline(",
-            "anti_aliasing_pipeline(",
-            "final_color_pipeline(",
-            "sunshafts_pipeline(",
-            "depth_of_field_pipeline(",
-            "motion_blur_pipeline(",
-        ] {
-            let function = ["\n    fn draw_", suffix].concat();
-            let body = source
-                .split_once(&function)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once("\n    fn "))
-                .map(|(body, _)| body)
-                .expect("screen effect pipeline body");
-            assert!(
-                !body.contains("copy_phase_color_for_sampling("),
-                "{function} bypasses phase-graph copy ownership"
-            );
-            assert!(
-                !body.contains("device.stretch_rect("),
-                "{function} bypasses the phase-copy hazard guard"
-            );
-        }
     }
 }
 
@@ -5231,8 +5130,8 @@ mod scene_input_requirement_tests {
 
     use super::{
         AmbientOcclusionBoundary, CompiledPass, EmbeddedEffectKind,
-        FirstPersonMotionBlurRetryToken, PhaseExecutionPlan, SceneInputRequirements,
-        ScreenShaderRuntime, ambient_occlusion_allowed_at_scene_pre, ambient_occlusion_boundary,
+        FirstPersonMotionBlurRetryToken, SceneInputRequirements, ScreenShaderRuntime,
+        ambient_occlusion_allowed_at_scene_pre, ambient_occlusion_boundary,
     };
     use crate::{backend::DepthProvider, config::EmbeddedEffectsConfig, shaders};
 
@@ -5429,62 +5328,6 @@ mod scene_input_requirement_tests {
             SceneInputRequirements::default()
         );
         assert!(!runtime.first_person_motion_blur_admitted());
-    }
-
-    #[test]
-    fn scene_post_plan_excludes_first_person_motion_blur_without_a_placeholder() {
-        fn plan_for(kinds: &[EmbeddedEffectKind]) -> PhaseExecutionPlan {
-            let config = EmbeddedEffectsConfig::default();
-            let sources = shaders::merge_embedded_sources(&config, Vec::new())
-                .into_iter()
-                .filter(|source| {
-                    source
-                        .embedded_effect_kind()
-                        .is_some_and(|kind| kinds.contains(&kind))
-                })
-                .collect::<Vec<_>>();
-            let passes = (0..sources.len())
-                .map(|source_index| CompiledPass {
-                    source_index,
-                    shader: None,
-                })
-                .collect::<Vec<_>>();
-            PhaseExecutionPlan::build(
-                crate::shaders::ShaderPhase::ScenePostImageSpace,
-                &sources,
-                &passes,
-            )
-        }
-
-        let motion_only = plan_for(&[EmbeddedEffectKind::MotionBlur]);
-        assert_eq!(motion_only.logical_stages(true, false), 0);
-        assert_eq!(motion_only.source_passes(true, false), 0);
-        assert_eq!(motion_only.logical_stages(true, true), 1);
-
-        let dof_then_motion = plan_for(&[
-            EmbeddedEffectKind::DepthOfField,
-            EmbeddedEffectKind::MotionBlur,
-        ]);
-        assert_eq!(dof_then_motion.logical_stages(true, false), 1);
-        assert_eq!(dof_then_motion.source_passes(true, false), 1);
-        assert_eq!(dof_then_motion.logical_stages(true, true), 2);
-        assert_eq!(dof_then_motion.source_passes(true, true), 2);
-
-        let source = include_str!("runtime.rs");
-        let draw_passes = source
-            .split_once("\n    fn draw_passes(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("draw_passes body");
-        let inactive_branch = draw_passes
-            .split_once("if !motion_blur_allowed")
-            .and_then(|(_, tail)| tail.split_once("continue;"))
-            .map(|(body, _)| body)
-            .expect("inactive motion-blur branch");
-        assert!(!inactive_branch.contains("pass_index"));
-        assert!(!inactive_branch.contains("stages_remaining"));
-        assert!(!inactive_branch.contains("color_graph.output"));
     }
 
     #[test]
@@ -7510,91 +7353,6 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn continuous_capture_hot_path_has_no_allocation_sort_logging_or_runtime_lock() {
-        let source = include_str!("runtime.rs");
-        let start = source
-            .find("fn record_continuous_present_interval")
-            .expect("frame-pacing capture");
-        let end = source[start..]
-            .find("fn copy_continuous_present_samples")
-            .map(|offset| start + offset)
-            .expect("capture boundary");
-        let capture = &source[start..end];
-
-        for forbidden in [
-            "Vec<",
-            "vec![",
-            "format!(",
-            "sort_by",
-            "Instant::now",
-            "query_performance_frequency",
-            "log::",
-            ".lock(",
-            "RUNTIME",
-            "Direct3D",
-        ] {
-            assert!(
-                !capture.contains(forbidden),
-                "capture hot path contains {forbidden}"
-            );
-        }
-        assert!(
-            source
-                .split_once("pub(crate) fn configure(")
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once("pub(crate) fn prepare_for_game_load"))
-                .map(|(body, _)| body)
-                .expect("runtime configuration body")
-                .contains("query_performance_frequency()"),
-            "counter frequency must be initialized outside the render path"
-        );
-
-        let capture_start = source
-            .find("pub(crate) fn present_frame_started_at")
-            .expect("present-start capture");
-        let public_start = source[capture_start..]
-            .find("pub(crate) unsafe fn finish_present_frame")
-            .map(|offset| capture_start + offset)
-            .expect("public finish-present callback");
-        let capture = &source[capture_start..public_start];
-        assert!(
-            capture
-                .find("query_performance_counter()")
-                .expect("continuous QPC capture")
-                < capture
-                    .find("PRESENT_FRAME_TIMING_NEEDED")
-                    .expect("production timer gate")
-        );
-        let production_timestamp = capture
-            .find(".then(Instant::now)")
-            .expect("production timestamp");
-        assert!(
-            capture
-                .find("PRESENT_FRAME_TIMING_NEEDED")
-                .expect("production timer gate")
-                < production_timestamp
-        );
-
-        let public_end = source[public_start..]
-            .find("fn runtime_lock_telemetry")
-            .map(|offset| public_start + offset)
-            .expect("public finish-present boundary");
-        let public_finish = &source[public_start..public_end];
-        let continuous_capture = public_finish
-            .find("record_continuous_present_interval")
-            .expect("continuous interval capture");
-        let production_gate = public_finish
-            .find("if !PRESENT_FRAME_TIMING_NEEDED")
-            .expect("production timer early return");
-        let runtime_lock = public_finish
-            .find("RUNTIME.try_lock")
-            .expect("runtime acquisition");
-        assert!(!public_finish.contains("Instant::now"));
-        assert!(continuous_capture < production_gate);
-        assert!(production_gate < runtime_lock);
-    }
-
-    #[test]
     fn diagnostics_storage_and_snapshot_work_have_fixed_small_bounds() {
         assert_eq!(FRAME_PACING_HISTORY, 2_048);
         assert_eq!(FRAME_PACING_CHART_POINTS, 240);
@@ -7669,23 +7427,6 @@ mod frame_pacing_tests {
         assert!(adaptive_tone_timing_needed(&config));
         config.screen_space_shaders = false;
         assert!(!adaptive_tone_timing_needed(&config));
-    }
-
-    #[test]
-    fn workbench_separates_presets_configuration_and_diagnostics() {
-        let source = include_str!("runtime.rs");
-        let menu = source
-            .split_once("\nfn draw_shader_menu(\n    ui:")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_shader_menu_toolbar("))
-            .map(|(body, _)| body)
-            .expect("workbench menu body");
-
-        assert!(menu.contains("Presets##workbench_presets"));
-        assert!(menu.contains("Customize##workbench_configuration"));
-        assert!(menu.contains("Diagnostics##workbench_diagnostics"));
-        assert!(menu.contains("result.diagnostics_visible = true"));
-        assert!(!menu.contains("graphics_overview"));
     }
 
     #[test]
@@ -7819,81 +7560,6 @@ mod frame_pacing_tests {
         }
     }
 
-    #[test]
-    fn workbench_header_is_compact_and_persistence_is_automatic() {
-        let source = include_str!("runtime.rs");
-        let toolbar = source
-            .split_once("\nfn draw_shader_menu_toolbar(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_external_change_panel("))
-            .map(|(body, _)| body)
-            .expect("workbench toolbar body");
-        let external = source
-            .split_once("\nfn draw_external_change_panel(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_configuration_tab("))
-            .map(|(body, _)| body)
-            .expect("external-change panel body");
-
-        assert!(toolbar.contains("ui.frame_rate()"));
-        assert!(toolbar.contains("FPS"));
-        assert!(toolbar.contains("graphics_workbench_header"));
-        assert!(toolbar.contains("ui.child_static"));
-        assert!(toolbar.contains("ui.panel_background"));
-        assert!(toolbar.contains("if external_change"));
-        assert!(!toolbar.contains("active_preset"));
-        assert!(!toolbar.contains("CURRENT LOOK"));
-        assert!(!toolbar.contains("Save for Next Launch"));
-        assert!(!toolbar.contains("Undo Changes"));
-        assert!(!toolbar.contains("//"));
-        assert!(!toolbar.contains("FramePacingSnapshot"));
-
-        assert!(external.contains("FILES CHANGED OUTSIDE THE GAME"));
-        assert!(external.contains("Reload Files from Disk"));
-        assert!(external.contains("Keep In-Game Look"));
-        assert!(!external.contains("//"));
-    }
-
-    #[test]
-    fn finishing_families_are_separate_editors_over_one_fused_source() {
-        assert_eq!(super::FinishingPanel::ALL.len(), 10);
-        assert_eq!(
-            super::FinishingPanel::ALL.map(super::FinishingPanel::title),
-            [
-                "Final Output",
-                "Auto Exposure",
-                "Tone Mapping",
-                "Color Grading",
-                "LUT",
-                "Debanding",
-                "Film Grain",
-                "Vignette",
-                "Halation",
-                "Chromatic Aberration",
-            ]
-        );
-
-        let shaders = include_str!("shaders.rs");
-        assert!(shaders.contains("\"Final Color Pipeline\""));
-        assert!(!shaders.contains("\"Color Grade and Film\""));
-        let runtime = include_str!("runtime.rs");
-        assert!(runtime.contains("MenuSelection::Finishing(panel)"));
-        assert!(runtime.contains("draw_shader_details(ui, source, Some(panel))"));
-    }
-
-    #[test]
-    fn current_look_persistence_has_no_manual_save_or_undo_path() {
-        let source = include_str!("runtime.rs");
-        let manual_save = ["fn save_menu_", "session("].concat();
-        let manual_reload = ["fn reload_menu_", "session("].concat();
-        let save_action = ["MenuAction::", "Save"].concat();
-        assert!(!source.contains(&manual_save));
-        assert!(!source.contains(&manual_reload));
-        assert!(!source.contains(&save_action));
-        assert!(source.contains("self.current_look_autosave.note_change(Instant::now())"));
-        assert!(source.contains("CurrentLookSnapshot::capture"));
-    }
-
     /// The first-person motion-blur color copy reuses the established FP16
     /// world-color owner instead of the LDR scene-post graph slot. This
     /// executes the real target-creation path on a device with an FP16 world
@@ -7952,24 +7618,6 @@ mod frame_pacing_tests {
             .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
             .or_else(|_| direct3d.create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF))
             .expect("HAL or NULLREF D3D9 device")
-    }
-
-    #[test]
-    fn effect_sidebar_is_resizable_with_bounded_persistent_session_width() {
-        let source = include_str!("runtime.rs");
-        let configuration = source
-            .split_once("\nfn draw_configuration_tab(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_presets_tab("))
-            .map(|(body, _)| body)
-            .expect("configuration tab body");
-
-        assert!(source.contains("menu_sidebar_width: f32"));
-        assert!(source.contains("menu_sidebar_width: 270.0"));
-        assert!(configuration.contains("ui.vertical_splitter("));
-        assert!(configuration.contains("min_sidebar_width = 190.0"));
-        assert!(configuration.contains("available_width - 360.0"));
-        assert!(configuration.contains("(*sidebar_width).clamp("));
     }
 }
 

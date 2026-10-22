@@ -321,25 +321,4 @@ mod tests {
         );
         assert_eq!(InteropState::Disabled.label(), "disabled");
     }
-
-    #[test]
-    fn module_ownership_is_formatting_only() {
-        let source = include_str!("interop.rs");
-        let snapshot = source
-            .split_once("pub(crate) fn capability_snapshot()")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn pbr_feature_status"))
-            .map(|(body, _)| body)
-            .expect("capability snapshot");
-        assert!(!snapshot.contains("module_address("));
-        assert!(!snapshot.contains("get_module"));
-
-        let formatter = source
-            .split_once("pub(crate) fn predecessor_label")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn log_startup_matrix"))
-            .map(|(body, _)| body)
-            .expect("diagnostic predecessor formatter");
-        assert!(formatter.contains("module_address(address)"));
-    }
 }

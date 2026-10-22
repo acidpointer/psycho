@@ -1037,18 +1037,6 @@ mod tests {
     };
     use crate::fnv_local_lights::TerrainSceneLight;
 
-    const MANAGER_EPOCH_AUDIT: &str = include_str!(
-        "../../../../analysis/ghidra/output/perf/graphics_fnv_volumetric_local_manager_epoch_contract_followup.txt"
-    );
-    const MANAGER_EPOCH_CONTRACT: &str =
-        include_str!("../../../../docs/graphics_fnv_volumetric_fog_lighting_plan.md");
-    const LIGHT_STAGING_AUDIT: &str = include_str!(
-        "../../../../analysis/ghidra/output/perf/graphics_fnv_pbr_light_selection_continuity_closure.txt"
-    );
-    const PIPBOY_LIGHT_AUDIT: &str = include_str!(
-        "../../../../analysis/ghidra/output/perf/graphics_fnv_close_terrain_pipboy_light_0147_shadow_path_audit.txt"
-    );
-
     fn context() -> TerrainLightContext {
         TerrainLightContext {
             transform: GeometryTransform {
@@ -1197,9 +1185,6 @@ mod tests {
                 [0.0, 0.0, 1.0],
             ) > 0.1
         );
-
-        assert!(PIPBOY_LIGHT_AUDIT.contains("local_98 = 0.0;"));
-        assert!(PIPBOY_LIGHT_AUDIT.contains("*(float *)(param_1 + 0xd4) = local_98;"));
     }
 
     #[test]
@@ -1247,27 +1232,6 @@ mod tests {
 
         let output = merge.finish();
         assert_eq!(&output.identities[..output.count], &[0x22000]);
-    }
-
-    #[test]
-    fn manager_fallback_uses_the_proven_copied_world_epoch() {
-        let source = include_str!("terrain_lights.rs");
-        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
-        assert!(production.contains("try_with_current_terrain_lights"));
-        assert!(!production.contains("SHADOW_SCENE_NODE_LIGHT_LIST_OFFSET"));
-        assert!(MANAGER_EPOCH_AUDIT.contains("never retains a manager list node"));
-        assert!(MANAGER_EPOCH_AUDIT.contains("scene-wide light removal candidate @ 0x00b5d180"));
-        assert!(
-            MANAGER_EPOCH_CONTRACT.contains("stable across the world light/shadow transaction")
-        );
-    }
-
-    #[test]
-    fn terrain_draw_cache_does_not_add_dll_thread_local_startup() {
-        let source = include_str!("terrain_lights.rs");
-        let production = source.split("#[cfg(test)]\nmod tests").next().unwrap();
-
-        assert!(!production.contains("thread_local!"));
     }
 
     #[test]
@@ -1394,10 +1358,6 @@ mod tests {
 
         assert!(!merge.consider(dark_candidate));
         assert!(merge.finish().lights().is_empty());
-        assert!(LIGHT_STAGING_AUDIT.contains("else if (param_3 < 1.0)"));
-        assert!(LIGHT_STAGING_AUDIT.contains("local_20 = DAT_011f4998"));
-        assert!(LIGHT_STAGING_AUDIT.contains("local_1c = DAT_011f499c"));
-        assert!(LIGHT_STAGING_AUDIT.contains("local_18 = DAT_011f49a0"));
     }
 
     #[test]

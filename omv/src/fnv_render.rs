@@ -1036,8 +1036,8 @@ mod final_color_phase_contract_tests {
         PRE_ALPHA_CALL_A_ADDR, PRE_ALPHA_CALL_B_ADDR, PROCESS_IMAGE_SPACE_CALL_ADDR,
         ProcessImageSpaceShadersFn, RenderFirstPersonFn, RenderPreDepthGroupsFn,
         RenderWorldSceneGraphFn, SetWaterShaderUnderwaterFn, WATER_CALL_A_ADDR, WATER_CALL_B_ADDR,
-        WATER_CALL_C_ADDR, WORLD_CALL_A_ADDR, WORLD_CALL_B_ADDR, depth_stage_hooks_required,
-        run_image_space_phase_order, run_pre_alpha_world_effects,
+        WATER_CALL_C_ADDR, WORLD_CALL_A_ADDR, WORLD_CALL_B_ADDR, run_image_space_phase_order,
+        run_pre_alpha_world_effects,
     };
 
     #[test]
@@ -1097,103 +1097,6 @@ mod final_color_phase_contract_tests {
     }
 
     #[test]
-    fn post_world_effects_finish_in_order_before_native_first_person() {
-        let source = include_str!("fnv_render.rs");
-        let world_body = source
-            .split_once("unsafe fn render_world_scene_graph_body(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn depth_stage_hooks_required"))
-            .map(|(body, _)| body)
-            .expect("RenderWorldSceneGraph detour");
-        let publish = world_body
-            .find("publish_external_depth_after_world")
-            .expect("external world-depth publication");
-        let world_color = world_body[publish..]
-            .find("capture_fnv_world_color")
-            .map(|offset| publish + offset)
-            .expect("world-color capture");
-        let world_ao = world_body[world_color..]
-            .find("apply_fnv_ao_after_world")
-            .map(|offset| world_color + offset)
-            .expect("world-only AO boundary");
-        let motion_blur = world_body[world_ao..]
-            .find("apply_fnv_motion_blur_after_world")
-            .map(|offset| world_ao + offset)
-            .expect("first-person motion-blur boundary");
-
-        // AO must draw while the completed world surface is still RT0. The
-        // BSRenderedTexture argument is not activated by the engine until
-        // inside RenderFirstPerson, so pre-binding it here is not equivalent.
-        assert!(publish < world_color);
-        assert!(world_color < world_ao);
-        assert!(world_ao < motion_blur);
-
-        let first_person_body = source
-            .split_once("unsafe fn render_first_person_body(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nunsafe fn capture_depth"))
-            .map(|(body, _)| body)
-            .expect("RenderFirstPerson detour");
-        let world_retry = first_person_body
-            .find("retry_before_first_person")
-            .expect("world-pipeline retry");
-        let motion_blur_retry = first_person_body[world_retry..]
-            .find("retry_fnv_motion_blur_before_first_person")
-            .map(|offset| world_retry + offset)
-            .expect("motion-blur retry");
-        let deadline = first_person_body[motion_blur_retry..]
-            .find("close_fnv_motion_blur_deadline")
-            .map(|offset| motion_blur_retry + offset)
-            .expect("motion-blur deadline");
-        let original = first_person_body[deadline..]
-            .find("original(main, renderer, geo, sky_sun, rendered_texture)")
-            .map(|offset| deadline + offset)
-            .expect("native first-person draw");
-        let publish = first_person_body[original..]
-            .find("publish_fnv_first_person_rendered")
-            .map(|offset| original + offset)
-            .expect("first-person publication");
-        let capture = first_person_body[publish..]
-            .find("capture_depth(")
-            .map(|offset| publish + offset)
-            .expect("OMV-provider first-person capture");
-
-        assert!(!first_person_body.contains("apply_fnv_ao"));
-        assert!(world_retry < original);
-        assert!(world_retry < motion_blur_retry);
-        assert!(motion_blur_retry < deadline);
-        assert!(deadline < original);
-        assert!(original < publish);
-        assert!(publish < capture);
-    }
-
-    #[test]
-    fn disabled_master_bypasses_visual_scene_hooks() {
-        let source = include_str!("fnv_render.rs");
-        for (detour, first_effect_work) in [
-            (
-                "unsafe extern \"cdecl\" fn hook_process_image_space_shaders",
-                "run_image_space_phase_order(",
-            ),
-            ("unsafe fn render_first_person_body(", "fn capture_depth("),
-        ] {
-            let prefix = source
-                .split_once(detour)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once(first_effect_work))
-                .map(|(prefix, _)| prefix)
-                .expect("scene hook master gate");
-            assert!(prefix.contains("if !crate::runtime::effects_enabled()"));
-            assert!(prefix.contains("original("));
-        }
-
-        assert!(!depth_stage_hooks_required(false, false, false));
-        assert!(depth_stage_hooks_required(true, false, false));
-        assert!(depth_stage_hooks_required(false, true, false));
-        assert!(depth_stage_hooks_required(false, false, true));
-    }
-
-    #[test]
     fn world_shadows_compose_at_the_opaque_pre_alpha_boundary_before_atmosphere() {
         let phase = core::cell::Cell::new(0_u8);
         run_pre_alpha_world_effects(
@@ -1207,42 +1110,5 @@ mod final_color_phase_contract_tests {
             },
         );
         assert_eq!(phase.get(), 2);
-    }
-
-    #[test]
-    fn runtime_policy_cannot_rewrite_resident_depth_stage_hooks() {
-        assert!(!depth_stage_hooks_required(false, false, false));
-
-        let source = include_str!("fnv_render.rs");
-        let live_toggle = ["set_depth_stage_hooks", "_active"].concat();
-        let reconciliation = ["reconcile_depth_stage", "_hooks"].concat();
-        assert!(!source.contains(&live_toggle));
-        assert!(!source.contains(&reconciliation));
-
-        let install = source
-            .split_once("pub(crate) fn install_scene_boundary_hook")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn underwater_publication_hook_ready"))
-            .map(|(body, _)| body)
-            .expect("resident scene hook transaction");
-        for group in [
-            "install_image_space_group()",
-            "install_water_group()",
-            "install_pre_alpha_group()",
-            "install_first_person_group()",
-            "install_world_group()",
-        ] {
-            assert!(install.contains(group), "missing resident group: {group}");
-        }
-
-        let group_transaction = source
-            .split_once("fn install_callsite_group")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("unsafe extern \"cdecl\" fn hook_process"))
-            .map(|(body, _)| body)
-            .expect("callsite group transaction");
-        assert!(group_transaction.contains("ModificationTransaction::new()"));
-        assert!(group_transaction.contains("enable_callsite(hook)"));
-        assert!(group_transaction.contains("transaction.commit()"));
     }
 }

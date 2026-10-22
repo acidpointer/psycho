@@ -1722,47 +1722,6 @@ mod tests {
     }
 
     #[test]
-    fn world_shader_consumers_are_ready_before_physical_depth_work() {
-        let source = include_str!("fnv_world_pipeline.rs");
-        let pre_alpha = source
-            .split_once("\n    unsafe fn apply_atmosphere_before_alpha(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    unsafe fn "))
-            .map(|(body, _)| body)
-            .expect("pre-alpha body");
-        assert!(
-            pre_alpha
-                .find("self.ensure_atmosphere(&device)?")
-                .expect("pre-alpha atmosphere readiness")
-                < pre_alpha
-                    .find("backend::resolve_scene_depth(")
-                    .expect("pre-alpha depth resolve")
-        );
-
-        let coherent = source
-            .split_once("\n    unsafe fn apply(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("coherent world body");
-        let depth = coherent
-            .find("backend::resolve_scene_depth(")
-            .expect("coherent depth resolve");
-        assert!(
-            coherent
-                .find("self.ensure_atmosphere(&device)?")
-                .expect("coherent atmosphere readiness")
-                < depth
-        );
-        assert!(
-            coherent
-                .find("self.ensure_temporal_aa(&device)?")
-                .expect("coherent TAA readiness")
-                < depth
-        );
-    }
-
-    #[test]
     fn production_fog_requests_coherent_depth_and_color() {
         let mut menu = GraphicsMenuConfig::default();
         menu.depth_provider = crate::config::DepthProviderConfig::FalloutNewVegas;

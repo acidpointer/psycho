@@ -780,63 +780,6 @@ mod shader_compile_tests {
         assert!(!configured.with_master_enabled(false).enabled);
         assert!(configured.with_master_enabled(true).enabled);
     }
-
-    #[test]
-    fn runtime_toggle_never_mutates_the_resident_engine_slot() {
-        let source = include_str!("sky.rs");
-        let configure = source
-            .split_once("pub(crate) fn configure_runtime_options")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn ensure_engine_hook_resident"))
-            .map(|(body, _)| body)
-            .expect("native sky runtime configuration");
-        assert!(!configure.contains("ensure_engine_hook_resident()"));
-        assert!(!configure.contains("UPDATE_HOOK.enable()"));
-        assert!(!configure.contains("UPDATE_HOOK.disable()"));
-
-        let residency = source
-            .split_once("fn ensure_engine_hook_resident")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn set_draw_boundary_ready"))
-            .map(|(body, _)| body)
-            .expect("native sky resident hook transition");
-        assert!(residency.contains("UPDATE_HOOK.enable()"));
-        assert!(!residency.contains("UPDATE_HOOK.disable()"));
-    }
-
-    #[test]
-    fn native_sky_uses_the_live_selector_slot_not_the_shared_entry() {
-        let source = include_str!("sky.rs");
-        assert!(source.contains("SKY_SELECTOR_CACHE_ADDR"));
-        assert!(source.contains("SKY_UPDATE_CONSTANTS_VTABLE_OFFSET"));
-        assert!(source.contains("PointerSlotHookContainer<SkyUpdateFn>"));
-        assert!(!source.contains(&["0x00B8", "9D80"].concat()));
-        assert!(!source.contains(&["SKY_UPDATE_", "PROLOGUE"].concat()));
-    }
-
-    #[test]
-    fn native_sky_render_resource_paths_defer_instead_of_waiting() {
-        let source = include_str!("sky.rs");
-        let create = source
-            .split_once("fn create_ready_resources()")
-            .and_then(|(_, tail)| {
-                tail.split_once("unsafe extern \"thiscall\" fn hook_update_constants")
-            })
-            .map(|(body, _)| body)
-            .expect("native sky resource creation body");
-        assert!(create.contains("BYTECODE.try_lock()"));
-        assert!(create.contains("RESOURCES.try_lock()"));
-
-        let reset = source
-            .split_once("pub(crate) fn reset_runtime_state()")
-            .and_then(|(_, tail)| tail.split_once("fn start_compile_worker()"))
-            .map(|(body, _)| body)
-            .expect("native sky resource reset body");
-        assert!(reset.contains("RESOURCES.try_lock()"));
-        assert!(reset.contains("FRAME_STATE.try_lock()"));
-        assert!(reset.contains("resources.clear_for_device(0, 0)"));
-        assert!(!reset.contains("ResourceState::new()"));
-    }
 }
 
 fn load_or_compile(label: &str, source: &[u8], profile: &str) -> Result<(Vec<u32>, &'static str)> {

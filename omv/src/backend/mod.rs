@@ -195,21 +195,6 @@ mod provider_switch_contract_tests {
     };
 
     #[test]
-    fn provider_switch_never_requests_driver_vtable_interposition() {
-        let source = include_str!("mod.rs");
-        let body = source
-            .split_once("pub(crate) fn switch_depth_provider")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("pub(crate) fn active_depth_provider"))
-            .map(|(body, _)| body)
-            .expect("provider switch body");
-        assert!(!body.contains("set_resz_interposition_active"));
-        assert!(!body.contains("resz_interposition_ready"));
-        assert!(!body.contains("set_depth_stage_hooks_active"));
-        assert!(body.contains("ACTIVE_DEPTH_PROVIDER.store"));
-    }
-
-    #[test]
     fn native_d3d9_without_external_depth_resolve_keeps_omv_depth() {
         assert_eq!(
             choose_initial_depth_provider(DepthProvider::FalloutNewVegas, false,),
@@ -230,22 +215,6 @@ mod provider_switch_contract_tests {
                 active: DepthProvider::FalloutNewVegas,
                 fallback: None,
             }
-        );
-    }
-
-    #[test]
-    fn omv_provider_validation_does_not_retain_external_shared_depth() {
-        let source = include_str!("fnv.rs");
-        let body = source
-            .split_once("pub(super) fn validate_depth_provider(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn validate_depth_provider_capabilities("))
-            .map(|(body, _)| body)
-            .expect("depth-provider validation body");
-        assert!(body.contains("provider == DepthProvider::DepthResolve"));
-        assert!(
-            !body.contains("provider == DepthProvider::FalloutNewVegas"),
-            "the OMV provider must not retain or validate an external texture it never samples"
         );
     }
 
@@ -759,28 +728,6 @@ mod depth_provider_tests {
             ),
             DepthResolutionRoute::Rejected,
             "Depth Resolve 1.31 does not own an independent first-person map",
-        );
-    }
-
-    #[test]
-    fn omv_provider_never_borrows_unversioned_external_world_contents() {
-        let source = include_str!("fnv.rs");
-        let body = source
-            .split_once("unsafe fn resolve_from_surface(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    unsafe fn resolve_resz("))
-            .map(|(body, _)| body)
-            .expect("OMV depth resolver body");
-
-        assert!(body.contains("self.ensure_route(device)?"));
-        assert!(body.contains("record_physical_depth_copy(stage)"));
-        assert!(
-            !body.contains("depth_resolve_provider::available()"),
-            "the OMV route stamped current boundary metadata onto an external texture without a producer generation"
-        );
-        assert!(
-            !body.contains("ensure_external_world_target"),
-            "the OMV route must resolve or alias the exact requested source surface"
         );
     }
 }

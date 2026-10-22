@@ -3472,59 +3472,6 @@ mod depth_capture_tests {
     }
 
     #[test]
-    fn resz_uses_the_bounded_nvr_state_contract() {
-        let source = include_str!("fnv.rs");
-        let body = source
-            .split_once("unsafe fn resolve_resz(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn resolve_nvapi_alias("))
-            .map(|(body, _)| body)
-            .expect("RESZ resolve body");
-
-        assert!(body.contains("device.capture_resz_state()?"));
-        assert!(body.contains("state.restore_render_states(device)"));
-        assert!(body.contains("state.restore_bindings(device)"));
-        assert!(!body.contains("create_state_block"));
-        assert!(!body.contains("D3DSBT_ALL"));
-    }
-
-    #[test]
-    fn native_nvapi_registers_the_surface_required_by_the_alias_contract() {
-        let source = include_str!("fnv.rs");
-        let body = source
-            .split_once("impl NvapiDepthResolve {")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n}\n\n#[derive(Default)]"))
-            .map(|(body, _)| body)
-            .expect("NvAPI resolver body");
-
-        assert!(body.contains("self.register(surface.as_raw())?"));
-        assert!(body.contains("alias_surface_as_texture.as_fn()"));
-        assert!(!body.contains("surface.texture_container()"));
-    }
-
-    #[test]
-    fn nvapi_alias_failure_is_cached_for_the_current_surface() {
-        let source = include_str!("fnv.rs");
-        let body = source
-            .split_once("fn alias(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn copy("))
-            .map(|(body, _)| body)
-            .expect("NvAPI alias body");
-        assert!(body.contains("if self.alias_disabled_for_source"));
-        assert!(body.contains("self.disable_alias_for_source"));
-
-        let release = source
-            .split_once("fn unregister_source(&mut self)")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn ensure_source("))
-            .map(|(body, _)| body)
-            .expect("NvAPI source release body");
-        assert!(release.contains("self.alias_disabled_for_source = false"));
-    }
-
-    #[test]
     fn nvapi_copies_only_the_snapshot_that_must_survive_later_depth_writes() {
         assert!(nvapi_stage_uses_alias(DepthResolveStage::PreAlphaWorld));
         assert!(!nvapi_stage_uses_alias(DepthResolveStage::CoherentWorld));

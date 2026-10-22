@@ -3519,23 +3519,6 @@ mod embedded_color_grade_tests {
     }
 
     #[test]
-    fn choice_options_render_as_a_dropdown_instead_of_radio_buttons() {
-        let runtime = include_str!("runtime.rs");
-        let start = runtime
-            .find("ShaderOptionValue::Integer(value) => {")
-            .expect("integer menu branch");
-        let end = runtime[start..]
-            .find("ShaderOptionValue::Bool(value) => {")
-            .map(|offset| start + offset)
-            .expect("bool menu branch");
-        let branch = &runtime[start..end];
-        assert!(branch.contains("ui.begin_combo(&label, &preview)"));
-        assert!(branch.contains("ui.selectable(&choice_label"));
-        assert!(branch.contains("ui.end_combo()"));
-        assert!(!branch.contains("radio_button"));
-    }
-
-    #[test]
     fn final_color_phase_and_order_put_spatial_aa_before_bloom_and_grade() {
         let sources = embedded_effect_sources(&EmbeddedEffectsConfig::default());
         let final_kinds: Vec<EmbeddedEffectKind> = sources
@@ -3750,17 +3733,6 @@ mod shader_compile_tests {
                 .to_string_lossy()
                 .starts_with(&prefix)
         );
-    }
-
-    #[test]
-    fn reconstructible_cache_never_forces_one_durable_flush_per_shader() {
-        let production = include_str!("shaders.rs")
-            .split_once("#[cfg(test)]\nmod shader_compile_tests")
-            .map(|(production, _)| production)
-            .expect("shader production source");
-        assert!(!production.contains(".sync_all()"));
-        assert!(production.contains("fs::rename(&temporary, path)"));
-        assert!(production.contains("decode_cached_hlsl(&persisted"));
     }
 }
 

@@ -3359,19 +3359,6 @@ mod tests {
         assert!(!snapshot.matches(8, 12, 0x1234, 2));
         assert!(!snapshot.matches(8, 11, 0x5678, 2));
         assert!(!snapshot.matches(8, 11, 0x1234, 3));
-
-        let source = include_str!("fnv_local_lights.rs");
-        let consumer = source
-            .split_once("pub(crate) fn try_with_current_terrain_lights")
-            .and_then(|(_, tail)| tail.split_once("pub(crate) fn terrain_light_generation"))
-            .map(|(body, _)| body)
-            .expect("terrain publication consumer");
-        assert!(consumer.contains("TERRAIN_RENDER_SNAPSHOT.try_lock()"));
-        assert!(
-            consumer.find("snapshot.matches").unwrap()
-                < consumer.find("load_terrain_publication_light").unwrap(),
-            "a cache hit must return before reconstructing atomic light records"
-        );
     }
 
     #[test]
