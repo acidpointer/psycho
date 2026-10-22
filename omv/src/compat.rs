@@ -25,7 +25,7 @@ impl GraphicsCompatibility {
     }
 
     pub(crate) fn log_report(self) {
-        log::info!(
+        log::debug!(
             "[COMPAT] Modules: VanillaPlusTerrain={}, FalloutShaderLoader={}, LODFlickerFix={}, DepthResolve={}",
             present(self.vanilla_plus_terrain),
             present(self.fallout_shader_loader),
@@ -33,7 +33,7 @@ impl GraphicsCompatibility {
             present(self.depth_resolve),
         );
 
-        log::info!(
+        log::debug!(
             "[COMPAT] Module inventory is diagnostic only; graphics capabilities use functional probes"
         );
     }

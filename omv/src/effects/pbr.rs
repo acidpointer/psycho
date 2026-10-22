@@ -426,7 +426,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
     hooks::install()?;
     let terrain_contract = engine_contracts::probe_terrain_contract();
-    log::info!(
+    log::debug!(
         "[PBR] Terrain resources available={terrain_contract}; material, fog and light inputs are validated per draw"
     );
     INSTALLED.store(hooks::hooks_ready(), Ordering::Release);

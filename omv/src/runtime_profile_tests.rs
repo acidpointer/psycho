@@ -6,6 +6,102 @@ use super::*;
 use crate::test_workspace::isolated;
 use std::{fs, time::Duration};
 
+#[test]
+fn builtin_activation_disables_debugging_and_persists_it() {
+    let Some(_workspace) =
+        isolated("runtime::profile_tests::builtin_activation_disables_debugging_and_persists_it")
+    else {
+        return;
+    };
+    libpsycho::logger::Logger::new()
+        .with_file_rotating("default-debug.log")
+        .with_level(log::LevelFilter::Debug)
+        .init()
+        .unwrap();
+    let mut runtime = runtime();
+    runtime.settings.menu_config.debug_log = true;
+    runtime.settings.menu_config.native_pbr.debug_log_draws = true;
+    let effects = &mut runtime.settings.menu_config.embedded_effects;
+    effects.fast_ao.debug_depth = true;
+    effects.volumetric_fog.debug_view = 8;
+    effects.volumetric_lighting.debug_view = 8;
+    effects.blooming_hdr.debug_bloom = true;
+    effects.color_grade.debug_split = true;
+    effects.sunshafts.debug_mask = true;
+    effects.nfaa.debug_view = 1;
+    effects.dlaa.debug_view = 1;
+    effects.smaa.debug_view = 1;
+    let mut shadows = crate::effects::shadows::runtime_config();
+    shadows.debug_logging = true;
+    shadows.interior_darkness = 0.37;
+    crate::effects::shadows::configure_runtime_options(shadows.into());
+    crate::graphics_diagnostics::set_profiler_active(true);
+    let user_key = create(&mut runtime, "Debug Session");
+    let user_index = runtime
+        .preset_ui
+        .catalog
+        .entries
+        .iter()
+        .position(|entry| entry.key().as_ref() == Some(&user_key))
+        .unwrap();
+    runtime.activate_preset(user_index);
+    assert!(runtime.settings.menu_config.debug_log);
+    assert!(runtime.settings.menu_config.native_pbr.debug_log_draws);
+    assert!(crate::effects::shadows::runtime_config().debug_logging);
+    assert!(crate::graphics_diagnostics::profiler_active());
+    crate::config::save_menu_config(&runtime.settings.menu_config).unwrap();
+    runtime.current_look_service = Some(CurrentLookService::start().unwrap());
+
+    let default = runtime
+        .preset_ui
+        .catalog
+        .entries
+        .iter()
+        .position(|e| e.built_in)
+        .unwrap();
+    runtime.activate_preset(default);
+    assert!(
+        runtime.preset_ui.error.is_none(),
+        "{:?}",
+        runtime.preset_ui.error
+    );
+    wait_for_durable(&mut runtime);
+    let saved: toml::Value =
+        toml::from_str(&fs::read_to_string(crate::config::CONFIG_PATH).unwrap()).unwrap();
+    fn assert_debug_off(value: &toml::Value) {
+        if let Some(table) = value.as_table() {
+            for (key, value) in table {
+                if key.starts_with("debug") {
+                    assert!(
+                        value.as_bool() == Some(false) || value.as_integer() == Some(0),
+                        "{key} = {value}"
+                    );
+                }
+                assert_debug_off(value);
+            }
+        }
+    }
+    assert_debug_off(&saved);
+    assert!(!crate::graphics_diagnostics::profiler_active());
+    assert_eq!(
+        crate::effects::shadows::runtime_config().interior_darkness,
+        0.37
+    );
+    assert!(
+        !crate::config::load_native_shadows_config_from_disk()
+            .unwrap()
+            .debug_logging
+    );
+    assert!(!log::log_enabled!(log::Level::Debug));
+    log::warn!("actionable warnings remain enabled");
+    libpsycho::logger::Logger::shutdown();
+    assert!(
+        fs::read_to_string("default-debug.log")
+            .unwrap()
+            .contains("actionable warnings remain enabled")
+    );
+}
+
 fn runtime() -> ScreenShaderRuntime {
     let mut runtime = ScreenShaderRuntime::default();
     runtime.color_luts.assets = crate::luts::shipped_luts_for_test()

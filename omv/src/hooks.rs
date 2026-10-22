@@ -118,9 +118,9 @@ pub(crate) fn install_engine_hooks() -> Result<()> {
     {
         log_presentation_profile(&device, "engine-hook-install");
     }
-    log::info!("[HOOKS] Recreate direct caller chained");
+    log::debug!("[HOOKS] Recreate direct caller chained");
     if geometry_ready {
-        log::info!("[HOOKS] Live RenderTriShape/RenderTriStrips vtable slots chained");
+        log::debug!("[HOOKS] Live RenderTriShape/RenderTriStrips vtable slots chained");
     } else {
         log::warn!(
             "[HOOKS] Geometry dispatch unavailable; PBR and native-sky draw replacement remain disabled"
@@ -276,7 +276,7 @@ pub(crate) fn install_window_proc(hwnd: *mut c_void) -> Result<()> {
 
     ORIGINAL_WNDPROC.store(previous as usize, Ordering::Release);
     WNDPROC_HWND.store(hwnd as usize, Ordering::Release);
-    log::info!("[HOOKS] Win32 WndProc hook installed");
+    log::debug!("[HOOKS] Win32 WndProc hook installed");
     Ok(())
 }
 

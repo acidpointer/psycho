@@ -124,8 +124,8 @@ pub(crate) fn depth_resolve_status(depth_provider: DepthProvider) -> DepthResolv
 }
 
 pub(crate) fn startup_log(depth_provider: DepthProvider) {
-    log::info!("[BACKEND] Active backend: Fallout New Vegas");
-    log::info!("[BACKEND] Depth provider: {}", depth_provider.label());
+    log::debug!("[BACKEND] Active backend: Fallout New Vegas");
+    log::debug!("[BACKEND] Depth provider: {}", depth_provider.label());
 }
 
 /// Activate the initial depth producer at xNVSE `DeferredInit`.

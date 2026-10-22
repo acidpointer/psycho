@@ -213,7 +213,7 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
     let requirements = world_config.requirements();
     let previous_requirements = REQUIREMENTS.swap(requirements, Ordering::Release);
     if previous_requirements != requirements {
-        log::info!(
+        log::debug!(
             "[FNV WORLD] Requirements updated: world_depth={}, world_color={}, temporal_aa={}, directional_shadows={}",
             requirements & REQUIRE_WORLD_DEPTH != 0,
             requirements & REQUIRE_WORLD_COLOR != 0,
@@ -357,7 +357,7 @@ pub(crate) unsafe fn apply_primary(device_ptr: *mut c_void) {
     let epoch = crate::hooks::render_epoch();
     let attempts = PRIMARY_ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1;
     if attempts == 1 {
-        log::info!(
+        log::debug!(
             "[FNV WORLD] Nonblocking epoch/target transaction active: primary world boundary with one pre-first-person retry"
         );
     }
@@ -495,12 +495,11 @@ pub(crate) fn finish_present(epoch: u32) {
         record_deadline_miss(epoch, "present");
     }
     let presents = PRESENTS.fetch_add(1, Ordering::Relaxed) + 1;
-    if presents % 600 == 0 {
+    if presents % 600 == 0 && log::log_enabled!(log::Level::Debug) {
         // Marker fields are legacy zeros now that OMV never interposes the
         // driver method; external snapshots and physical-copy counters carry
         // the current ownership evidence. Read them only at the existing
-        // 600-frame diagnostic cadence so ordinary frames gain no formatting
-        // work.
+        // 600-frame diagnostic cadence when verbose logging is requested.
         let markers = backend::provider_marker_counters();
         let depth_copies = backend::depth_copy_counters();
         let color_copies = crate::runtime::phase_color_copy_counters();
@@ -508,7 +507,7 @@ pub(crate) fn finish_present(epoch: u32) {
         if !reliability_activity_present(primary_attempts, markers) {
             return;
         }
-        log::info!(
+        log::debug!(
             "[FNV WORLD] Reliability: presents={}, provider={}, depth_hooks={}, d3d_device_vtable={}, draw_hooks={}, legacy_resz_omv={}, legacy_resz_external={}, legacy_resz_suppressed={}, external_snapshots={}, depth_copies=pre_alpha:{}/coherent:{}/first_person:{}/cache_hits:{}, nvapi=register:{}/aliases:{}/alias_fallbacks:{}/stretch_calls:{}/stretch_retries:{}, color_copies=phase_initial:{}/fallback_commit:{}, pre_alpha={}/busy={}/admission_skip={}, coherent_admission_skip={}, primary={}, applied={}, completed_no_draw={}, config_publish_busy={}, config_read_busy={}, jitter_busy={}, primary_busy={}, depth_busy={}, retries={}, retry_busy={}, retry_completed={}, target_rejected={}, outer_target_mismatch={}, deadline_missed={}, failures={}",
             presents,
             backend::active_depth_provider().label(),
@@ -1572,6 +1571,33 @@ pub(crate) fn temporal_jitter_pixels(sample_index: u64, scale: f32) -> [f32; 2] 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reliability_dump_requires_debug_logging() {
+        let Some(_workspace) = crate::test_workspace::isolated(
+            "fnv_world_pipeline::tests::reliability_dump_requires_debug_logging",
+        ) else {
+            return;
+        };
+        libpsycho::logger::Logger::new()
+            .with_file_rotating("world-log.log")
+            .with_level(log::LevelFilter::Debug)
+            .init()
+            .unwrap();
+        log::set_max_level(log::LevelFilter::Info);
+        super::PRIMARY_ATTEMPTS.store(1, std::sync::atomic::Ordering::Relaxed);
+        super::PRESENTS.store(599, std::sync::atomic::Ordering::Relaxed);
+        super::finish_present(1);
+        log::info!("end normal logging");
+        log::set_max_level(log::LevelFilter::Debug);
+        super::PRESENTS.store(1199, std::sync::atomic::Ordering::Relaxed);
+        super::finish_present(2);
+        libpsycho::logger::Logger::shutdown();
+        let text = std::fs::read_to_string("world-log.log").unwrap();
+        let (normal, debug) = text.split_once("end normal logging").unwrap();
+        assert!(!normal.contains("Reliability:"), "{normal}");
+        assert!(debug.contains("Reliability:"), "{debug}");
+    }
+
     #[test]
     fn directional_lighting_only_requests_world_shadow_maps_for_explicit_cascades() {
         let mut menu = crate::config::GraphicsMenuConfig::default();

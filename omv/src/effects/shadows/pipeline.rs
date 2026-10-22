@@ -863,7 +863,7 @@ impl ShadowPipeline {
                 if let Some(publication) = publication {
                     let branch = scene_branch_index(publication.scene);
                     if !self.production_logged[branch] {
-                        log::info!(
+                        log::debug!(
                             "[SHADOWS] {} maps produced for the common epoch ({} shadowed point lights)",
                             scene_branch_label(publication.scene),
                             publication.point_count
@@ -1327,7 +1327,7 @@ impl ShadowPipeline {
         if composed {
             let branch = scene_branch_index(publication.scene);
             if !self.composition_logged[branch] {
-                log::info!(
+                log::debug!(
                     "[SHADOWS] {} publication composed into scene color",
                     scene_branch_label(publication.scene)
                 );
@@ -2481,7 +2481,7 @@ impl ShadowResources {
                 };
                 match point_update {
                     Ok(Some(points)) => {
-                        log::info!(
+                        log::debug!(
                             "[SHADOWS] Local-light resources ready (lights={}, cube_resolution={}, retained_bytes={})",
                             requested,
                             resolution,
@@ -2497,7 +2497,7 @@ impl ShadowResources {
                         transition.point_resources_replaced = true;
                     }
                     Ok(None) => {
-                        log::info!(
+                        log::debug!(
                             "[SHADOWS] Local-light resources expanded (lights={}, cube_resolution={}, retained_bytes={})",
                             requested,
                             resolution,
@@ -2532,7 +2532,7 @@ impl ShadowResources {
             if self.directional.is_none() {
                 match DirectionalResources::create(device) {
                     Ok(directional) => {
-                        log::info!(
+                        log::debug!(
                             "[SHADOWS] Experimental sun resources ready ({} x {} EVSM4 cascades, {}x sampling)",
                             CASCADE_COUNT,
                             NVR_CASCADE_RESOLUTION,

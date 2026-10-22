@@ -2309,7 +2309,7 @@ impl ScreenShaderRuntime {
             crate::graphics_diagnostics::Family::AmbientOcclusion,
         );
         if !self.world_only_ao_info_logged {
-            log::info!("[AO] World-only-provider AO is drawing on the active post-world target");
+            log::debug!("[AO] World-only-provider AO is drawing on the active post-world target");
             self.world_only_ao_info_logged = true;
         } else if self.scene_apply_logs < 8 {
             log::debug!("[AO] Applied world-only-provider AO to the active post-world target");
@@ -3002,7 +3002,7 @@ impl ScreenShaderRuntime {
 
             match device.create_pixel_shader(bytecode) {
                 Ok(shader) => {
-                    log::info!("[SHADERS] Loaded screen pass '{}'", source.name);
+                    log::debug!("[SHADERS] Loaded screen pass '{}'", source.name);
                     passes.push(CompiledPass {
                         source_index,
                         shader: Some(shader),
@@ -3090,7 +3090,7 @@ impl ScreenShaderRuntime {
             *scratch_slot = Some(BackbufferCopy::create(device, desc)?);
         }
         if needs_copy || needs_scratch {
-            log::info!(
+            log::debug!(
                 "[SHADERS] Color graph targets: phase={}, size={}x{}, format=0x{:08X}",
                 phase.label(),
                 desc.Width,
@@ -3118,7 +3118,7 @@ impl ScreenShaderRuntime {
             // observe incompatible formats and recreate a 3440x1440 texture on
             // every frame. No new runtime/static owner is needed here.
             self.world_color_copy = Some(BackbufferCopy::create(device, desc)?);
-            log::info!(
+            log::debug!(
                 "[MOTION_BLUR] Post-world color target: {}x{}, format=0x{:08X}",
                 desc.Width,
                 desc.Height,
@@ -3156,7 +3156,7 @@ impl ScreenShaderRuntime {
 
         if needs_copy {
             self.world_color_copy = Some(BackbufferCopy::create(device, desc)?);
-            log::info!(
+            log::debug!(
                 "[SHADERS] FNV world color copy target: {}x{}",
                 desc.Width,
                 desc.Height
@@ -4765,6 +4765,21 @@ impl ScreenShaderRuntime {
         );
         match result {
             Ok(()) => {
+                if built_in {
+                    // Explicit default activation also ends local debugging.
+                    // Shared presets keep these machine/session preferences.
+                    self.settings.menu_config.debug_log = false;
+                    self.settings.menu_config.native_pbr.debug_log_draws = false;
+                    let mut shadows = crate::effects::shadows::runtime_config();
+                    if shadows.debug_logging {
+                        shadows.debug_logging = false;
+                        crate::effects::shadows::configure_runtime_options(shadows.into());
+                    }
+                    if crate::graphics_diagnostics::profiler_active() {
+                        crate::graphics_diagnostics::set_profiler_active(false);
+                    }
+                    log::set_max_level(log::LevelFilter::Info);
+                }
                 let external_sources = self
                     .sources
                     .iter()
@@ -10337,7 +10352,7 @@ fn log_shadow_menu_settings(
     graphics_master_enabled: bool,
 ) {
     let config = config.sanitized();
-    log::info!(
+    log::debug!(
         "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, dynamic_fade_seconds={:.3}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, light_distance={:.1}, receiver_bias={:.5}, debug_log={})",
         graphics_master_enabled && config.enabled,
         config.enabled,

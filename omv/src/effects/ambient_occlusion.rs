@@ -1291,7 +1291,7 @@ impl AmbientOcclusionEffect {
             .is_none_or(|targets| !targets.matches(width, height, format));
         if needs_targets {
             let targets = AmbientOcclusionTargets::create(device, width, height, format)?;
-            log::info!(
+            log::debug!(
                 "[AO] Intermediate targets: {}x{}, format={}, fallback={}",
                 width,
                 height,

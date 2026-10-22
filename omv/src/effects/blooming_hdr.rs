@@ -3032,7 +3032,7 @@ impl BloomingHdrEffect {
             create_argb_texture(device, asset.size * asset.size, asset.size, &asset.pixels)?;
         self.lut_texture = texture;
         self.lut_revision = Some(revision);
-        log::info!("[LUT] Uploaded {} ({}^3)", asset.file_name, asset.size);
+        log::debug!("[LUT] Uploaded {} ({}^3)", asset.file_name, asset.size);
         Ok(())
     }
 
@@ -3050,7 +3050,7 @@ impl BloomingHdrEffect {
             .is_none_or(|targets| !targets.matches(width, height, format));
         if needs_targets {
             self.targets = Some(BloomTargets::create(device, width, height, format)?);
-            log::info!("[BLOOM_HDR] Intermediate targets: {}x{}", width, height);
+            log::debug!("[BLOOM_HDR] Intermediate targets: {}x{}", width, height);
         }
 
         Ok(())

@@ -2514,8 +2514,6 @@ fn load_shader_file(
         dword_aligned_shader_bytecode(&bytes)?
     };
 
-    log::info!("[SHADERS] Loaded shader '{}'", path.display());
-
     Ok(ScreenShaderSource {
         kind: ScreenShaderSourceKind::ExternalFile,
         name: shader_name(path),
@@ -2704,7 +2702,7 @@ fn compile_hlsl_shader(path: &Path) -> Result<Vec<u32>> {
         },
         &source,
     )?;
-    log::info!(
+    log::debug!(
         "[SHADERS] Prepared HLSL shader '{}' from {}",
         path.display(),
         cached.origin.label()
@@ -3146,7 +3144,9 @@ fn cleanup_shader_cache_budget() {
     let mut obsolete_removed = 0usize;
     collect_shader_cache_files(&root, &mut files, &mut obsolete_removed);
     if obsolete_removed != 0 {
-        log::info!("[SHADER CACHE] Removed {obsolete_removed} obsolete cache or temporary file(s)");
+        log::debug!(
+            "[SHADER CACHE] Removed {obsolete_removed} obsolete cache or temporary file(s)"
+        );
     }
     let mut total_bytes = files.iter().map(|entry| entry.1).sum::<u64>();
     if total_bytes <= HLSL_CACHE_MAX_BYTES {
@@ -3169,7 +3169,7 @@ fn cleanup_shader_cache_budget() {
         }
     }
     if removed != 0 {
-        log::info!(
+        log::debug!(
             "[SHADER CACHE] Removed {removed} stale entries ({} files/{} bytes -> {remaining}/{total_bytes})",
             original_count,
             original_bytes

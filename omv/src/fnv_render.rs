@@ -120,7 +120,7 @@ pub(crate) fn install_scene_boundary_hook() -> Result<()> {
     WORLD_SCENE_HOOK_READY.store(states.world, Ordering::Release);
     PRE_ALPHA_HOOK_READY.store(states.pre_alpha, Ordering::Release);
     publish_depth_stage_hook_states(states);
-    log::info!(
+    log::debug!(
         "[FNV] Scene caller capabilities: image_space={image_space}, water={underwater}, world={world}, first_person={first_person}, pre_alpha={pre_alpha}"
     );
     Ok(())

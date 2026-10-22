@@ -895,7 +895,7 @@ pub(crate) fn install_hooks() {
             log::warn!(
                 "[ATMOSPHERE LOCAL] Optional completed-shadow caller unavailable at 0x{RENDER_LOCAL_SHADOW_CALL_ADDR:08X}; shadowless local volumes remain active: {err}"
             );
-            log::info!(
+            log::debug!(
                 "[ATMOSPHERE LOCAL] Scene-wide shadowless capture installed through three direct callers"
             );
             return;
@@ -911,7 +911,7 @@ pub(crate) fn install_hooks() {
     }
 
     SHADOW_HOOK_READY.store(true, Ordering::Release);
-    log::info!(
+    log::debug!(
         "[ATMOSPHERE LOCAL] Three scene-epoch callers and the completed-shadow caller chained"
     );
 }
@@ -961,7 +961,7 @@ fn prepare_world_light_callsites() -> bool {
 pub(crate) fn configure_atmosphere(enabled: bool) {
     let previous = ATMOSPHERE_CAPTURE_ENABLED.swap(enabled, Ordering::AcqRel);
     if previous != enabled {
-        log::info!(
+        log::debug!(
             "[ATMOSPHERE LOCAL] Volumetric capture {} by the world-effects contract",
             if enabled { "enabled" } else { "disabled" },
         );
@@ -975,7 +975,7 @@ pub(crate) fn configure_atmosphere(enabled: bool) {
 pub(crate) fn configure_terrain(enabled: bool) {
     let previous = TERRAIN_CAPTURE_ENABLED.swap(enabled, Ordering::AcqRel);
     if previous != enabled {
-        log::info!(
+        log::debug!(
             "[PBR TERRAIN LIGHT] Scene-light capture {} by the native-PBR contract",
             if enabled { "enabled" } else { "disabled" },
         );

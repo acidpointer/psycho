@@ -358,7 +358,7 @@ impl SunshaftsEffect {
             .is_none_or(|targets| !targets.matches(width, height, format));
         if needs_targets {
             self.targets = Some(SunshaftTargets::create(device, width, height, format)?);
-            log::info!("[SUNSHAFTS] Intermediate targets: {}x{}", width, height);
+            log::debug!("[SUNSHAFTS] Intermediate targets: {}x{}", width, height);
         }
 
         Ok(())

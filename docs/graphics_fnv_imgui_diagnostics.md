@@ -163,6 +163,41 @@ resource inventories or expose the transition-debug switch.
 
 ## Production and error boundaries
 
+### Log ownership and verbosity
+
+Normal `omv-latest.log` output records build identity, lifecycle milestones,
+effective depth selection, and actionable failures with their fallback.
+Hook inventories, capability matrices, input-capture transitions, per-shader
+cache results, resource dimensions, rendering contracts, shadow-setting dumps,
+and periodic world-reliability counters use Debug level. Redundant shader-load
+and pre-initialization menu-success messages are removed.
+
+`diagnostics.debug_log = true` opts into these technical records at startup.
+Depth, sun, atmosphere, and world-reliability diagnostic paths check the logger
+gate before collecting diagnostic-only inputs or consuming bounded log budgets.
+The capability matrix is not formatted when Debug logging is disabled.
+Rendering decisions, readiness, resource lifetime, and failure counters remain
+independent of log verbosity.
+
+The separate native-shadow `debug_logging` switch retains its explicitly
+requested, once-per-second producer summary at Info level. Native PBR detailed
+logging remains bounded and requires its own switch and visible Diagnostics.
+Session profiling starts disabled and produces summaries only when armed.
+
+Every debug field in the distribution default is false or zero. Explicitly
+activating the compiled OMV Default also clears local global/PBR/shadow logging
+switches, lowers the current logger ceiling to Info, and disarms any active
+session profiler. The existing Current Look worker persists those switches;
+shadow appearance settings are preserved. Other presets continue to preserve
+local logging preferences. Applying default visual values also clears all
+embedded debug views without changing the schema or preset payload shape.
+
+Offline regressions observe actual Logger file output from production depth
+and world diagnostic functions at Info and Debug. The runtime activation
+regression exercises custom/default selection, autosave, and disk reload,
+checking disabled debug fields and continued warning output. These checks do
+not establish game-only integration or startup behavior.
+
 The gate must not suppress state required to render correctly. Shader/resource
 readiness, captured shader identity used for replacement, local-light capture
 and publication, atmosphere visibility, and depth-of-field frame delta remain

@@ -435,7 +435,7 @@ fn inventory_cache(generation: u32, started: Instant) {
     CACHE_MISSES.store(missing_logical as u32, Ordering::Release);
     UNIQUE_CACHE_HITS.store(unique_cache_hits, Ordering::Release);
     UNIQUE_CACHE_MISSES.store(misses.len() as u32, Ordering::Release);
-    log::info!(
+    log::debug!(
         "[PBR] PBR cache inventory: {} valid, {} missing, {} failed; unique_inputs={}, unique_valid={}, unique_missing={}",
         cache_hits,
         missing_logical,
@@ -721,7 +721,7 @@ fn finish_preparation(phase: PreparationPhase, timing: PreparationTiming) {
         ),
         _ => {}
     }
-    log::info!(
+    log::debug!(
         "[PBR] PBR preparation timing: total_ms={} inventory_ms={} compile_phase_ms={} compiler_work_ms={} cache_work_ms={} unique_inputs={} unique_compiled={}",
         timing.started.elapsed().as_millis(),
         timing.inventory_elapsed.as_millis(),

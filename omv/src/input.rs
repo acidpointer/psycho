@@ -57,7 +57,7 @@ pub(crate) fn set_menu_input_blocked(blocked: bool) {
 
     let previous = MENU_INPUT_BLOCKED.swap(blocked, Ordering::AcqRel);
     if previous != blocked {
-        log::info!(
+        log::debug!(
             "[INPUT] Game DirectInput capture {}",
             if blocked { "blocked" } else { "restored" }
         );
@@ -98,7 +98,7 @@ fn ensure_hooks_installed() {
     }
 
     match install_hooks(&mut hooks, device, vtable) {
-        Ok(()) => log::info!("[INPUT] DirectInput mouse/keyboard capture hooks installed"),
+        Ok(()) => log::debug!("[INPUT] DirectInput mouse/keyboard capture hooks installed"),
         Err(err) => {
             if hooks.error_logs < 4 {
                 log::warn!("[INPUT] DirectInput capture hook install failed: {err:#}");

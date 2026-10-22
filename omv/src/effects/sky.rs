@@ -444,7 +444,7 @@ fn ensure_engine_hook_resident() {
     match UPDATE_HOOK.enable() {
         Ok(()) => {
             INSTALLED.store(true, Ordering::Release);
-            log::info!("[SKY] Resident engine interposition attached");
+            log::debug!("[SKY] Resident engine interposition attached");
         }
         Err(err) => {
             INSTALLED.store(UPDATE_HOOK.is_enabled(), Ordering::Release);
@@ -580,7 +580,7 @@ fn compile_worker() {
         match load_or_compile(template.label, &source, profile) {
             Ok((bytecode, origin)) => {
                 BYTECODE.lock()[index] = Some(bytecode);
-                log::info!("[SKY] Prepared {} from {origin}", template.label);
+                log::debug!("[SKY] Prepared {} from {origin}", template.label);
             }
             Err(err) => {
                 COMPILE_FAILED.store(true, Ordering::Release);

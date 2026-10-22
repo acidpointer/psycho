@@ -430,7 +430,7 @@ impl DepthOfFieldEffect {
                     self.targets = Some(targets);
                     self.failed_target_size = None;
                     self.focus_history_valid = false;
-                    log::info!(
+                    log::debug!(
                         "[DOF] Intermediate targets: full={}x{}, half={}x{}",
                         desc.Width,
                         desc.Height,

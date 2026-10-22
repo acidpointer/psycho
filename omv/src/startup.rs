@@ -145,7 +145,7 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
             .unwrap_or("<none>"),
         option_env!("OMV_GIT_DIRTY").unwrap_or("unknown")
     );
-    log::info!(
+    log::debug!(
         "[CONFIG] Working path '{}'; distribution fallback '{}' (read-only startup)",
         crate::config::CONFIG_PATH,
         crate::config::DEFAULT_CONFIG_PATH
@@ -173,11 +173,10 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         menu_toggle_key: cfg.graphics.menu_toggle_key,
         shader_scan_interval_ms: cfg.graphics.shader_scan_interval_ms,
     });
-    log::info!(
+    log::debug!(
         "[SHADERS] Watching screen-space shaders in '{}'",
         crate::shaders::SHADER_DIR
     );
-    log::info!("[IMGUI] Shader menu enabled");
 
     *DEFERRED_HOOK_SETTINGS.lock() = Some(DeferredHookSettings {
         native_pbr,
@@ -218,7 +217,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     let Some(install_attempt) =
         begin_deferred_install(&DEFERRED_INSTALL_STATE).map_err(anyhow::Error::msg)?
     else {
-        log::info!("[INIT] Deferred graphics hooks already installed");
+        log::debug!("[INIT] Deferred graphics hooks already installed");
         return Ok(());
     };
 

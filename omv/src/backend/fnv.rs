@@ -50,6 +50,53 @@ pub(super) mod sun_disk;
 #[cfg(test)]
 mod owned_depth_tests;
 
+#[cfg(test)]
+mod logging_tests {
+    use super::*;
+
+    #[test]
+    fn depth_contract_logging_is_opt_in_and_preserves_its_budget() {
+        let Some(_workspace) = crate::test_workspace::isolated(
+            "backend::fnv::logging_tests::depth_contract_logging_is_opt_in_and_preserves_its_budget",
+        ) else {
+            return;
+        };
+        libpsycho::logger::Logger::new()
+            .with_file_rotating("depth-log.log")
+            .with_level(log::LevelFilter::Debug)
+            .init()
+            .unwrap();
+        log::set_max_level(log::LevelFilter::Info);
+        let mut resolver = FnvDepthResolve::default();
+        for _ in 0..10 {
+            resolver.log_success(
+                DepthResolveSlot::World,
+                DepthResolveStage::CoherentWorld,
+                "offline logging boundary",
+                "retained world depth",
+                &D3DSURFACE_DESC::default(),
+                DepthProjectionFrame::default(),
+            );
+        }
+        assert_eq!(
+            resolver.success_logs, 0,
+            "disabled logging consumed the diagnostic budget"
+        );
+        log::set_max_level(log::LevelFilter::Debug);
+        resolver.log_success(
+            DepthResolveSlot::World,
+            DepthResolveStage::CoherentWorld,
+            "offline logging boundary",
+            "retained world depth",
+            &D3DSURFACE_DESC::default(),
+            DepthProjectionFrame::default(),
+        );
+        libpsycho::logger::Logger::shutdown();
+        let text = std::fs::read_to_string("depth-log.log").unwrap();
+        assert_eq!(text.matches("Depth contract:").count(), 1, "{text}");
+    }
+}
+
 pub(crate) type ProviderMarkerCounters = depth_resolve_provider::MarkerCounters;
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
@@ -1442,20 +1489,22 @@ unsafe fn read_sun_frame() -> Option<SunFrame> {
 
     let screen = unsafe { project_sun_to_screen(sun_root, camera) };
     let Some([screen_x, screen_y, facing]) = screen else {
-        if call % FRAME_CONTRACT_LOG_INTERVAL == 0
+        if log::log_enabled!(log::Level::Debug)
+            && call % FRAME_CONTRACT_LOG_INTERVAL == 0
             && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
         {
-            log::info!("[FNV] Sun is behind the camera or its projection is unavailable");
+            log::debug!("[FNV] Sun is behind the camera or its projection is unavailable");
         }
         return None;
     };
 
-    if call % FRAME_CONTRACT_LOG_INTERVAL == 0
+    if log::log_enabled!(log::Level::Debug)
+        && call % FRAME_CONTRACT_LOG_INTERVAL == 0
         && SUN_FRAME_LOGS.fetch_add(1, Ordering::Relaxed) < MAX_FRAME_CONTRACT_LOGS
     {
         let native_x = unsafe { read_f32(NATIVE_SUN_SCREEN_X_ADDR) }.unwrap_or(f32::NAN);
         let native_y = unsafe { read_f32(NATIVE_SUN_SCREEN_Y_ADDR) }.unwrap_or(f32::NAN);
-        log::info!(
+        log::debug!(
             "[FNV] Sun contract: screen=({screen_x:.5},{screen_y:.5}), facing={facing:.4}, source=nvr_direction_projection, native=({native_x:.5},{native_y:.5}), daylight={daylight:.4}"
         );
     }
@@ -2843,7 +2892,7 @@ impl FnvDepthResolve {
                 nvapi.register(target.texture.as_raw())?;
             }
             *self.target_mut(slot) = Some(target);
-            log::info!(
+            log::debug!(
                 "[FNV] INTZ depth target: slot={}, size={}x{}",
                 slot.label(),
                 desc.Width,
@@ -3026,12 +3075,15 @@ impl FnvDepthResolve {
         desc: &D3DSURFACE_DESC,
         projection: DepthProjectionFrame,
     ) {
+        if !log::log_enabled!(log::Level::Debug) {
+            return;
+        }
         let log_index = self.success_logs;
         self.success_logs = self.success_logs.saturating_add(1);
         if log_index % FRAME_CONTRACT_LOG_INTERVAL < 2
             && log_index / FRAME_CONTRACT_LOG_INTERVAL < MAX_FRAME_CONTRACT_LOGS
         {
-            log::info!(
+            log::debug!(
                 "[FNV] Depth contract: slot={}, stage={stage:?}, source={source_label}, reason={reason}, surface=0x{:08X}, size={}x{}, zfunc={:?}, reversed={:?}, near={:.4}, far={:.2}, frustum=({:.5},{:.5},{:.5},{:.5}), transform={}, position=({:.2},{:.2},{:.2}), scale={:.4}",
                 slot.label(),
                 projection.source_surface,

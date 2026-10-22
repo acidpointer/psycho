@@ -751,7 +751,7 @@ impl TemporalAaEffect {
             .is_none_or(|targets| !targets.matches(desc));
         if needs_targets {
             self.targets = Some(TemporalTargets::create(device, desc)?);
-            log::info!("[TAA] History targets: {}x{}", desc.Width, desc.Height);
+            log::debug!("[TAA] History targets: {}x{}", desc.Width, desc.Height);
         }
         Ok(needs_targets)
     }

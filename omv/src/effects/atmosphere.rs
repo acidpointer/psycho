@@ -1359,7 +1359,7 @@ impl AtmosphereEffect {
             }
             self.integration_draws = self.integration_draws.saturating_add(1);
             if self.integration_draws == 1 {
-                log::info!(
+                log::debug!(
                     "[ATMOSPHERE] Layered integration active: fog={}, lighting={}, quality={:?}, scale={}, density_samples={}, shaft_samples={}, target={}x{} near/far=A16B16G16R16F",
                     contributions.fog,
                     contributions.lighting_ready(),
@@ -1391,7 +1391,7 @@ impl AtmosphereEffect {
                     // cube or native projected map is sampled or retained here.
                     let draw_upper_bound = local_light_draw_count(usable_local_count, 0);
                     debug_assert!(local_stats.draws <= draw_upper_bound);
-                    log::info!(
+                    log::debug!(
                         "[ATMOSPHERE LOCAL] Screen-space integration active: quality={:?}, scale={}, captured={}, visible={}, capture_age={}, draws={}, upper_bound={}",
                         settings.local_lights_quality,
                         targets.scale,
@@ -1446,7 +1446,7 @@ impl AtmosphereEffect {
             )?;
             self.composition_draws = self.composition_draws.saturating_add(1);
             if self.composition_draws == 1 {
-                log::info!(
+                log::debug!(
                     "[ATMOSPHERE] Production composition active: fog={}, lighting={}, quality={:?}, scale={}, target={}x{} format=0x{:08X}, transfer={}",
                     contributions.fog,
                     contributions.lighting_ready(),
@@ -1548,7 +1548,7 @@ impl AtmosphereEffect {
 
         match AtmosphereTargets::create(device, desc.Width, desc.Height, target_scale) {
             Ok(targets) => {
-                log::info!(
+                log::debug!(
                     "[ATMOSPHERE] Targets: full={}x{}, reduced={}x{}, scale={}, depth=G16R16F, near/far=A16B16G16R16F",
                     desc.Width,
                     desc.Height,
@@ -1582,7 +1582,7 @@ impl AtmosphereEffect {
         }
         match ShaftTargets::create(device, size.0, size.1) {
             Ok(targets) => {
-                log::info!(
+                log::debug!(
                     "[ATMOSPHERE] Shaft targets: {}x{} FP16 world field / G16R16F projected visibility",
                     targets.width,
                     targets.height,
@@ -1610,6 +1610,9 @@ impl AtmosphereEffect {
         taa_enabled: bool,
         taa_alpha_ready: bool,
     ) {
+        if !log::log_enabled!(log::Level::Debug) {
+            return;
+        }
         let underwater_epoch_matches = frame.underwater_contract_ready();
         let contract = (frame.depth.texture.is_some() as u16)
             | ((frame.camera.available as u16) << 1)
@@ -1644,7 +1647,7 @@ impl AtmosphereEffect {
         self.last_contract = Some(contract);
         self.last_fog_signature = Some(fog_signature);
         self.contract_logs += 1;
-        log::info!(
+        log::debug!(
             "[ATMOSPHERE] Contract: target={}x{} format=0x{:08X} usage=0x{:08X} multisample={:?}/{}, transfer={}, epoch={}, depth={}, camera={} transform={}, reversed={:?}, world_color={}, TAA={}/alpha_history={}, fog={} rgb=({:.4},{:.4},{:.4}) range=({:.2},{:.2}) power={:.4}, sky={}, sun={}, exterior={:?}, underwater_hook={} underwater={:?} underwater_epoch={}, distance_bound={:.2}",
             desc.Width,
             desc.Height,
@@ -1687,12 +1690,15 @@ impl AtmosphereEffect {
         settings: AtmosphereSettings,
         local_ready: bool,
     ) {
+        if !log::log_enabled!(log::Level::Debug) {
+            return;
+        }
         if self.last_integration_gate == Some(gate) || self.integration_gate_logs >= 32 {
             return;
         }
         self.last_integration_gate = Some(gate);
         self.integration_gate_logs += 1;
-        log::info!(
+        log::debug!(
             "[ATMOSPHERE] Fog integration gate: {}, quality={:?}, scale={}, samples={}, density={:.8}, height_density={:.8}, noise={:.4}, inactive_noise_speed={:.4}, inactive_temporal_stability={:.4}",
             gate.label(),
             settings.quality,
@@ -1715,12 +1721,15 @@ fn log_composition_gate(
     composition_draws: u64,
     debug_draws: u64,
 ) {
+    if !log::log_enabled!(log::Level::Debug) {
+        return;
+    }
     if *last_gate == Some(gate) || *gate_logs >= 32 {
         return;
     }
     *last_gate = Some(gate);
     *gate_logs += 1;
-    log::info!(
+    log::debug!(
         "[ATMOSPHERE] Fog composition gate: {}, transfer={}, integration_draws={}, compose_draws={}, debug_draws={}",
         gate.label(),
         SOURCE_TRANSFER.label(),
@@ -3512,7 +3521,7 @@ fn create_density_noise(device: &Device9Ref<'_>) -> Direct3DResult<Texture9> {
     )?;
     let pixels = density_noise_pixels();
     texture.write_level0_argb(DENSITY_NOISE_SIZE, DENSITY_NOISE_SIZE, &pixels)?;
-    log::info!(
+    log::debug!(
         "[ATMOSPHERE] Density noise: {}x{} A8R8G8B8, seed=0x{:08X}",
         DENSITY_NOISE_SIZE,
         DENSITY_NOISE_SIZE,

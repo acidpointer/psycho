@@ -296,12 +296,15 @@ pub(crate) fn predecessor_label(capability: &InteropCapability) -> Option<String
 }
 
 pub(crate) fn log_startup_matrix() {
+    if !log::log_enabled!(log::Level::Debug) {
+        return;
+    }
     let matrix = capability_snapshot()
         .into_iter()
         .map(|capability| format!("{}={}", capability.name, capability.state.label()))
         .collect::<Vec<_>>()
         .join(", ");
-    log::info!("[INTEROP] Deferred capability matrix: {matrix}");
+    log::debug!("[INTEROP] Deferred capability matrix: {matrix}");
 }
 
 #[cfg(test)]

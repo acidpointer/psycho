@@ -263,13 +263,20 @@ A preset owns:
   values;
 - the selected LUT dependency.
 
-The following remain local and survive every activation:
+The following remain local and survive shared-preset activation:
 
 - menu toggle key;
 - shader scan cadence;
 - depth-provider selection;
 - logging and frame-pacing diagnostics;
 - native PBR draw diagnostics.
+
+Explicit activation of the compiled **OMV Default** additionally turns off
+global, native-PBR, and native-shadow debug logging and ends session profiling.
+The logger ceiling changes to Info immediately, and Current Look autosave
+persists the disabled logging switches. Embedded debug views are already zero
+or false in the default payload. This reset preserves shadow appearance
+settings and does not apply to other presets or passive provenance restoration.
 
 External shaders installed on the destination but absent from the preset are
 disabled during activation. This prevents an unrelated local shader from

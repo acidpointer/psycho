@@ -331,7 +331,7 @@ pub(super) fn start_preparation() {
                     let (programs, words) = bytecode.program_metrics();
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
-                    log::info!(
+                    log::debug!(
                         "[SHADOWS] Complete shader family prepared ({programs} programs, {words} DWORDs, {} ms)",
                         started.elapsed().as_millis()
                     );

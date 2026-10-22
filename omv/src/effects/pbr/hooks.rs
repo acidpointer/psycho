@@ -359,14 +359,14 @@ pub(super) fn install() -> Result<()> {
 
     let adopted = adopt_existing_object_shaders();
     if adopted != 0 {
-        log::info!("[PBR] Object PBR adopted {adopted} existing shader wrapper(s)");
+        log::debug!("[PBR] Object PBR adopted {adopted} existing shader wrapper(s)");
     }
 
-    log::info!("[PBR] Common selector-setup caller chained for final PBR binding");
-    log::info!(
+    log::debug!("[PBR] Common selector-setup caller chained for final PBR binding");
+    log::debug!(
         "[PBR] Shader wrappers use startup and first-use adoption; shared shader-creation entries are not hooked"
     );
-    log::info!("[PBR] Texture bind, removal, and cache-clear vtable slots chained");
+    log::debug!("[PBR] Texture bind, removal, and cache-clear vtable slots chained");
 
     Ok(())
 }

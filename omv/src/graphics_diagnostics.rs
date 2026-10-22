@@ -1,13 +1,11 @@
 //! Compile-time-present, runtime-gated attribution for OMV's serialized
 //! graphics callbacks.
 //!
-//! This instrumentation is temporary evidence collection for the NVIDIA
-//! laptop performance investigation and will be removed once the evidence is
-//! gathered. It is compiled into every build and always active: sampled
-//! summaries emit one line per window and the A/B schedule skips one effect
-//! family at a time. Disarmed paths do not exist; callback writers pay one
-//! relaxed atomic load per counter or span and the present boundary pays a
-//! few atomic operations per frame.
+//! The session profiler is compiled into every build and starts disabled.
+//! Only explicit arming enables sampled summaries and the A/B schedule which
+//! skips one effect family at a time. Disarmed callback writers pay one
+//! relaxed atomic gate load and perform no collection or logging. Applying
+//! OMV Default ends an active profiling session.
 //!
 //! Callback writers touch fixed atomic storage only. They never allocate,
 //! format text, take a lock, submit a GPU query, or write a log. The xNVSE
@@ -21,7 +19,7 @@
 //! duration executing that work; D3D9 exposes no reliable per-pass GPU
 //! timestamp query.
 //!
-//! The separately armed performance profile measures real per-effect GPU cost
+//! The explicitly armed performance profile compares per-effect frame cost
 //! by skipping one embedded effect family at a time in fixed windows and
 //! reporting median/p90 present-boundary frame intervals per window as
 //! `[GRAPHICS PERF A/B]` lines. Menu and loading-screen frames are excluded,
