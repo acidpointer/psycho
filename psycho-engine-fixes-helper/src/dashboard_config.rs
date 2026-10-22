@@ -130,6 +130,8 @@ pub(crate) struct EditableConfig {
     pub inventory_list_save_guard: bool,
     /// Restart-only menu render resolution and full-view fade correction.
     pub resolution_fixes: bool,
+    /// Restart-only native radio playback repairs and scan optimizations.
+    pub radio_fix: bool,
 }
 
 impl Default for EditableConfig {
@@ -207,6 +209,7 @@ impl Default for EditableConfig {
             inventory_reset_guard: true,
             inventory_list_save_guard: true,
             resolution_fixes: true,
+            radio_fix: true,
         }
     }
 }
@@ -621,6 +624,7 @@ impl EditableConfig {
                 "resolution_fixes",
                 defaults.resolution_fixes,
             ),
+            radio_fix: bool_or(doc, "engine_fixes", "radio_fix", defaults.radio_fix),
         }
         .sanitized()
     }
@@ -906,6 +910,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(list_cleanup_guard);
     engine!(inventory_reset_guard);
     engine!(inventory_list_save_guard);
+    engine!(radio_fix);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {

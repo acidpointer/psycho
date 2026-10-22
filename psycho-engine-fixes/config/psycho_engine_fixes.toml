@@ -199,6 +199,12 @@ source_texture_cache_publication_guard = true
 # are untouched.
 tile_value_null_slot_guard = true
 
+# --- Radio ------------------------------------------------------------------
+
+# Repair repeating or missing radio music and reduce station-scan work.
+# The game still chooses stations and checks their signal.
+radio_fix = true
+
 # =============================================================================
 # NATIVE IO
 # =============================================================================

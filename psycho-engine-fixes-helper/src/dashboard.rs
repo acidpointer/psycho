@@ -69,7 +69,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 32] = [
+const ENGINE_FIX_HELP: [(&str, &str); 33] = [
     (
         "Fullscreen / Alt-Tab fix",
         "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
@@ -197,6 +197,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 32] = [
     (
         "Tile cleanup guard",
         "Removes empty slots from a UI tile value list before lookup. Valid tile values are untouched.",
+    ),
+    (
+        "Radio fixes",
+        "Repairs repeating or missing radio music and reduces station-scan work. The game still chooses stations and checks their signal.",
     ),
 ];
 
@@ -2349,6 +2353,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.queued_task_lifetime_guard,
         &mut config.source_texture_cache_publication_guard,
         &mut config.tile_value_null_slot_guard,
+        &mut config.radio_fix,
     ];
     for (index, ((label, help), value)) in ENGINE_FIX_HELP
         .into_iter()
@@ -2589,6 +2594,7 @@ fn engine_fix_group(index: usize) -> Option<&'static str> {
         5 => Some("Actors and world"),
         18 => Some("Physics"),
         25 => Some("Memory and tasks"),
+        32 => Some("Audio"),
         _ => None,
     }
 }
@@ -3067,7 +3073,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 32);
+        assert_eq!(ENGINE_FIX_HELP.len(), 33);
         for (index, expected) in [
             (0, "Fullscreen / Alt-Tab fix"),
             (1, "Save file integrity"),

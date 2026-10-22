@@ -49,7 +49,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     initialize_diagnostics(&cfg.diagnostics)?;
     initialize_memory(&cfg.memory)?;
     install_engine_fix_hooks(&cfg.engine_fixes, &cfg.io, &cfg.lod, &cfg.diagnostics)?;
-    install_runtime_hooks(&cfg.performance)?;
+    install_runtime_hooks(&cfg.performance, &cfg.engine_fixes)?;
 
     crate::hardware_report::log_startup_hardware();
     log_runtime();
@@ -171,13 +171,20 @@ fn install_engine_fix_hooks(
     install_engine_fixes(engine_fixes, io, lod, diagnostics)
 }
 
-fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> {
+fn install_runtime_hooks(
+    performance: &PerformanceConfig,
+    engine_fixes: &EngineFixesConfig,
+) -> anyhow::Result<()> {
     if performance.obsolete_radio_configured {
         log::warn!("[RADIO] Removed result-cache/yield settings are obsolete and ignored");
     }
 
-    if let Err(error) = install_radio_scan_fix() {
-        log::warn!("[RADIO] Scan optimization installation failed: {error:#}");
+    if engine_fixes.radio_fix {
+        if let Err(error) = install_radio_scan_fix() {
+            log::warn!("[RADIO] Scan optimization installation failed: {error:#}");
+        }
+    } else {
+        log::info!("[RADIO] Radio fixes disabled by config");
     }
 
     if performance.post_load_reconciliation_prepass {

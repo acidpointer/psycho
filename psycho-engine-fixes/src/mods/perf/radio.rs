@@ -18,6 +18,8 @@
 //! DeferredInit verifies ownership and publishes optional capabilities. No job,
 //! result, or engine pointer survives a scan. Expansion admission allocates
 //! nothing and reads no timers or diagnostics.
+//! The restart-only radio setting gates this entire installer; without its
+//! scan bridge, DeferredInit does not inspect or publish optional capabilities.
 
 mod music;
 mod provider;
@@ -240,7 +242,9 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
 /// Verifies and publishes optional optimization once after plugin loading.
 /// No executable code is written here; world/frame events need no radio work.
 pub(crate) fn observe_event(kind: u32) {
-    if kind != crate::events::DEFERRED_INIT || POLICY_INSTALL_ATTEMPTED.swap(true, Ordering::AcqRel)
+    if kind != crate::events::DEFERRED_INIT
+        || !SCAN_HOOK.is_enabled()
+        || POLICY_INSTALL_ATTEMPTED.swap(true, Ordering::AcqRel)
     {
         return;
     }

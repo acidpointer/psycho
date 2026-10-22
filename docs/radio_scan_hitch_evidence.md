@@ -2,6 +2,22 @@
 
 ## Status
 
+`[engine_fixes].radio_fix` is the default-on, restart-only switch for the radio
+module's music repairs, synchronous scan/station bridges, and optional policy
+and provider optimizations. An absent key preserves enabled behavior. A false
+value skips the entire installer before music or scan hook preparation;
+DeferredInit also returns before optional capability inspection or publication
+when the scan bridge is disabled. The helper's **Radio fixes** checkbox writes
+the same next-launch setting. The gheap-owned stale radio-form load guard is
+independent allocator safety and is not controlled by this switch.
+
+The owner authorized offline-only implementation and qualification of this
+toggle. Existing fields keep their order and types; the new bool is appended
+to core, raw-parser, and helper settings. No startup phase, hook, import, TLS,
+worker, or lifecycle-forwarding owner is added. Enabled installation order is
+unchanged. Game startup, audible playback, and performance remain unverified
+by offline qualification.
+
 The 2026-10-22 [hitch-profiler retirement](gheap_large_modlist_compatibility.md#hitch-profiler-retirement)
 removes the optional query/traversal/station-mode timing hooks, reporting TLS,
 and `[RADIO_SCAN]` aggregation. The scan context and pending-policy TLS remain

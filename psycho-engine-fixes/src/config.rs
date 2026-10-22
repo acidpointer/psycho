@@ -482,6 +482,8 @@ pub struct EngineFixesConfig {
     pub inventory_list_save_guard: bool,
     /// Use configured menu render width and full-view fade geometry at startup.
     pub resolution_fixes: bool,
+    /// Enable native radio playback repairs and synchronous scan optimizations.
+    pub radio_fix: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -525,6 +527,7 @@ impl Default for EngineFixesConfig {
             inventory_reset_guard: true,
             inventory_list_save_guard: true,
             resolution_fixes: true,
+            radio_fix: true,
         }
     }
 }
@@ -648,6 +651,7 @@ impl EngineFixesConfig {
                 .inventory_list_save_guard
                 .unwrap_or(default.inventory_list_save_guard),
             resolution_fixes: raw.resolution_fixes.unwrap_or(default.resolution_fixes),
+            radio_fix: raw.radio_fix.unwrap_or(default.radio_fix),
         }
     }
 }
@@ -789,6 +793,7 @@ struct RawEngineFixesConfig {
     inventory_reset_guard: Option<bool>,
     inventory_list_save_guard: Option<bool>,
     resolution_fixes: Option<bool>,
+    radio_fix: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

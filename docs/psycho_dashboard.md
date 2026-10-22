@@ -565,6 +565,16 @@ bounds/compound visibility setup reductions, room admission, and inverse-world
 index setup. These controls edit the next-launch TOML only; runtime counters do
 not attribute work to an individual optimization.
 
+The **Radio fixes** checkbox under **Audio** owns
+`[engine_fixes].radio_fix`. It defaults on, including when the key is absent,
+and applies only after a full restart. The TOML comment uses imperative wording;
+the helper tooltip uses the same concise, third-person style as other fixes.
+The switch covers native music repairs, the synchronous scan and station
+bridges, and optional native policy and expansion optimizations. Turning it off
+skips their startup installation and DeferredInit publication. The allocator's
+independent stale radio-form load guard remains part of gheap safety. Saving
+only edits the next-launch TOML and does not change live hooks or dashboard ABI.
+
 The **Occlusion planes** controls own
 `[performance].occlusion_planes`, `occlusion_planes_max_per_cell`,
 `occlusion_planes_grid_radius`, and `occlusion_planes_cache_path`. The plane
