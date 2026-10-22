@@ -2,6 +2,12 @@
 
 ## Status
 
+The 2026-10-22 [hitch-profiler retirement](gheap_large_modlist_compatibility.md#hitch-profiler-retirement)
+removes the optional query/traversal/station-mode timing hooks, reporting TLS,
+and `[RADIO_SCAN]` aggregation. The scan context and pending-policy TLS remain
+because the synchronous radio optimization uses them for correctness. Profiling
+sections below are historical evidence; they do not describe active telemetry.
+
 The [2026-10-19 teleport-door crash investigation](crash_20261019_teleport_door_null_base_plan.md)
 establishes an unchecked null base form in the retained cell enumerator. The
 captured stack and installed release instructions prove that Psycho's admitted
@@ -2724,7 +2730,7 @@ optimization. The discarded-policy audit then identified the next exact
 boundary. Runtime validation still must confirm unchanged station counts and
 success/failure distribution while measuring whether scan time drops.
 
-## Profiling output cost
+## Historical profiling output cost
 
 Hitch profiling still records every slow scan in TLS, but it no longer submits
 one file-flushed log record per scan. Slow scans are accumulated into a

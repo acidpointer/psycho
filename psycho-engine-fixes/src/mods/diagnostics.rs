@@ -1,9 +1,8 @@
-//! Shared diagnostics helpers for hot-path instrumentation.
+//! Shared load provenance, explicit operation timing, and log throttling.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 static PERF_FREQUENCY: AtomicU64 = AtomicU64::new(0);
-static HITCH_PROFILING: AtomicBool = AtomicBool::new(false);
 static LOAD_DEPTH: AtomicU32 = AtomicU32::new(0);
 static LOAD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static LOAD_SITE: AtomicU32 = AtomicU32::new(0);
@@ -92,21 +91,9 @@ fn load_site_name(site: u32) -> &'static str {
     }
 }
 
-/// Configures opt-in QPC timing for frame hitch investigations.
-pub(crate) fn configure_hitch_profiling(enabled: bool) {
-    HITCH_PROFILING.store(enabled, Ordering::Release);
-}
-
-/// Returns true when focused hitch profiling may perform QPC reads.
-#[inline]
-pub(crate) fn hitch_profiling_enabled() -> bool {
-    HITCH_PROFILING.load(Ordering::Acquire)
-}
-
 /// Lightweight QPC stopwatch used by optional diagnostics.
 ///
-/// A zero `start_ticks` value means timing is disabled or unavailable. This
-/// lets hot paths pass a stopwatch around without branching at every call site.
+/// A zero `start_ticks` value means the performance counter was unavailable.
 #[derive(Clone, Copy)]
 pub(crate) struct Stopwatch {
     start_ticks: u64,
@@ -123,20 +110,7 @@ impl Stopwatch {
         }
     }
 
-    /// Starts a stopwatch only when hitch profiling is enabled.
-    ///
-    /// This is the default for frame and guard telemetry; when profiling is
-    /// disabled, it avoids QPC calls in game hot paths.
-    #[inline]
-    pub(crate) fn start_if_hitch_profiling() -> Self {
-        if hitch_profiling_enabled() {
-            Self::start()
-        } else {
-            Self { start_ticks: 0 }
-        }
-    }
-
-    /// Returns elapsed microseconds, or `None` if timing was disabled or invalid.
+    /// Returns elapsed microseconds, or `None` if timing was unavailable or invalid.
     #[inline]
     pub(crate) fn elapsed_us(self) -> Option<u64> {
         if self.start_ticks == 0 {
@@ -190,26 +164,6 @@ pub(crate) fn update_max_u64(slot: &AtomicU64, value: u64) {
 #[inline]
 pub(crate) fn should_log_power_of_two(value: u64) -> bool {
     value == 1 || value.is_power_of_two()
-}
-
-/// Returns true at most once per interval across competing threads.
-///
-/// The first call only initializes the timestamp and returns false. This avoids
-/// logging an immediate zero-length window at startup.
-pub(crate) fn should_tick(last_tick: &AtomicU32, interval_ms: u32) -> bool {
-    let now = libpsycho::os::windows::winapi::get_tick_count();
-    let last = last_tick.load(Ordering::Acquire);
-    if last == 0 {
-        let _ = last_tick.compare_exchange(0, now, Ordering::AcqRel, Ordering::Relaxed);
-        return false;
-    }
-    if now.wrapping_sub(last) < interval_ms {
-        return false;
-    }
-
-    last_tick
-        .compare_exchange(last, now, Ordering::AcqRel, Ordering::Relaxed)
-        .is_ok()
 }
 
 /// Returns cached QPC frequency, or zero if the counter is unavailable.

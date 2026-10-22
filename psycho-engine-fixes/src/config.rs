@@ -658,7 +658,9 @@ pub struct DiagnosticsConfig {
     pub console: bool,
     /// Use verbose log output.
     pub debug_log: bool,
-    /// Time per-frame engine spans with QPC. Keep disabled outside focused profiling.
+    /// Inert compatibility storage; retained to preserve startup config layout.
+    #[serde(skip_serializing)]
+    #[allow(dead_code)]
     pub hitch_profiling: bool,
     /// Record fixed-ring queued-task lifetime provenance.
     pub task_lifetime_trace: bool,
@@ -679,7 +681,7 @@ impl DiagnosticsConfig {
         Self {
             console: raw.console.or(legacy_general.console).unwrap_or_default(),
             debug_log: raw.debug_log.or(legacy_logger.debug).unwrap_or_default(),
-            hitch_profiling: raw.hitch_profiling.unwrap_or_default(),
+            hitch_profiling: false,
             task_lifetime_trace: raw.task_lifetime_trace.unwrap_or_default(),
             lod_streaming_trace: raw.lod_streaming_trace.unwrap_or_default(),
         }
@@ -816,6 +818,7 @@ struct RawLodConfig {
 struct RawDiagnosticsConfig {
     console: Option<bool>,
     debug_log: Option<bool>,
+    #[allow(dead_code)] // Accept the retired key without changing parser layout.
     hitch_profiling: Option<bool>,
     task_lifetime_trace: Option<bool>,
     lod_streaming_trace: Option<bool>,

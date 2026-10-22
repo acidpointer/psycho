@@ -519,9 +519,10 @@ Planned order:
 
 1. The owner waived the unavailable failing actual-save baseline for this
    unreleased candidate. Runtime timing remains unverified.
-   If diagnostic instrumentation becomes useful, reuse `hitch_profiling`, the
-   existing stopwatch, and logger. Aggregate counts and emit one end-of-save
-   summary, not one log or timer per entry. Separate owner duration,
+   If diagnostic instrumentation becomes useful, reuse the existing stopwatch
+   and logger at the save owner; the unrelated hitch profiler was retired.
+   Aggregate counts and emit one end-of-save summary, not one log or timer per
+   entry. Separate owner duration,
    serialization, and commit costs only at verified boundaries; do not label
    the unaccounted remainder as a particular engine phase.
 2. LowProcess slot lookup is refactored with predecessor calls, native ABIs,

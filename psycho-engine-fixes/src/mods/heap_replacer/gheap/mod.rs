@@ -13,7 +13,6 @@ pub mod block;
 pub mod engine;
 pub mod game_guard;
 pub mod hang;
-pub mod hitch;
 pub mod hooks;
 pub mod memory_lifecycle;
 pub mod model_task_fix;

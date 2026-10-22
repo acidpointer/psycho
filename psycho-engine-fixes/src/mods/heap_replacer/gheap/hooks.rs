@@ -30,7 +30,6 @@ use super::allocator;
 use super::engine::globals;
 use super::game_guard;
 use super::hang::{self, Site};
-use super::hitch::{self, Span};
 use super::pressure::PressureRelief;
 use super::statics;
 
@@ -80,18 +79,15 @@ pub unsafe extern "C" fn hook_per_frame_queue_drain() {
             hang::mark_main(Site::Phase7Exit);
             return;
         }
-        hang::mark_main_detail(Site::Phase7BeforePdd);
-        hitch::measure_span(Span::Phase7Pdd, || unsafe { original() });
-        hang::mark_main_detail(Site::Phase7AfterPdd);
+
+        unsafe { original() };
     }
 
     // Optional legacy full PDD drain. Ghidra shows full PDD drains whole
     // queues while vanilla per-frame PDD drains small fixed budgets. The
     // old always-on 10 s purge is therefore too aggressive for gheap
     // reuse semantics and is now opt-in only.
-    hitch::measure_span(Span::Phase7OptionalPdd, || {
-        maybe_drain_pdd();
-    });
+    maybe_drain_pdd();
     hang::mark_main(Site::Phase7Exit);
 }
 
@@ -132,64 +128,24 @@ fn maybe_drain_pdd() {
 /// Phase 10: post-render maintenance (before AI_JOIN).
 pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
     hang::phase10_enter();
-    hitch::on_phase10_enter();
 
     if let Ok(original) = statics::MAIN_LOOP_MAINTENANCE_HOOK.original() {
-        hitch::measure_span(Span::Phase10Original, || unsafe { original(this) });
+        unsafe { original(this) };
     }
-    hang::mark_main_detail(Site::Phase10AfterOriginal);
 
-    hitch::measure_span(Span::Phase10Pressure, || {
+    {
         if let Some(pr) = PressureRelief::instance() {
             pr.calibrate_baseline();
             pr.relieve_pending_vas_pressure();
         }
         super::memory_lifecycle::on_main_thread_frame();
-    });
-    hang::mark_main_detail(Site::Phase10AfterPressure);
+    }
 
-    hitch::measure_span(Span::Phase10Tail, || {
+    {
         super::vanilla_large_heap::run_once();
         super::vanilla_large_heap::poll_default_tail_contract();
-    });
+    }
     hang::mark_main(Site::Phase10Exit);
-}
-
-pub unsafe extern "C" fn hook_phase10_pre() {
-    if let Ok(original) = statics::PHASE10_PRE_HOOK.original() {
-        hitch::measure_span(Span::Phase10Pre, || unsafe { original() });
-    }
-}
-
-pub unsafe extern "C" fn hook_phase10_audio_update(force: u8) -> u32 {
-    if let Ok(original) = statics::PHASE10_AUDIO_UPDATE_HOOK.original() {
-        return hitch::measure_span(Span::Phase10AudioUpdate, || unsafe { original(force) });
-    }
-    0
-}
-
-pub unsafe extern "C" fn hook_phase10_audio_worker(force: u8) {
-    if let Ok(original) = statics::PHASE10_AUDIO_WORKER_HOOK.original() {
-        hitch::measure_span(Span::Phase10AudioWorker, || unsafe { original(force) });
-    }
-}
-
-pub unsafe extern "C" fn hook_radio_signal_scan(
-    current_cell: *mut c_void,
-    out_list: *mut c_void,
-    out_meta: *mut c_void,
-) {
-    if let Ok(original) = statics::RADIO_SIGNAL_SCAN_HOOK.original() {
-        hitch::measure_span(Span::RadioSignalScan, || unsafe {
-            original(current_cell, out_list, out_meta);
-        });
-    }
-}
-
-pub unsafe extern "C" fn hook_radio_station_update(station: *mut c_void) {
-    if let Ok(original) = statics::RADIO_STATION_UPDATE_HOOK.original() {
-        hitch::measure_span(Span::RadioStationUpdate, || unsafe { original(station) });
-    }
 }
 
 /// Reconcile stale serialized radio forms at the load boundary. The caller at
@@ -259,44 +215,13 @@ unsafe fn invalid_radio_form(form: *mut c_void) -> Option<&'static str> {
     None
 }
 
-pub unsafe extern "C" fn hook_phase10_pre_tail() {
-    if let Ok(original) = statics::PHASE10_PRE_TAIL_HOOK.original() {
-        hitch::measure_span(Span::Phase10PreTail, || unsafe { original() });
-    }
-}
-
-pub unsafe extern "C" fn hook_phase10_world_update() {
-    if let Ok(original) = statics::PHASE10_WORLD_UPDATE_HOOK.original() {
-        hitch::measure_span(Span::Phase10WorldUpdate, || unsafe { original() });
-    }
-}
-
-pub unsafe extern "fastcall" fn hook_phase10_mid(this: *mut c_void) {
-    if let Ok(original) = statics::PHASE10_MID_HOOK.original() {
-        hitch::measure_span(Span::Phase10Mid, || unsafe { original(this) });
-    }
-}
-
-pub unsafe extern "C" fn hook_phase10_queue_drain() {
-    if let Ok(original) = statics::PHASE10_QUEUE_DRAIN_HOOK.original() {
-        hitch::measure_span(Span::Phase10QueueDrain, || unsafe { original() });
-    }
-}
-
-pub unsafe extern "C" fn hook_phase10_post() {
-    if let Ok(original) = statics::PHASE10_POST_HOOK.original() {
-        hitch::measure_span(Span::Phase10Post, || unsafe { original() });
-    }
-}
-
 /// Phase 8: AI thread dispatch. Sets AI_ACTIVE flag before dispatching.
 pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
     hang::ai_start_enter();
     game_guard::set_ai_active();
     if let Ok(original) = statics::AI_THREAD_START_HOOK.original() {
-        hitch::measure_span(Span::AiStartOriginal, || unsafe { original(mgr) });
+        unsafe { original(mgr) };
     }
-    hang::ai_start_exit();
 }
 
 /// AI_JOIN: AI threads completed, so the game can safely leave the
@@ -304,10 +229,9 @@ pub unsafe extern "fastcall" fn hook_ai_thread_start(mgr: *mut c_void) {
 pub unsafe extern "fastcall" fn hook_ai_thread_join(mgr: *mut c_void) {
     hang::ai_join_enter();
     if let Ok(original) = statics::AI_THREAD_JOIN_HOOK.original() {
-        hitch::measure_span(Span::AiJoinOriginal, || unsafe { original(mgr) });
+        unsafe { original(mgr) };
     }
     game_guard::clear_ai_active();
-    hang::ai_join_exit();
 }
 
 // ---- Havok world synchronization hooks ----
@@ -316,25 +240,16 @@ pub unsafe extern "fastcall" fn hook_hkworld_lock(this: *mut c_void) {
     hang::havok_lock_enter();
     game_guard::set_havok_active();
     if let Ok(original) = statics::HKWORLD_LOCK_HOOK.original() {
-        hitch::measure_span(Span::HavokLockOriginal, || unsafe { original(this) });
+        unsafe { original(this) };
     }
-    hang::havok_lock_exit();
 }
 
 pub unsafe extern "fastcall" fn hook_hkworld_unlock(this: *mut c_void) {
     hang::havok_unlock_enter();
     if let Ok(original) = statics::HKWORLD_UNLOCK_HOOK.original() {
-        hitch::measure_span(Span::HavokUnlockOriginal, || unsafe { original(this) });
+        unsafe { original(this) };
     }
     game_guard::clear_havok_active();
-    hang::havok_unlock_exit();
-}
-
-pub unsafe extern "C" fn hook_havok_stop_start(mode: u8) -> u8 {
-    if let Ok(original) = statics::HAVOK_STOP_START_HOOK.original() {
-        return hitch::measure_span(Span::HavokStopStartOriginal, || unsafe { original(mode) });
-    }
-    mode
 }
 
 /// Check if PDD queues with pending items have valid buffer pointers.

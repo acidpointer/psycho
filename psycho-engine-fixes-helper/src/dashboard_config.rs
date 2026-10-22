@@ -106,6 +106,7 @@ pub(crate) struct EditableConfig {
     pub occlusion_planes_debug_log: bool,
     pub debug_log: bool,
     pub console: bool,
+    /// Inert legacy storage; the profiler has been removed.
     pub hitch_profiling: bool,
     pub task_lifetime_trace: bool,
     pub lod_streaming_trace: bool,
@@ -547,12 +548,7 @@ impl EditableConfig {
             console: read_bool(doc, "diagnostics", "console")
                 .or_else(|| read_bool(doc, "general", "console"))
                 .unwrap_or(defaults.console),
-            hitch_profiling: bool_or(
-                doc,
-                "diagnostics",
-                "hitch_profiling",
-                defaults.hitch_profiling,
-            ),
+            hitch_profiling: false,
             task_lifetime_trace: bool_or(
                 doc,
                 "diagnostics",
@@ -630,6 +626,7 @@ impl EditableConfig {
     }
 
     fn sanitized(mut self) -> Self {
+        self.hitch_profiling = false;
         self.allocator = self.allocator.clamp(0, 2);
         self.occlusion_planes_max_per_cell = self.occlusion_planes_max_per_cell.clamp(1, 256);
         self.occlusion_planes_grid_radius = self.occlusion_planes_grid_radius.clamp(0, 2);
@@ -1024,7 +1021,9 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     );
     setting!("diagnostics", "debug_log", debug_log);
     setting!("diagnostics", "console", console);
-    setting!("diagnostics", "hitch_profiling", hitch_profiling);
+    if let Some(diagnostics) = doc.get_mut("diagnostics").and_then(Item::as_table_mut) {
+        diagnostics.remove("hitch_profiling");
+    }
     setting!("diagnostics", "task_lifetime_trace", task_lifetime_trace);
     setting!("diagnostics", "lod_streaming_trace", lod_streaming_trace);
 }
@@ -1247,7 +1246,6 @@ mod_owned_key = "untouched"
         config.occlusion_planes_debug_log = !config.occlusion_planes_debug_log;
         config.debug_log = !config.debug_log;
         config.console = !config.console;
-        config.hitch_profiling = !config.hitch_profiling;
         config.task_lifetime_trace = !config.task_lifetime_trace;
         config.lod_streaming_trace = !config.lod_streaming_trace;
 

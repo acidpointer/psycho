@@ -49,20 +49,6 @@ mod tile_value_integrity;
 mod types;
 mod window_input;
 
-pub(crate) struct DiagnosticCounters {
-    pub(crate) ragdoll_calls: u64,
-    pub(crate) ragdoll_skips: u64,
-    pub(crate) extra_owner_load_scrubs: u64,
-    pub(crate) extra_owner_access_scrubs: u64,
-    pub(crate) extra_owner_unreadable: u64,
-    pub(crate) task_dispatch_attempts: u64,
-    pub(crate) task_dispatch_calls: u64,
-    pub(crate) task_pin_failures: u64,
-    pub(crate) task_invalid_dispatches: u64,
-    pub(crate) task_release_guards: u64,
-    pub(crate) task_tombstones: u64,
-}
-
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
     pub save_attempts: u64,
@@ -105,9 +91,8 @@ pub(crate) struct DashboardCounters {
 
 /// Cumulative, read-only counters for the late-bound helper dashboard.
 ///
-/// Unlike the hitch profiler's interval counters, this snapshot never drains
-/// producer state. Every source below is atomic and safe to query from the
-/// dashboard sampling worker.
+/// This snapshot never drains producer state. Every source below is atomic
+/// and safe to query from the dashboard sampling worker.
 pub(crate) fn dashboard_counters() -> DashboardCounters {
     let save = save_integrity::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
@@ -367,26 +352,6 @@ pub fn observe_event(kind: u32) {
     window_input::observe_event(kind);
     lowprocess::observe_event(kind);
     model_postprocess::observe_event(kind);
-}
-
-pub(crate) fn take_diagnostic_counters() -> DiagnosticCounters {
-    let ragdoll = ragdoll::take_diagnostic_counters();
-    let extra_owner = extraownership::take_diagnostic_counters();
-    let task = queued_tasks::diagnostic_snapshot();
-
-    DiagnosticCounters {
-        ragdoll_calls: ragdoll.calls,
-        ragdoll_skips: ragdoll.skips,
-        extra_owner_load_scrubs: extra_owner.load_scrubs,
-        extra_owner_access_scrubs: extra_owner.access_scrubs,
-        extra_owner_unreadable: extra_owner.unreadable,
-        task_dispatch_attempts: task.dispatch_attempts,
-        task_dispatch_calls: task.dispatch_calls,
-        task_pin_failures: task.pin_failures,
-        task_invalid_dispatches: task.invalid_dispatches,
-        task_release_guards: task.release_guards,
-        task_tombstones: task.tombstones,
-    }
 }
 
 pub(crate) fn append_diagnostic_report(out: &mut String) {

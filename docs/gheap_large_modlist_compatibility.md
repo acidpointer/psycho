@@ -655,22 +655,86 @@ tiers encounter a resource failure, native cleanup/retry runs instead of
 mixing that lifetime into a variable extent. Four shards prevent unrelated
 worker traffic from serializing globally.
 
-When opt-in hitch profiling is enabled at process startup, its compact span
-report measures the active portion of the five-second light memory poll
-(`memWd`, including detailed work on each twelfth poll). It also records medium
-heap alloc/free/size call counts, mutex wait and operation duration, reservation
-attempts/failures, commits/failures, and new blocks. Timers aggregate through
-atomics and are drained once per hitch window; there is no per-allocation log or
-allocation. Hitch and watchdog block snapshots use `try_lock`, marking a miss
-instead of waiting behind allocation. The profiled mutex wrapper is a cold,
-non-inlined path. With profiling disabled, each medium operation takes one flag
-branch directly into the original lean mutex path; QPC calls, 64-bit timing
-atomics, and their error handling are absent from the normal i686 code path.
+Allocator operations execute without hitch-profiler timers, flag checks, or
+timing-counter updates. The ordinary sharded allocation, commitment,
+reservation, and ownership paths execute directly. Watchdog block snapshots
+remain nonblocking and independent of the removed timing windows.
 
 These changes improve contention, placement, and native OOM recovery while
 preserving ordinary freed-byte readability. Cleanup and mapping release remain
 cold and barrier-protected; runtime evidence must still establish their hitch
 cost on the supplied workload.
+
+### Hitch-profiler retirement
+
+The 2026-10-22 removal retires `diagnostics.hitch_profiling` from the production
+feature set. It was attribution instrumentation, not an allocator, cleanup,
+synchronization, or engine-repair requirement.
+
+The removed `gheap/hitch.rs` measured Phase 10 spacing and 22 named spans,
+producing only the debug-level `[HITCH]` summary. Its windows did not control
+reclamation, admission, OOM retry, AI/Havok guards, or rendering. The helper
+uses independent cumulative snapshots. Phase 10 wall time was not GPU time or
+an actual presentation timestamp; loading intervals also entered its baseline.
+
+The instrumentation had demonstrated investigative value: the retained
+`cw-stutter-*-20260605.log` sessions in `.reports/` narrowed the large nested
+maintenance interval through audio to the radio scanner. That historical use
+does not establish a current gameplay dependency. Later radio work explicitly
+records that further profiling was declined and is not an implementation
+prerequisite; see [radio evidence](radio_scan_hitch_evidence.md).
+
+Previously disabling the flag avoided QPC reads and timing atomics but left
+eleven timing-only detours installed in mode 2. Their preparation, activation,
+wrappers, and dedicated storage are now removed from the heap installer:
+
+| Timing-only wrapper | Original entry |
+|---|---:|
+| `phase10_pre` | `0x0086F640` |
+| `phase10_audio_update` | `0x00832AD0` |
+| `phase10_audio_worker` | `0x00833D00` |
+| `radio_signal_scan` | `0x004FF1A0` |
+| `radio_station_update` | `0x00834260` |
+| `phase10_pre_tail` | `0x0082FB70` |
+| `phase10_world_update` | `0x0082D7C0` |
+| `phase10_mid` | `0x0086F890` |
+| `phase10_queue_drain` | `0x00552570` |
+| `phase10_post` | `0x0086F670` |
+| `havok_stop_start` | `0x008324E0` |
+
+These addresses identify retired hook owners, not new binary qualification.
+Each removed wrapper only retrieved and timed its predecessor. The Havok
+stop/start address and function type remain in use by actual destruction
+barriers; removing its telemetry detour does not remove those native calls.
+No measured frame-time or FPS saving is claimed.
+
+The implemented removal:
+
+- Removes `gheap/hitch.rs`, the eleven timing-only hook preparations and
+  activations, and their dedicated wrappers, statics, and function types.
+- Removes timing wrappers from the real Phase 7/10, AI, Havok-lock, watchdog,
+  and scrap-GC operations while retaining those operations and their order.
+  Keeps the registered-radio load repair; it is not the radio timing wrapper.
+- Removes the three opt-in radio query/traversal/station-mode profiling hooks,
+  reporting TLS, branch probes, and slow-scan aggregation. Preserves the scan
+  context and pending-policy TLS used by the synchronous radio optimization.
+- Removes profiler-only pool/block timing snapshots and ragdoll/post-load
+  timing updates. Keeps allocator accounting, cumulative failure/dashboard
+  counters, load provenance, hang heartbeats, and the memory watchdog.
+- Removes the helper's slow-frame profiling control and shipped setting.
+  Preserves obsolete-key acceptance and the startup config's existing field
+  layout with an inert compatibility value rather than a schema/layout
+  migration. General QPC/stopwatch and log-throttling helpers remain: save
+  integrity, LOD, IO, and failure diagnostics have independent consumers.
+
+The owner explicitly authorized offline-only removal for this task, overriding
+the root native-runtime gate for this scoped change. Qualification uses the
+existing allocator regressions, affected core/helper suites, supported 32-bit
+release build, formatting, and diff review. The change removes pre-CRT hook
+preparation, static timing owners, and radio reporting TLS; it adds no startup
+owner or migration and preserves config value-graph storage. Game startup,
+radio playback, synchronization, and frame pacing remain unverified in game.
+This authorization does not extend to unrelated engine changes.
 
 The actor guard adds one form-ID read to actor destruction. Only retiring
 `FFxxxxxx` actors walk their containers. One allocator inspection reads all

@@ -39,8 +39,6 @@ use libpsycho::common::helpers::format_bytes;
 use parking_lot::RwLock;
 use rustc_hash::FxBuildHasher;
 
-use crate::mods::heap_replacer::gheap::hitch::{self, Span};
-
 use super::heap::Heap;
 use super::heap::REGION_SIZE;
 use super::region::{self, Region};
@@ -331,7 +329,7 @@ impl Runtime {
 
                 thread::sleep(GC_DURATION);
 
-                hitch::measure_span(Span::ScrapGc, || {
+                {
                     let mut gc = GcCycle::default();
                     // Queue entries are hints, not ownership proof. The heap
                     // rechecks its live count while holding its state lock.
@@ -350,7 +348,7 @@ impl Runtime {
 
                     let snapshot = Self::snapshot(&pool, reserve.as_ref(), &metrics);
                     log_state.observe(&snapshot, &gc);
-                });
+                }
             }
         });
 

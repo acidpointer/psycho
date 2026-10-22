@@ -82,60 +82,10 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
                 MAIN_LOOP_MAINTENANCE_ADDR as *mut c_void,
                 gheap::hooks::hook_main_loop_maintenance,
             )?;
-            PHASE10_PRE_HOOK.init(
-                "phase10_pre",
-                PHASE10_PRE_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_pre,
-            )?;
-            PHASE10_AUDIO_UPDATE_HOOK.init(
-                "phase10_audio_update",
-                PHASE10_AUDIO_UPDATE_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_audio_update,
-            )?;
-            PHASE10_AUDIO_WORKER_HOOK.init(
-                "phase10_audio_worker",
-                PHASE10_AUDIO_WORKER_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_audio_worker,
-            )?;
-            RADIO_SIGNAL_SCAN_HOOK.init(
-                "radio_signal_scan",
-                RADIO_SIGNAL_SCAN_ADDR as *mut c_void,
-                gheap::hooks::hook_radio_signal_scan,
-            )?;
-            RADIO_STATION_UPDATE_HOOK.init(
-                "radio_station_update",
-                RADIO_STATION_UPDATE_ADDR as *mut c_void,
-                gheap::hooks::hook_radio_station_update,
-            )?;
             RADIO_STATION_RESOLVE_HOOK.init(
                 "radio_station_resolve",
                 RADIO_STATION_RESOLVE_ADDR as *mut c_void,
                 gheap::hooks::hook_radio_station_resolve,
-            )?;
-            PHASE10_PRE_TAIL_HOOK.init(
-                "phase10_pre_tail",
-                PHASE10_PRE_TAIL_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_pre_tail,
-            )?;
-            PHASE10_WORLD_UPDATE_HOOK.init(
-                "phase10_world_update",
-                PHASE10_WORLD_UPDATE_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_world_update,
-            )?;
-            PHASE10_MID_HOOK.init(
-                "phase10_mid",
-                PHASE10_MID_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_mid,
-            )?;
-            PHASE10_QUEUE_DRAIN_HOOK.init(
-                "phase10_queue_drain",
-                PHASE10_QUEUE_DRAIN_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_queue_drain,
-            )?;
-            PHASE10_POST_HOOK.init(
-                "phase10_post",
-                PHASE10_POST_ADDR as *mut c_void,
-                gheap::hooks::hook_phase10_post,
             )?;
             PER_FRAME_QUEUE_DRAIN_HOOK.init(
                 "per_frame_queue_drain",
@@ -213,11 +163,6 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
             use gheap::hooks::{hook_hkworld_lock, hook_hkworld_unlock};
             use gheap::statics::*;
 
-            HAVOK_STOP_START_HOOK.init(
-                "havok_stop_start",
-                HAVOK_STOP_START_ADDR as *mut c_void,
-                gheap::hooks::hook_havok_stop_start,
-            )?;
             HKWORLD_LOCK_HOOK.init(
                 "hkworld_lock",
                 HKWORLD_LOCK_ADDR as *mut c_void,
@@ -374,24 +319,13 @@ fn enable_gheap_hooks(
     transaction.enable_inline(&GHEAP_ALLOC_HOOK)?;
 
     transaction.enable_inline(&MAIN_LOOP_MAINTENANCE_HOOK)?;
-    transaction.enable_inline(&PHASE10_PRE_HOOK)?;
-    transaction.enable_inline(&PHASE10_AUDIO_UPDATE_HOOK)?;
-    transaction.enable_inline(&PHASE10_AUDIO_WORKER_HOOK)?;
-    transaction.enable_inline(&RADIO_SIGNAL_SCAN_HOOK)?;
-    transaction.enable_inline(&RADIO_STATION_UPDATE_HOOK)?;
     transaction.enable_inline(&RADIO_STATION_RESOLVE_HOOK)?;
-    transaction.enable_inline(&PHASE10_PRE_TAIL_HOOK)?;
-    transaction.enable_inline(&PHASE10_WORLD_UPDATE_HOOK)?;
-    transaction.enable_inline(&PHASE10_MID_HOOK)?;
-    transaction.enable_inline(&PHASE10_QUEUE_DRAIN_HOOK)?;
-    transaction.enable_inline(&PHASE10_POST_HOOK)?;
     transaction.enable_inline(&PER_FRAME_QUEUE_DRAIN_HOOK)?;
     transaction.enable_inline(&AI_THREAD_START_HOOK)?;
     transaction.enable_inline(&AI_THREAD_JOIN_HOOK)?;
     transaction.enable_inline(&OOM_STAGE_EXEC_HOOK)?;
     transaction.enable_inline(&NISOURCETEXTURE_DTOR_HOOK)?;
     transaction.enable_inline(&MODEL_TASK_DTOR_HOOK)?;
-    transaction.enable_inline(&HAVOK_STOP_START_HOOK)?;
     transaction.enable_inline(&HKWORLD_LOCK_HOOK)?;
     transaction.enable_inline(&HKWORLD_UNLOCK_HOOK)?;
 

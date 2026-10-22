@@ -260,7 +260,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
         }
 
         libpsycho::os::windows::winapi::sleep(POLL_MS);
-        super::hitch::measure_span(super::hitch::Span::MemoryWatchdog, || {
+        {
             poll_count = poll_count.wrapping_add(1);
             super::pool::allow_reservation_retries();
 
@@ -285,7 +285,7 @@ fn watchdog_loop(run: Arc<AtomicBool>) {
 
             // --- Diagnostic logging ---
             log_diagnostics(poll_count, &info);
-        });
+        }
     }
 }
 

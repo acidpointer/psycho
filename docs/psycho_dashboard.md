@@ -339,9 +339,14 @@ structure.
 
 Active engine counters are cumulative and read-only. The Runtime dashboard no
 longer presents the reserved routine LOD, cell, or SpeedTree fields as activity
-measurements. Dashboard sampling does not drain the hitch profiler's interval
-counters. Missing optional samples are marked invalid instead of being
-presented as zero.
+measurements. Dashboard sampling never drains producer counters. Missing
+optional samples are marked invalid instead of being presented as zero.
+
+The retired hitch profiler has no dashboard control. Legacy
+`diagnostics.hitch_profiling` values are ignored, and the next settings save
+removes that obsolete key. The core and helper retain inert compatibility
+storage for the existing config value layout; this does not change the
+read-only dashboard ABI.
 
 ## Sampling, memory meaning, and cost
 

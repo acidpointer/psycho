@@ -14,7 +14,7 @@
 //! wrappers are void best-effort frame/update helpers, so we skip not-ready or
 //! mismatched frames and let the next valid controller state retry.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use libc::c_void;
 use libpsycho::os::windows::winapi::virtual_query;
@@ -43,30 +43,9 @@ const MAX_BONES: usize = 512;
 
 static SKIPPED_UPDATES: AtomicU64 = AtomicU64::new(0);
 static DETACHED_PHANTOM_SKIPS: AtomicU64 = AtomicU64::new(0);
-static GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
-static GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
-static GUARD_VIRTUAL_QUERIES: AtomicU64 = AtomicU64::new(0);
-static GUARD_TOTAL_US: AtomicU64 = AtomicU64::new(0);
-static GUARD_MAX_US: AtomicU64 = AtomicU64::new(0);
-static GUARD_LAST_REPORT_MS: AtomicU32 = AtomicU32::new(0);
-static DIAGNOSTIC_GUARD_CALLS: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_GUARD_SKIPS: AtomicU64 = AtomicU64::new(0);
 
-const PERF_REPORT_MS: u32 = 5_000;
 const HAVOK_PHANTOM_WORLD_OFFSET: usize = 0x08;
 const HAVOK_PHANTOM_OVERLAP_COUNT_OFFSET: usize = 0xD4;
-
-pub(super) struct DiagnosticCounters {
-    pub calls: u64,
-    pub skips: u64,
-}
-
-pub(super) fn take_diagnostic_counters() -> DiagnosticCounters {
-    DiagnosticCounters {
-        calls: DIAGNOSTIC_GUARD_CALLS.swap(0, Ordering::AcqRel),
-        skips: DIAGNOSTIC_GUARD_SKIPS.swap(0, Ordering::AcqRel),
-    }
-}
 
 pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut c_void) {
     let original = match statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.original() {
@@ -80,13 +59,10 @@ pub unsafe extern "thiscall" fn hook_ragdoll_bone_transform_update(ragdoll: *mut
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(timer, true);
         log_skip("bone-transform", reason, ragdoll);
         return;
     }
-    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll) };
 }
@@ -103,13 +79,10 @@ pub unsafe extern "thiscall" fn hook_ragdoll_alternate_update(ragdoll: *mut c_vo
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(timer, true);
         log_skip("alternate", reason, ragdoll);
         return;
     }
-    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll, arg) };
 }
@@ -126,13 +99,10 @@ pub unsafe extern "fastcall" fn hook_ragdoll_save_load_writeback(ragdoll: *mut c
         }
     };
 
-    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     if let Err(reason) = ragdoll_ready_for_bone_update(ragdoll) {
-        record_guard_sample(timer, true);
         log_skip("save-load-writeback", reason, ragdoll);
         return;
     }
-    record_guard_sample(timer, false);
 
     unsafe { original(ragdoll) };
 }
@@ -356,10 +326,6 @@ fn is_readable(addr: usize, len: usize) -> bool {
 }
 
 fn query_readable_region(addr: usize) -> Option<(usize, usize)> {
-    if diagnostics::hitch_profiling_enabled() {
-        GUARD_VIRTUAL_QUERIES.fetch_add(1, Ordering::Relaxed);
-    }
-
     let Ok(info) = virtual_query(addr as *mut c_void) else {
         return None;
     };
@@ -406,51 +372,4 @@ fn format_ragdoll_state(ragdoll: *mut c_void) -> String {
         read_u32(base + RAGDOLL_BONE_TABLE_COUNT_OFFSET).unwrap_or(u32::MAX),
         read_u32(base + RAGDOLL_BONE_TABLE_CAPACITY_OFFSET).unwrap_or(u32::MAX),
     )
-}
-
-fn record_guard_sample(timer: diagnostics::Stopwatch, skipped: bool) {
-    if !diagnostics::hitch_profiling_enabled() {
-        return;
-    }
-
-    GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
-    DIAGNOSTIC_GUARD_CALLS.fetch_add(1, Ordering::Relaxed);
-    if skipped {
-        GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
-        DIAGNOSTIC_GUARD_SKIPS.fetch_add(1, Ordering::Relaxed);
-    }
-
-    if let Some(elapsed_us) = timer.elapsed_us() {
-        GUARD_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-        diagnostics::update_max_u64(&GUARD_MAX_US, elapsed_us);
-    }
-
-    maybe_log_perf();
-}
-
-fn maybe_log_perf() {
-    if !diagnostics::should_tick(&GUARD_LAST_REPORT_MS, PERF_REPORT_MS) {
-        return;
-    }
-
-    let calls = GUARD_CALLS.swap(0, Ordering::AcqRel);
-    if calls == 0 {
-        return;
-    }
-
-    let skips = GUARD_SKIPS.swap(0, Ordering::AcqRel);
-    let queries = GUARD_VIRTUAL_QUERIES.swap(0, Ordering::AcqRel);
-    let total_us = GUARD_TOTAL_US.swap(0, Ordering::AcqRel);
-    let max_us = GUARD_MAX_US.swap(0, Ordering::AcqRel);
-    let avg_us = total_us / calls.max(1);
-
-    log::debug!(
-        "[RAGDOLL_PERF] calls={} skips={} virtual_queries={} total_us={} avg_us={} max_us={}",
-        calls,
-        skips,
-        queries,
-        total_us,
-        avg_us,
-        max_us,
-    );
 }

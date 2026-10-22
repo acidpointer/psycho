@@ -71,8 +71,6 @@ use std::sync::atomic::{
 use libc::c_void;
 use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
 
-use crate::mods::diagnostics;
-
 // Per-pool lifecycle states. Enables lazy VA reservation: the pool
 // transitions NotInit -> Initing -> Init on success. Resource failures are
 // retryable on the watchdog generation; structural failures are permanent.
@@ -112,107 +110,6 @@ static RESERVATION_RETRY_GENERATION: AtomicU32 = AtomicU32::new(1);
 
 const CLASS_STATE_EXHAUSTED: u32 = 1;
 const CLASS_STATE_GENERATION_STEP: u32 = 2;
-
-static TIMED_GROW_COUNT: AtomicU64 = AtomicU64::new(0);
-static TIMED_GROW_FAILURES: AtomicU64 = AtomicU64::new(0);
-static TIMED_GROW_TOTAL_US: AtomicU64 = AtomicU64::new(0);
-static TIMED_GROW_USER_BYTES: AtomicU64 = AtomicU64::new(0);
-static TIMED_GROW_METADATA_BYTES: AtomicU64 = AtomicU64::new(0);
-static SLOWEST_GROW: AtomicU64 = AtomicU64::new(0);
-static TIMED_INIT_COUNT: AtomicU64 = AtomicU64::new(0);
-static TIMED_INIT_TOTAL_US: AtomicU64 = AtomicU64::new(0);
-static SLOWEST_INIT: AtomicU64 = AtomicU64::new(0);
-
-#[derive(Clone, Copy, Default)]
-pub struct PoolTimingSnapshot {
-    pub grows: u64,
-    pub grow_failures: u64,
-    pub grow_total_us: u64,
-    pub grow_max_us: u64,
-    pub grow_user_bytes: u64,
-    pub grow_metadata_bytes: u64,
-    pub grow_slowest_pool: u16,
-    pub grow_slowest_item_size: u16,
-    pub initializations: u64,
-    pub init_total_us: u64,
-    pub init_max_us: u64,
-    pub init_slowest_pool: u16,
-    pub init_slowest_item_size: u16,
-}
-
-fn pack_timing(elapsed_us: u64, pool_index: u16, item_size: u32) -> u64 {
-    let elapsed = elapsed_us.min(u32::MAX as u64);
-    (elapsed << 32) | (u64::from(pool_index) << 16) | u64::from(item_size.min(u16::MAX as u32))
-}
-
-fn unpack_timing(value: u64) -> (u64, u16, u16) {
-    (
-        value >> 32,
-        ((value >> 16) & 0xffff) as u16,
-        (value & 0xffff) as u16,
-    )
-}
-
-fn record_grow_timing(
-    timer: diagnostics::Stopwatch,
-    pool_index: u16,
-    item_size: u32,
-    success: bool,
-    user_bytes: usize,
-    metadata_bytes: usize,
-) {
-    let Some(elapsed_us) = timer.elapsed_us() else {
-        return;
-    };
-
-    TIMED_GROW_COUNT.fetch_add(1, Ordering::Relaxed);
-    if !success {
-        TIMED_GROW_FAILURES.fetch_add(1, Ordering::Relaxed);
-    }
-    TIMED_GROW_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-    TIMED_GROW_USER_BYTES.fetch_add(user_bytes as u64, Ordering::Relaxed);
-    TIMED_GROW_METADATA_BYTES.fetch_add(metadata_bytes as u64, Ordering::Relaxed);
-    SLOWEST_GROW.fetch_max(
-        pack_timing(elapsed_us, pool_index, item_size),
-        Ordering::Relaxed,
-    );
-}
-
-fn record_init_timing(timer: diagnostics::Stopwatch, pool_index: u16, item_size: u32) {
-    let Some(elapsed_us) = timer.elapsed_us() else {
-        return;
-    };
-
-    TIMED_INIT_COUNT.fetch_add(1, Ordering::Relaxed);
-    TIMED_INIT_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-    SLOWEST_INIT.fetch_max(
-        pack_timing(elapsed_us, pool_index, item_size),
-        Ordering::Relaxed,
-    );
-}
-
-pub fn take_timing_snapshot() -> PoolTimingSnapshot {
-    let grow_slowest = SLOWEST_GROW.swap(0, Ordering::AcqRel);
-    let init_slowest = SLOWEST_INIT.swap(0, Ordering::AcqRel);
-    let (grow_max_us, grow_slowest_pool, grow_slowest_item_size) = unpack_timing(grow_slowest);
-    let (init_max_us, init_slowest_pool, init_slowest_item_size) = unpack_timing(init_slowest);
-
-    PoolTimingSnapshot {
-        grows: TIMED_GROW_COUNT.swap(0, Ordering::AcqRel),
-        grow_failures: TIMED_GROW_FAILURES.swap(0, Ordering::AcqRel),
-        grow_total_us: TIMED_GROW_TOTAL_US.swap(0, Ordering::AcqRel),
-        grow_max_us,
-        grow_user_bytes: TIMED_GROW_USER_BYTES.swap(0, Ordering::AcqRel),
-        grow_metadata_bytes: TIMED_GROW_METADATA_BYTES.swap(0, Ordering::AcqRel),
-        grow_slowest_pool,
-        grow_slowest_item_size,
-        initializations: TIMED_INIT_COUNT.swap(0, Ordering::AcqRel),
-        init_total_us: TIMED_INIT_TOTAL_US.swap(0, Ordering::AcqRel),
-        init_max_us,
-        init_slowest_pool,
-        init_slowest_item_size,
-    }
-}
 
 /// Growth unit. Each time a pool runs out of committed virgin cells and has
 /// no returned cell to reuse, it commits one more block.
@@ -745,9 +642,6 @@ impl Pool {
             return GrowResult::Full;
         }
 
-        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
-        let mut metadata_committed_now = 0usize;
-
         let block_start = self.committed_end;
         let remaining = self.end as usize - block_start as usize;
         let commit_size = remaining.min(POOL_BLOCK_SIZE);
@@ -765,7 +659,6 @@ impl Pool {
                 unsafe { (self.cell_links as *mut u8).add(metadata_committed) as *const c_void };
             let metadata_commit = unsafe { virtual_commit(metadata_start, metadata_delta) };
             if metadata_commit.is_null() {
-                record_grow_timing(timer, self.index, self.item_size, false, 0, 0);
                 log::error!(
                     "[POOL] Metadata commit failed: pool={} item_size={} addr=0x{:08x} size={}",
                     self.index,
@@ -777,19 +670,10 @@ impl Pool {
             }
             self.metadata_bytes
                 .store(metadata_required as u32, Ordering::Relaxed);
-            metadata_committed_now = metadata_delta;
         }
 
         let user_commit = unsafe { virtual_commit(block_start as *const c_void, commit_size) };
         if user_commit.is_null() {
-            record_grow_timing(
-                timer,
-                self.index,
-                self.item_size,
-                false,
-                0,
-                metadata_committed_now,
-            );
             log::error!(
                 "[POOL] Commit failed: pool={} item_size={} addr=0x{:08x} size={}",
                 self.index,
@@ -804,14 +688,6 @@ impl Pool {
         self.committed_cell_count = committed_cell_count as u32;
         self.committed_bytes
             .fetch_add(commit_size as u32, Ordering::Relaxed);
-        record_grow_timing(
-            timer,
-            self.index,
-            self.item_size,
-            true,
-            commit_size,
-            metadata_committed_now,
-        );
 
         GrowResult::Grown
     }
@@ -1315,7 +1191,6 @@ impl PoolHeap {
     /// have just transitioned the pool to `POOL_STATE_INITING`.
     /// Takes `init_lock` for addr_to_pool coordination.
     fn do_reserve(&self, idx: usize) -> ReserveResult {
-        let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
         let _guard = match self.init_lock.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -1514,8 +1389,6 @@ impl PoolHeap {
             OVERFLOW_USER_RESERVED_BYTES.fetch_add(max_size as usize, Ordering::Relaxed);
             OVERFLOW_METADATA_RESERVED_BYTES.fetch_add(metadata_reserved_bytes, Ordering::Relaxed);
         }
-
-        record_init_timing(timer, idx as u16, item_size);
 
         log::trace!(
             "[POOL] class #{} ({}B) subpool {}/{} (#{}) created: {}MB at 0x{:08x}..0x{:08x}, {}KB metadata, {}, overflow {}",

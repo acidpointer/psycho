@@ -4,10 +4,7 @@
 //! load completion. Running that same reconciler once before the top-level load
 //! owner returns drains the backlog while the loading transition is still active.
 
-use std::sync::{
-    LazyLock,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::LazyLock;
 
 use libc::c_void;
 
@@ -24,8 +21,6 @@ type ProcessReconcileFn = unsafe extern "fastcall" fn(*mut c_void);
 
 static TOP_LEVEL_LOAD_HOOK: LazyLock<InlineHookContainer<TopLevelLoadFn>> =
     LazyLock::new(InlineHookContainer::new);
-static PREPASSES: AtomicU64 = AtomicU64::new(0);
-static PREPASS_MAX_US: AtomicU64 = AtomicU64::new(0);
 
 pub fn install_post_load_reconciliation_prepass() -> anyhow::Result<()> {
     unsafe {
@@ -62,7 +57,6 @@ unsafe extern "thiscall" fn hook_top_level_load(
         return succeeded;
     }
 
-    let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
     let process_context =
         unsafe { core::ptr::read_volatile(PROCESS_CONTEXT_ADDR as *const *mut c_void) };
     let reconcile =
@@ -71,19 +65,6 @@ unsafe extern "thiscall" fn hook_top_level_load(
     diagnostics::mark_load_site(diagnostics::LoadSite::PostLoadPrepassEnter);
     unsafe { reconcile(process_context) };
     diagnostics::mark_load_site(diagnostics::LoadSite::PostLoadPrepassExit);
-
-    let count = PREPASSES.fetch_add(1, Ordering::Relaxed) + 1;
-    if let Some(elapsed_us) = timer.elapsed_us() {
-        diagnostics::update_max_u64(&PREPASS_MAX_US, elapsed_us);
-        if log::log_enabled!(log::Level::Debug) {
-            log::debug!(
-                "[POST_LOAD] reconciliation_prepass_us={} max_us={} total={}",
-                elapsed_us,
-                PREPASS_MAX_US.load(Ordering::Relaxed),
-                count,
-            );
-        }
-    }
 
     diagnostics::finish_load();
     succeeded

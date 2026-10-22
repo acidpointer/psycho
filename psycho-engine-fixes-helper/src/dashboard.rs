@@ -2561,12 +2561,6 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
     );
     checkbox_help(
         ui,
-        "Slow-frame profiling",
-        &mut config.hitch_profiling,
-        "Records slow-frame timing. Adds overhead; enable only while investigating stutter.",
-    );
-    checkbox_help(
-        ui,
         "Queued-task trace",
         &mut config.task_lifetime_trace,
         "Records queued-task events. Enable only for crash research.",

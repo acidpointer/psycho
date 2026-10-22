@@ -305,10 +305,6 @@ debug_log = true
 # Open a separate Windows console with live log output. Off for normal play.
 console = false
 
-# High-resolution hitch timing. Adds overhead; enable only while testing.
-# Requires debug_log.
-hitch_profiling = false
-
 # Record the last 256 queued-task events for crash research.
 # Requires queued_task_lifetime_guard = true.
 task_lifetime_trace = false

@@ -44,23 +44,6 @@ type LoadedFormResolverFn = unsafe extern "C" fn(u32) -> *mut c_void;
 static LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
 static ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_LOAD_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_ACCESS_SCRUB_COUNT: AtomicU64 = AtomicU64::new(0);
-static DIAGNOSTIC_ACCESS_UNREADABLE_COUNT: AtomicU64 = AtomicU64::new(0);
-
-pub(super) struct DiagnosticCounters {
-    pub load_scrubs: u64,
-    pub access_scrubs: u64,
-    pub unreadable: u64,
-}
-
-pub(super) fn take_diagnostic_counters() -> DiagnosticCounters {
-    DiagnosticCounters {
-        load_scrubs: DIAGNOSTIC_LOAD_SCRUB_COUNT.swap(0, Ordering::AcqRel),
-        access_scrubs: DIAGNOSTIC_ACCESS_SCRUB_COUNT.swap(0, Ordering::AcqRel),
-        unreadable: DIAGNOSTIC_ACCESS_UNREADABLE_COUNT.swap(0, Ordering::AcqRel),
-    }
-}
 
 pub fn install_load_hook() -> anyhow::Result<()> {
     unsafe {
@@ -110,7 +93,6 @@ unsafe extern "C" fn resolve_loaded_owner_checked(saved_ref: u32) -> *mut c_void
         return owner;
     }
 
-    DIAGNOSTIC_LOAD_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(
         &LOAD_SCRUB_COUNT,
         "load",
@@ -134,7 +116,6 @@ fn scrub_extraownership(list: *mut c_void, extra: *mut c_void) -> *mut c_void {
         return extra;
     }
 
-    DIAGNOSTIC_ACCESS_SCRUB_COUNT.fetch_add(1, Ordering::Relaxed);
     log_invalid_owner(&ACCESS_SCRUB_COUNT, "access", list, extra, 0, owner);
 
     if is_writable(owner_slot as usize, 4) {
@@ -194,7 +175,6 @@ fn is_text_ptr(addr: usize) -> bool {
 }
 
 fn log_unreadable_extra(extra: *mut c_void) {
-    DIAGNOSTIC_ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed);
     let n = ACCESS_UNREADABLE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if diagnostics::should_log_power_of_two(n) {
         log::warn!(
