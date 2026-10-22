@@ -229,10 +229,11 @@ impl ScreenShaderSource {
     /// Atomically publishes this external shader's current runtime settings.
     ///
     /// Embedded effects are owned by `omv.toml` and intentionally make this a
-    /// no-op. Callers must keep conflict detection outside this primitive.
-    pub(crate) fn save_config_to_disk(&mut self) -> Result<()> {
+    /// no-op. Returns the published revision, or None for embedded sources.
+    /// Callers must keep conflict detection outside this primitive.
+    pub(crate) fn save_config_to_disk(&mut self) -> Result<Option<crate::file_io::TextRevision>> {
         if self.is_embedded_effect() {
-            return Ok(());
+            return Ok(None);
         }
 
         let config = ShaderConfigFile::from_source(self);
@@ -240,7 +241,7 @@ impl ScreenShaderSource {
         crate::file_io::atomic_write_text(&self.config_path, &text)?;
         self.config_stamp = file_stamp(&self.config_path).unwrap_or_default();
         self.config_error = None;
-        Ok(())
+        Ok(Some(crate::file_io::TextRevision::of(text.as_bytes())))
     }
 
     fn reload_config_from_disk(&mut self) -> Result<()> {

@@ -1385,6 +1385,60 @@ struct ActivePreset {
     modified: bool,
 }
 
+/// Render-only profile transaction state. It is allocated on the first Present
+/// service, never by configure or the plugin-load preset worker.
+#[derive(Default)]
+struct ProfileSession {
+    publication: Option<PendingProfilePublication>,
+    active_source: Option<(std::path::PathBuf, u64)>,
+    user_has_chosen: bool,
+    catalog_ready: bool,
+    refresh_pending: bool,
+    state_error: Option<String>,
+    state_dirty: bool,
+    state_in_flight: bool,
+    state_retry: Option<Instant>,
+    creator: Option<Box<ProfileCreator>>,
+}
+
+struct PendingProfilePublication {
+    key: PresetKey,
+    payload_revision: u64,
+    published: bool,
+    owns_activation: bool,
+}
+
+struct ProfileCreator {
+    name: [u8; 321],
+    author: [u8; 321],
+    description: [u8; 2049],
+}
+
+/// Reuse the former pending-key slot without widening the startup-owned runtime.
+/// The pointer is null at plugin load; its pointee is owned only by Present.
+#[repr(C)]
+struct ProfileSessionSlot {
+    session: Option<Box<ProfileSession>>,
+    reserved: [u8; std::mem::size_of::<Option<PresetKey>>()
+        - std::mem::size_of::<Option<Box<ProfileSession>>>()],
+}
+
+impl Default for ProfileSessionSlot {
+    fn default() -> Self {
+        Self {
+            session: None,
+            reserved: [0; std::mem::size_of::<Option<PresetKey>>()
+                - std::mem::size_of::<Option<Box<ProfileSession>>>()],
+        }
+    }
+}
+
+const _: () =
+    assert!(std::mem::size_of::<ProfileSessionSlot>() == std::mem::size_of::<Option<PresetKey>>());
+const _: () = assert!(
+    std::mem::align_of::<ProfileSessionSlot>() == std::mem::align_of::<Option<PresetKey>>()
+);
+
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 enum PresetUiView {
     #[default]
@@ -1394,28 +1448,47 @@ enum PresetUiView {
     Create,
 }
 
+// The field order below reproduces the verified 32-bit pre-change Rust layout.
+// Equal-size replacement fields alone are insufficient: Rust's niche-based
+// reordering moved the old active and saved-state slots during this change.
+#[repr(C)]
 struct PresetUiState {
+    selected: Option<usize>,
+    session: ProfileSessionSlot,
+    pending_saved_state: Option<PresetActiveState>,
+    active: Option<ActivePreset>,
+    filter: [u8; 96],
     service: Option<PresetService>,
     catalog: PresetCatalog,
-    selected: Option<usize>,
-    pending_published: Option<PresetKey>,
-    pending_saved_state: Option<PresetActiveState>,
-    saved_state_loaded: bool,
-    active: Option<ActivePreset>,
+    notice: Option<String>,
+    error: Option<String>,
     catalog_page: usize,
-    filter: [u8; 96],
+    saved_state_loaded: bool,
+    create_pending: bool,
+    update_pending: bool,
+    show_technical_details: bool,
+    view: PresetUiView,
+    // Retain the established startup buffers and offsets. Render-time editors
+    // use the deferred creator's full UTF-8 capacity instead.
     create_name: [u8; 81],
     create_version: [u8; 65],
     create_author: [u8; 81],
     create_description: [u8; 513],
     update_version: [u8; 65],
-    create_pending: bool,
-    update_pending: bool,
-    view: PresetUiView,
-    show_technical_details: bool,
-    notice: Option<String>,
-    error: Option<String>,
 }
+
+// Verified against the pre-change supported-target executable's DWARF layout.
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(std::mem::size_of::<PresetUiState>() == 0x450);
+    assert!(std::mem::offset_of!(PresetUiState, session) == 0x08);
+    assert!(std::mem::offset_of!(PresetUiState, pending_saved_state) == 0x20);
+    assert!(std::mem::offset_of!(PresetUiState, active) == 0x48);
+    assert!(std::mem::offset_of!(PresetUiState, filter) == 0x88);
+    assert!(std::mem::offset_of!(PresetUiState, service) == 0xe8);
+    assert!(std::mem::offset_of!(PresetUiState, create_name) == 0x129);
+    assert!(std::mem::offset_of!(PresetUiState, update_version) == 0x40d);
+};
 
 impl Default for PresetUiState {
     fn default() -> Self {
@@ -1423,7 +1496,7 @@ impl Default for PresetUiState {
             service: None,
             catalog: PresetCatalog::default(),
             selected: None,
-            pending_published: None,
+            session: ProfileSessionSlot::default(),
             pending_saved_state: None,
             saved_state_loaded: false,
             active: None,
@@ -1447,10 +1520,75 @@ impl Default for PresetUiState {
 }
 
 impl PresetUiState {
-    fn mark_modified(&mut self) {
-        if let Some(active) = self.active.as_mut() {
-            active.modified = true;
+    fn source_matches(&self, entry: &crate::presets::PresetCatalogEntry) -> bool {
+        match self
+            .session
+            .session
+            .as_ref()
+            .and_then(|session| session.active_source.as_ref())
+        {
+            Some((path, revision)) => {
+                entry.path.as_ref() == Some(path) && entry.content_hash == *revision
+            }
+            None => entry.path.is_none() && entry.built_in,
         }
+    }
+
+    fn update_unavailable(&self) -> Option<&'static str> {
+        if self.create_pending || self.update_pending {
+            return Some("Wait for the current publication to finish.");
+        }
+        let Some(active) = self.active.as_ref() else {
+            return Some("This is a custom look. Create a new preset to keep it.");
+        };
+        if active.built_in {
+            return Some("OMV Default is read-only. Create a user copy to keep your changes.");
+        }
+        if !self.catalog.entries.iter().any(|entry| {
+            entry.key().as_ref() == Some(&active.key)
+                && self.source_matches(entry)
+                && entry.error.is_none()
+        }) {
+            return Some(
+                "The active preset file changed or is unavailable. Reactivate it or create a new preset before updating.",
+            );
+        }
+        if !active.modified {
+            return Some("No preset changes to publish. Customize the look first.");
+        }
+        None
+    }
+
+    fn session(&mut self) -> &mut ProfileSession {
+        self.session
+            .session
+            .get_or_insert_with(|| Box::new(ProfileSession::default()))
+    }
+
+    fn creator(&mut self) -> &mut ProfileCreator {
+        self.session().creator.get_or_insert_with(|| {
+            Box::new(ProfileCreator {
+                name: [0; 321],
+                author: [0; 321],
+                description: [0; 2049],
+            })
+        })
+    }
+
+    fn supersede_restoration(&mut self) {
+        self.pending_saved_state = None;
+        self.saved_state_loaded = false;
+        let session = self.session();
+        session.user_has_chosen = true;
+        if let Some(publication) = session.publication.as_mut() {
+            publication.owns_activation = false;
+        }
+    }
+
+    fn finish_publication(&mut self) {
+        self.session().publication = None;
+        self.create_pending = false;
+        self.update_pending = false;
     }
 
     fn clear_create_form(&mut self) {
@@ -1459,6 +1597,11 @@ impl PresetUiState {
         self.create_description.fill(0);
         self.create_version.fill(0);
         write_text_buffer(&mut self.create_version, "1.0.0");
+        if let Some(creator) = self.session().creator.as_mut() {
+            creator.name.fill(0);
+            creator.author.fill(0);
+            creator.description.fill(0);
+        }
     }
 
     fn suggest_update_version(&mut self, version: &str) {
@@ -1545,6 +1688,14 @@ struct ScreenShaderRuntime {
     /// back to the configuration-derived planned count.
     predicted_drawing_stages: [Option<u32>; 3],
 }
+
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(std::mem::size_of::<ScreenShaderRuntime>() == 0x3cf0);
+    assert!(std::mem::offset_of!(ScreenShaderRuntime, preset_ui) == 0x0710);
+    assert!(std::mem::offset_of!(ScreenShaderRuntime, current_look_service) == 0x0700);
+    assert!(std::mem::offset_of!(ScreenShaderRuntime, current_look_autosave) == 0x3b68);
+};
 
 impl Default for ScreenShaderRuntime {
     fn default() -> Self {
@@ -2414,10 +2565,12 @@ impl ScreenShaderRuntime {
     }
 
     fn poll_preset_service(&mut self) {
-        let Some(service) = self.preset_ui.service.as_ref() else {
-            return;
-        };
-        let events = service.try_take_events();
+        let events = self
+            .preset_ui
+            .service
+            .as_ref()
+            .map(PresetService::try_take_events)
+            .unwrap_or_default();
         for event in events {
             match event {
                 PresetEvent::Catalog(catalog) => {
@@ -2427,10 +2580,31 @@ impl ScreenShaderRuntime {
                         .and_then(|index| self.preset_ui.catalog.entries.get(index))
                         .and_then(|entry| entry.key());
                     self.preset_ui.catalog = catalog;
-                    let preferred = self
+                    self.preset_ui.session().catalog_ready = true;
+                    if self.preset_ui.pending_saved_state.is_some() {
+                        self.preset_ui.saved_state_loaded = true;
+                    }
+                    if self.preset_ui.session().refresh_pending {
+                        self.preset_ui.session().refresh_pending = false;
+                        self.preset_ui.notice = Some("Preset catalog refreshed.".to_owned());
+                    }
+                    let published = self
                         .preset_ui
-                        .pending_published
+                        .session()
+                        .publication
                         .as_ref()
+                        .filter(|publication| publication.published)
+                        .map(|publication| {
+                            (
+                                publication.key.clone(),
+                                publication.payload_revision,
+                                publication.owns_activation,
+                            )
+                        });
+                    let preferred = published
+                        .as_ref()
+                        .filter(|(_, _, owns)| *owns)
+                        .map(|(key, _, _)| key)
                         .or(selected_key.as_ref());
                     self.preset_ui.selected = preferred
                         .and_then(|key| {
@@ -2441,73 +2615,122 @@ impl ScreenShaderRuntime {
                                 .position(|entry| entry.key().as_ref() == Some(key))
                         })
                         .or_else(|| (!self.preset_ui.catalog.entries.is_empty()).then_some(0));
-
-                    if let Some(created_key) = self.preset_ui.pending_published.take()
-                        && let Some(entry) = self
+                    if let Some((key, revision, owns_activation)) = published {
+                        let was_update = self.preset_ui.update_pending;
+                        let entry = self
                             .preset_ui
                             .catalog
                             .entries
                             .iter()
-                            .find(|entry| entry.key().as_ref() == Some(&created_key))
-                    {
-                        let Some(payload_revision) = entry
-                            .document
-                            .as_ref()
-                            .and_then(|document| document.payload_revision().ok())
-                        else {
-                            self.preset_ui.create_pending = false;
-                            self.preset_ui.update_pending = false;
-                            self.preset_ui.error =
-                                Some("Created preset payload could not be verified".to_owned());
-                            continue;
-                        };
-                        let was_update = self.preset_ui.update_pending;
-                        let created_version = entry.version.clone();
-                        self.preset_ui.active = Some(ActivePreset {
-                            key: created_key,
-                            name: entry.display_name.clone(),
-                            version: created_version.clone(),
-                            payload_revision,
-                            built_in: entry.built_in,
-                            modified: false,
-                        });
-                        self.preset_ui.create_pending = false;
-                        self.preset_ui.update_pending = false;
-                        self.preset_ui.view = PresetUiView::Closed;
-                        self.preset_ui.suggest_update_version(&created_version);
-                        if was_update {
-                            self.preset_ui.notice = Some(format!(
-                                "Updated to version {created_version} and enabled it."
-                            ));
-                        } else {
-                            self.preset_ui.clear_create_form();
-                            self.preset_ui.notice =
-                                Some("New preset created and enabled.".to_owned());
+                            .find(|entry| entry.key().as_ref() == Some(&key))
+                            .filter(|entry| {
+                                entry.error.is_none()
+                                    && entry
+                                        .document
+                                        .as_ref()
+                                        .and_then(|document| document.payload_revision().ok())
+                                        == Some(revision)
+                            })
+                            .cloned();
+                        self.preset_ui.finish_publication();
+                        match entry {
+                            Some(entry) => {
+                                if owns_activation {
+                                    self.preset_ui.active = Some(ActivePreset {
+                                        key,
+                                        name: entry.display_name.clone(),
+                                        version: entry.version.clone(),
+                                        payload_revision: revision,
+                                        built_in: entry.built_in,
+                                        modified: false,
+                                    });
+                                    self.preset_ui.session().active_source =
+                                        entry.path.clone().map(|path| (path, entry.content_hash));
+                                    self.refresh_active_preset_status();
+                                    self.preset_ui.suggest_update_version(&entry.version);
+                                    self.record_active_preset_state();
+                                }
+                                if !was_update {
+                                    self.preset_ui.clear_create_form();
+                                }
+                                self.preset_ui.view = PresetUiView::Closed;
+                                let verb = if was_update { "Updated" } else { "Created" };
+                                self.preset_ui.notice = Some(format!(
+                                    "{verb} {} {}.{}",
+                                    entry.display_name,
+                                    entry.version,
+                                    if owns_activation {
+                                        " Later live edits are preserved."
+                                    } else {
+                                        " Your current preset is unchanged."
+                                    }
+                                ));
+                                self.preset_ui.error = None;
+                            }
+                            None => {
+                                self.preset_ui.error = Some("Preset was written, but the refreshed catalog could not verify it. Resolve catalog issues and refresh; your current look is unchanged.".to_owned());
+                                self.preset_ui.notice = None;
+                            }
                         }
-                        self.preset_ui.error = None;
-                        // Publication changes only the preset provenance. The
-                        // Current Look was already autosaved independently, so
-                        // recording this identity must not schedule a redundant
-                        // rewrite of omv.toml or the new preset file.
-                        self.record_active_preset_state();
                     }
+                    self.refresh_active_preset_status();
                 }
                 PresetEvent::Published(key) => {
-                    self.preset_ui.pending_published = Some(key);
-                    self.preset_ui.notice =
-                        Some("Preset written; refreshing the catalog".to_owned());
-                    self.preset_ui.error = None;
+                    if let Some(publication) = self.preset_ui.session().publication.as_mut()
+                        && publication.key == key
+                    {
+                        publication.published = true;
+                        self.preset_ui.notice =
+                            Some("Preset written; refreshing the catalog".to_owned());
+                    }
                 }
                 PresetEvent::ActiveState(state) => {
-                    self.preset_ui.pending_saved_state = state;
-                    self.preset_ui.saved_state_loaded = true;
+                    if !self.preset_ui.session().user_has_chosen {
+                        self.preset_ui.pending_saved_state = state;
+                        self.preset_ui.saved_state_loaded = true;
+                    }
                 }
-                PresetEvent::Error(error) => {
-                    self.preset_ui.create_pending = false;
-                    self.preset_ui.update_pending = false;
+                PresetEvent::PublicationError(error) => {
+                    self.preset_ui.finish_publication();
                     self.preset_ui.error = Some(error);
                     self.preset_ui.notice = None;
                 }
+                PresetEvent::CatalogError(error) => {
+                    self.preset_ui.session().refresh_pending = false;
+                    if self
+                        .preset_ui
+                        .session()
+                        .publication
+                        .as_ref()
+                        .is_some_and(|publication| publication.published)
+                    {
+                        self.preset_ui.finish_publication();
+                        self.preset_ui.error = Some(format!(
+                            "Preset was written, but catalog refresh failed: {error}"
+                        ));
+                    } else {
+                        self.preset_ui.error = Some(error);
+                    }
+                    self.preset_ui.notice = None;
+                }
+                PresetEvent::StateRecorded => {
+                    let session = self.preset_ui.session();
+                    session.state_in_flight = false;
+                    session.state_retry = None;
+                    let error = session.state_error.take();
+                    if error.is_some() && self.preset_ui.error == error {
+                        self.preset_ui.error = None;
+                    }
+                }
+                PresetEvent::StateError(error) => {
+                    let session = self.preset_ui.session();
+                    session.state_in_flight = false;
+                    session.state_dirty = true;
+                    session.state_retry = Some(Instant::now() + std::time::Duration::from_secs(2));
+                    session.state_error = Some(error.clone());
+                    self.preset_ui.error = Some(error);
+                }
+                PresetEvent::Error(error) => self.preset_ui.error = Some(error),
             }
         }
         self.reconcile_saved_preset_state();
@@ -2556,6 +2779,7 @@ impl ScreenShaderRuntime {
                     self.apply_menu_config_change();
                     self.current_look_autosave.reload_succeeded();
                     self.refresh_active_preset_status();
+                    self.record_active_preset_state();
                     self.menu_config_error = None;
                 }
                 CurrentLookEvent::ExternalChange { blocked_revision } => {
@@ -2585,6 +2809,7 @@ impl ScreenShaderRuntime {
         if CURRENT_LOOK_FLUSH_REQUEST.swap(false, Ordering::AcqRel) {
             self.current_look_autosave.flush_pending(Instant::now());
         }
+        self.service_active_preset_state();
         if !self.current_look_autosave.has_pending_deadline() {
             return;
         }
@@ -2625,6 +2850,7 @@ impl ScreenShaderRuntime {
         if !self.current_look_autosave.begin_reload() {
             return;
         }
+        self.preset_ui.supersede_restoration();
         let result = self
             .current_look_service
             .as_ref()
@@ -2644,14 +2870,20 @@ impl ScreenShaderRuntime {
     }
 
     fn reconcile_saved_preset_state(&mut self) {
+        if self.preset_ui.session().user_has_chosen {
+            self.preset_ui.pending_saved_state = None;
+            self.preset_ui.saved_state_loaded = false;
+            return;
+        }
         if !self.preset_ui.saved_state_loaded
+            || !self.preset_ui.session().catalog_ready
             || self.shader_catalog_generation == 0
             || self.lut_catalog_generation == 0
         {
             return;
         }
         self.preset_ui.saved_state_loaded = false;
-        let Some(state) = self.preset_ui.pending_saved_state.take() else {
+        let Some(state) = self.preset_ui.pending_saved_state.clone() else {
             self.preset_ui.active = None;
             return;
         };
@@ -2701,6 +2933,8 @@ impl ScreenShaderRuntime {
         let modified = !document
             .matches_current(&self.settings.menu_config, &self.sources, &self.color_luts)
             .unwrap_or(false);
+        let source = entry.path.clone().map(|path| (path, entry.content_hash));
+        self.preset_ui.session().active_source = source;
         self.preset_ui.active = Some(ActivePreset {
             key,
             name: entry_name,
@@ -2709,6 +2943,7 @@ impl ScreenShaderRuntime {
             built_in: entry_built_in,
             modified,
         });
+        self.preset_ui.pending_saved_state = None;
         self.preset_ui.suggest_update_version(&entry_version);
     }
 
@@ -4122,6 +4357,7 @@ impl ScreenShaderRuntime {
                 gpu_diagnostics,
                 MenuPersistenceView {
                     external_change: self.current_look_autosave.has_external_change(),
+                    reloading: self.current_look_autosave.is_reloading(),
                     error: self.menu_config_error.as_deref(),
                 },
             )
@@ -4135,6 +4371,21 @@ impl ScreenShaderRuntime {
             self.menu_diagnostics_visible,
         ));
         imgui.render();
+        self.apply_menu_frame(menu_frame, shadow_settings_before, native_shadows);
+        Ok(())
+    }
+
+    /// Commit the native workbench result at the same serialized Present
+    /// boundary used by drawing. Offline UI tests execute this exact handler.
+    fn apply_menu_frame(
+        &mut self,
+        menu_frame: MenuFrameResult,
+        shadow_settings_before: crate::config::NativeShadowsConfig,
+        native_shadows: crate::config::NativeShadowsConfig,
+    ) {
+        if self.current_look_autosave.is_reloading() {
+            return;
+        }
         if menu_frame.changed {
             self.menu_config_error = None;
             self.apply_menu_config_change();
@@ -4148,7 +4399,7 @@ impl ScreenShaderRuntime {
                 );
             }
             self.current_look_autosave.note_change(Instant::now());
-            self.preset_ui.mark_modified();
+            self.refresh_active_preset_status();
         }
         match menu_frame.action {
             MenuAction::None => {}
@@ -4159,7 +4410,6 @@ impl ScreenShaderRuntime {
             MenuAction::PublishPresetVersion => self.publish_active_preset_version(),
             MenuAction::ActivatePreset(index) => self.activate_preset(index),
         }
-        Ok(())
     }
 
     fn draw_pbr_preparation(&mut self, status: pbr::PbrPreparationStatus) -> Direct3DResult<()> {
@@ -4268,6 +4518,22 @@ impl ScreenShaderRuntime {
     }
 
     fn record_active_preset_state(&mut self) {
+        self.preset_ui.session().state_dirty = true;
+    }
+
+    fn service_active_preset_state(&mut self) {
+        if !self.current_look_autosave.is_settled() {
+            return;
+        }
+        let session = self.preset_ui.session();
+        if !session.state_dirty
+            || session.state_in_flight
+            || session
+                .state_retry
+                .is_some_and(|deadline| deadline > Instant::now())
+        {
+            return;
+        }
         let state = self
             .preset_ui
             .active
@@ -4279,8 +4545,18 @@ impl ScreenShaderRuntime {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))
             .and_then(|service| service.record_active_state(state));
-        if let Err(err) = result {
-            self.preset_ui.error = Some(format!("Could not record active preset: {err:#}"));
+        let session = self.preset_ui.session();
+        match result {
+            Ok(()) => {
+                session.state_dirty = false;
+                session.state_in_flight = true;
+            }
+            Err(err) => {
+                session.state_retry = Some(Instant::now() + std::time::Duration::from_secs(2));
+                let error = format!("Could not record active preset: {err:#}");
+                session.state_error = Some(error.clone());
+                self.preset_ui.error = Some(error);
+            }
         }
     }
 
@@ -4295,6 +4571,7 @@ impl ScreenShaderRuntime {
             .entries
             .iter()
             .find(|entry| entry.key().as_ref() == Some(&key))
+            .filter(|entry| self.preset_ui.source_matches(entry))
             .and_then(|entry| entry.document.as_ref())
             .and_then(|document| {
                 document
@@ -4319,6 +4596,7 @@ impl ScreenShaderRuntime {
             .and_then(PresetService::request_refresh);
         match result {
             Ok(()) => {
+                self.preset_ui.session().refresh_pending = true;
                 self.preset_ui.notice = Some("Refreshing preset catalog".to_owned());
                 self.preset_ui.error = None;
             }
@@ -4334,10 +4612,13 @@ impl ScreenShaderRuntime {
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
         );
-        let name = text_buffer(&self.preset_ui.create_name).to_owned();
+        if self.preset_ui.create_pending || self.preset_ui.update_pending {
+            return;
+        }
+        let name = text_buffer(&self.preset_ui.creator().name).to_owned();
         let version = text_buffer(&self.preset_ui.create_version).to_owned();
-        let author = text_buffer(&self.preset_ui.create_author).to_owned();
-        let description = text_buffer(&self.preset_ui.create_description).to_owned();
+        let author = text_buffer(&self.preset_ui.creator().author).to_owned();
+        let description = text_buffer(&self.preset_ui.creator().description).to_owned();
         let result = PresetPublishRequest::capture(
             &name,
             &version,
@@ -4348,14 +4629,23 @@ impl ScreenShaderRuntime {
             &self.color_luts,
         )
         .and_then(|request| {
+            let identity = request.identity()?;
             self.preset_ui
                 .service
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))?
-                .request_publish(request)
+                .request_publish(request)?;
+            Ok(identity)
         });
         match result {
-            Ok(()) => {
+            Ok((key, payload_revision)) => {
+                self.preset_ui.supersede_restoration();
+                self.preset_ui.session().publication = Some(PendingProfilePublication {
+                    key,
+                    payload_revision,
+                    published: false,
+                    owns_activation: true,
+                });
                 self.preset_ui.create_pending = true;
                 self.preset_ui.notice = Some("Creating preset in the background".to_owned());
                 self.preset_ui.error = None;
@@ -4368,6 +4658,13 @@ impl ScreenShaderRuntime {
     }
 
     fn publish_active_preset_version(&mut self) {
+        if self.preset_ui.create_pending || self.preset_ui.update_pending {
+            return;
+        }
+        if let Some(reason) = self.preset_ui.update_unavailable() {
+            self.preset_ui.error = Some(reason.to_owned());
+            return;
+        }
         shaders::sync_embedded_effect_config(
             &self.sources,
             &mut self.settings.menu_config.embedded_effects,
@@ -4391,6 +4688,7 @@ impl ScreenShaderRuntime {
                 .entries
                 .iter()
                 .find(|entry| entry.key().as_ref() == Some(&active.key))
+                .filter(|entry| self.preset_ui.source_matches(entry))
                 .and_then(|entry| {
                     Some((
                         entry.document.as_ref()?.clone(),
@@ -4409,14 +4707,23 @@ impl ScreenShaderRuntime {
                 &self.sources,
                 &self.color_luts,
             )?;
+            let identity = request.identity()?;
             self.preset_ui
                 .service
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("preset worker is unavailable"))?
-                .request_publish(request)
+                .request_publish(request)?;
+            Ok::<_, anyhow::Error>(identity)
         })();
         match result {
-            Ok(()) => {
+            Ok((key, payload_revision)) => {
+                self.preset_ui.supersede_restoration();
+                self.preset_ui.session().publication = Some(PendingProfilePublication {
+                    key,
+                    payload_revision,
+                    published: false,
+                    owns_activation: true,
+                });
                 self.preset_ui.update_pending = true;
                 self.preset_ui.notice =
                     Some("Updating the preset file atomically in the background".to_owned());
@@ -4441,6 +4748,7 @@ impl ScreenShaderRuntime {
         let name = entry.display_name.clone();
         let version = entry.version.clone();
         let built_in = entry.built_in;
+        let source = entry.path.clone().map(|path| (path, entry.content_hash));
         let key = document.key();
         let payload_revision = match document.payload_revision() {
             Ok(revision) => revision,
@@ -4478,6 +4786,8 @@ impl ScreenShaderRuntime {
                 // not require a separate user-facing save step.
                 self.current_look_autosave
                     .note_immediate_change(Instant::now());
+                self.preset_ui.supersede_restoration();
+                self.preset_ui.session().active_source = source;
                 self.preset_ui.active = Some(ActivePreset {
                     key,
                     name: name.clone(),
@@ -4487,6 +4797,7 @@ impl ScreenShaderRuntime {
                     modified: false,
                 });
                 self.preset_ui.suggest_update_version(&version);
+                self.record_active_preset_state();
                 self.preset_ui.error = None;
                 self.preset_ui.notice = Some(format!("Using {name} {version} now."));
                 self.menu_config_error = None;
@@ -5789,6 +6100,10 @@ impl PhaseColorGraph {
 #[cfg(test)]
 #[path = "runtime_performance_tests.rs"]
 mod performance_tests;
+
+#[cfg(test)]
+#[path = "runtime_profile_tests.rs"]
+mod profile_tests;
 
 const FRAME_PACING_HISTORY: usize = 2_048;
 const FRAME_PACING_CHART_POINTS: usize = 240;
@@ -7552,41 +7867,6 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn preset_library_hides_management_until_requested() {
-        let source = include_str!("runtime.rs");
-        let library = source
-            .split_once("\nfn draw_preset_library(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_preset_manager("))
-            .map(|(body, _)| body)
-            .expect("preset library body");
-        let manager = source
-            .split_once("\nfn draw_preset_manager(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text("))
-            .map(|(body, _)| body)
-            .expect("preset manager body");
-
-        assert!(library.contains("Choose a Look"));
-        assert!(library.contains("Manage Presets"));
-        assert!(library.contains("Use This Preset"));
-        assert!(library.contains("Reset to Preset"));
-        assert!(!library.contains("Replace Changes & Use Preset"));
-        assert!(library.contains("Details"));
-        assert!(!library.contains("##preset_update_version"));
-        assert!(!library.contains("Create Preset & Use It"));
-        assert!(!library.contains("//"));
-
-        assert!(manager.contains("Back to Preset Library"));
-        assert!(manager.contains("Update Current Preset"));
-        assert!(manager.contains("Update Preset & Keep Using It"));
-        assert!(manager.contains("##preset_update_version"));
-        assert!(manager.contains("Create a New Preset"));
-        assert!(manager.contains("Create Preset & Use It"));
-        assert!(!manager.contains("//"));
-    }
-
-    #[test]
     fn current_look_persistence_has_no_manual_save_or_undo_path() {
         let source = include_str!("runtime.rs");
         let manual_save = ["fn save_menu_", "session("].concat();
@@ -7597,52 +7877,6 @@ mod frame_pacing_tests {
         assert!(!source.contains(&save_action));
         assert!(source.contains("self.current_look_autosave.note_change(Instant::now())"));
         assert!(source.contains("CurrentLookSnapshot::capture"));
-    }
-
-    #[test]
-    fn shadow_menu_edits_are_published_before_their_runtime_log() {
-        let source = include_str!("runtime.rs");
-        let draw_menu = source
-            .split_once("\n    fn draw_menu(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn draw_pbr_preparation("))
-            .map(|(body, _)| body)
-            .expect("menu render transaction");
-
-        let snapshot = draw_menu
-            .find("let shadow_settings_before")
-            .expect("pre-widget shadow snapshot");
-        let widget = draw_menu
-            .find("draw_shader_menu(")
-            .expect("configuration widget graph");
-        let publish = draw_menu
-            .find("shadows::configure_runtime_options(")
-            .expect("live shadow publication");
-        let log = draw_menu
-            .find("log_shadow_menu_settings(")
-            .expect("post-publication shadow log");
-        assert!(snapshot < widget && widget < publish && publish < log);
-        assert!(draw_menu.contains("shadows::runtime_config()"));
-
-        let shadow_panel = source
-            .split_once("\nfn draw_native_shadows_config(\n")
-            .and_then(|(_, tail)| tail.split_once("/// Record the exact effective shadow"))
-            .map(|(body, _)| body)
-            .expect("native Shadows configuration panel");
-        assert!(shadow_panel.contains("Quality##native_shadows.dynamic_shadow_quality"));
-        assert!(shadow_panel.contains("Performance (256)"));
-        assert!(shadow_panel.contains("High (512)"));
-        assert!(shadow_panel.contains("Ultra (1024)"));
-        assert!(shadow_panel.contains("DynamicShadowQuality::from_index"));
-
-        let apply = source
-            .split_once("\n    fn apply_menu_config_change(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn record_active_preset_state("))
-            .map(|(body, _)| body)
-            .expect("menu configuration publisher");
-        assert!(!apply.contains("shadows::configure_runtime_options("));
-        assert!(!apply.contains("native_shadows"));
     }
 
     /// The first-person motion-blur color copy reuses the established FP16
@@ -7703,63 +7937,6 @@ mod frame_pacing_tests {
             .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
             .or_else(|_| direct3d.create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF))
             .expect("HAL or NULLREF D3D9 device")
-    }
-
-    #[test]
-    fn published_preset_identity_is_recorded_without_rewriting_the_current_look() {
-        let source = include_str!("runtime.rs");
-        let events = source
-            .split_once("\n    fn poll_preset_service(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn reconcile_saved_preset_state("))
-            .map(|(body, _)| body)
-            .expect("preset event handling");
-
-        assert!(!events.contains("note_change"));
-        assert!(events.contains("self.record_active_preset_state();"));
-        assert!(events.contains("New preset created and enabled."));
-    }
-
-    #[test]
-    fn preset_text_fields_draw_labels_above_full_width_hidden_id_widgets() {
-        let source = include_str!("runtime.rs");
-        let preset_ui = source
-            .split_once("\nfn draw_presets_tab(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text("))
-            .map(|(body, _)| body)
-            .expect("preset UI body");
-        for call in [
-            "\"Name\", \"##preset_name\"",
-            "\"Version\", \"##preset_version\"",
-            "\"Author\", \"##preset_author\"",
-            "\"Description\",\n                \"##preset_description\"",
-        ] {
-            assert!(preset_ui.contains(call), "missing labeled input {call}");
-        }
-        for clipped_label in [
-            "Name##preset_name",
-            "Version##preset_version",
-            "Author##preset_author",
-            "Description##preset_description",
-        ] {
-            assert!(
-                !preset_ui.contains(clipped_label),
-                "visible label is still attached after a full-width widget: {clipped_label}"
-            );
-        }
-
-        let helper = source
-            .split_once("\nfn draw_labeled_input_text(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_labeled_input_text_multiline("))
-            .map(|(body, _)| body)
-            .expect("single-line labeled input helper");
-        assert!(
-            helper.find("ui.text_colored").expect("visible label")
-                < helper.find("ui.input_text").expect("text widget")
-        );
-        assert!(helper.contains("ui.push_item_width(-1.0)"));
     }
 
     #[test]
@@ -7994,6 +8171,7 @@ struct MenuToolbarResult {
 #[derive(Clone, Copy)]
 struct MenuPersistenceView<'a> {
     external_change: bool,
+    reloading: bool,
     error: Option<&'a str>,
 }
 
@@ -8118,6 +8296,13 @@ fn draw_shader_menu(
     result.action =
         draw_shader_menu_toolbar(ui, persistence.external_change, persistence.error).action;
 
+    // Reload owns the whole working look, including detached shadow state.
+    if persistence.reloading {
+        ui.text_wrapped(&cstring(
+            "Reloading files from disk. Editing resumes when the reload finishes.",
+        ));
+        return MenuFrameResult::default();
+    }
     let tabs = ui.tab_bar(&cstring("graphics_workbench_tabs"));
     if !tabs.is_visible() {
         return result;
@@ -8137,15 +8322,22 @@ fn draw_shader_menu(
         let configuration = ui.tab_item(&cstring("Customize##workbench_configuration"));
         if configuration.is_visible() {
             *active_tab = MenuTab::Configuration;
-            result.changed |= draw_configuration_tab(
-                ui,
-                menu_config,
-                native_shadows,
-                sources,
-                selected_item,
-                sidebar_width,
-                feature_status,
-            );
+            draw_profile_actions(ui, preset_ui);
+            if preset_ui.view != PresetUiView::Closed {
+                if let Some(action) = draw_preset_manager(ui, preset_ui) {
+                    result.action = action;
+                }
+            } else {
+                result.changed |= draw_configuration_tab(
+                    ui,
+                    menu_config,
+                    native_shadows,
+                    sources,
+                    selected_item,
+                    sidebar_width,
+                    feature_status,
+                );
+            }
         }
     }
 
@@ -8372,10 +8564,60 @@ fn draw_render_stack_config(
     changed
 }
 
+/// Show authoring actions beside both the library and the effect editor.
+fn draw_profile_actions(ui: &mut psycho_imgui::Ui<'_>, state: &mut PresetUiState) {
+    let current = state.active.as_ref().map_or_else(
+        || "Current look: Custom".to_owned(),
+        |active| {
+            format!(
+                "Current look: {} {}{}",
+                active.name,
+                active.version,
+                if active.modified { " (edited)" } else { "" }
+            )
+        },
+    );
+    ui.text_wrapped_colored(MENU_ACCENT_TEXT, &cstring(current));
+    if ui.button_colored(
+        &cstring("Update Preset##profile_update"),
+        MENU_SAVE_BUTTON,
+        MENU_SAVE_BUTTON_HOVERED,
+        MENU_SAVE_BUTTON_ACTIVE,
+    ) {
+        if state.active.as_ref().is_none_or(|active| active.built_in) {
+            if let Some(name) = state
+                .active
+                .as_ref()
+                .map(|active| format!("{} Copy", active.name.chars().take(75).collect::<String>()))
+                && text_buffer(&state.creator().name).is_empty()
+            {
+                write_text_buffer(&mut state.creator().name, &name);
+            }
+            state.view = PresetUiView::Create;
+        } else {
+            state.view = PresetUiView::Update;
+        }
+    }
+    ui.same_line();
+    if ui.button(&cstring("Create a New Preset##profile_create")) {
+        state.view = PresetUiView::Create;
+    }
+    if let Some(reason) = state.update_unavailable() {
+        ui.text_wrapped_colored(MENU_MUTED_TEXT, &cstring(reason));
+    }
+    if let Some(error) = state.error.as_deref() {
+        ui.text_wrapped_colored(MENU_ERROR_TEXT, &cstring(error));
+    } else if let Some(notice) = state.notice.as_deref() {
+        ui.text_wrapped_colored(MENU_GOOD_TEXT, &cstring(notice));
+    }
+    ui.separator();
+}
+
 fn draw_presets_tab(
     ui: &mut psycho_imgui::Ui<'_>,
     state: &mut PresetUiState,
 ) -> Option<MenuAction> {
+    draw_profile_actions(ui, state);
     match state.view {
         PresetUiView::Closed => draw_preset_library(ui, state),
         PresetUiView::Manager | PresetUiView::Update | PresetUiView::Create => {
@@ -8398,11 +8640,6 @@ fn draw_preset_library(
     );
     if ui.button(&cstring("Manage Presets##preset_manage")) {
         state.view = PresetUiView::Manager;
-    }
-    if let Some(error) = state.error.as_deref() {
-        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
-    } else if let Some(notice) = state.notice.as_deref() {
-        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
     }
 
     let available_width = ui.content_region_available_width().max(1.0);
@@ -8468,10 +8705,9 @@ fn draw_preset_library(
                     break;
                 }
                 visible_match += 1;
-                let active = state
-                    .active
-                    .as_ref()
-                    .is_some_and(|active| entry.key().as_ref() == Some(&active.key));
+                let active = state.active.as_ref().is_some_and(|active| {
+                    entry.key().as_ref() == Some(&active.key) && state.source_matches(entry)
+                });
                 let status = if active {
                     "  (In use)"
                 } else if entry.error.is_some() {
@@ -8481,7 +8717,10 @@ fn draw_preset_library(
                 } else {
                     ""
                 };
-                let label = cstring(format!("{}{status}##preset_{index}", entry.display_name,));
+                let label = cstring(format!(
+                    "{}  {}{status}##preset_{index}",
+                    entry.display_name, entry.version
+                ));
                 if ui.selectable(&label, state.selected == Some(index)) {
                     state.selected = Some(index);
                     state.show_technical_details = false;
@@ -8626,144 +8865,68 @@ fn draw_preset_manager(
     ui: &mut psycho_imgui::Ui<'_>,
     state: &mut PresetUiState,
 ) -> Option<MenuAction> {
-    let mut action = None;
-    let active = state.active.as_ref().map(|active| {
-        (
-            active.name.clone(),
-            active.version.clone(),
-            active.built_in,
-            active.modified,
-        )
-    });
-    let can_update = matches!(active, Some((_, _, false, true)));
-    if state.view == PresetUiView::Update && !can_update {
-        state.view = PresetUiView::Manager;
-    }
-
-    if ui.button(&cstring("Back to Preset Library##preset_manager_close")) {
+    if ui.button(&cstring("Back##preset_manager_close")) {
         state.view = PresetUiView::Closed;
-        return action;
+        return None;
     }
-    ui.text_colored(MENU_ACCENT_TEXT, &cstring("Manage Presets"));
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(
-            "Create a shareable preset from your current look, or update a preset you already own.",
-        ),
-    );
-    if let Some(error) = state.error.as_deref() {
-        ui.text_colored(MENU_ERROR_TEXT, &cstring(error));
-    } else if let Some(notice) = state.notice.as_deref() {
-        ui.text_colored(MENU_GOOD_TEXT, &cstring(notice));
+    if state.create_pending || state.update_pending {
+        ui.text_wrapped(&cstring("Publishing the captured look. Your live look can still be customized; this form resumes after publication."));
+        return None;
     }
-
     match state.view {
         PresetUiView::Closed => {}
         PresetUiView::Manager => {
-            ui.separator_text(&cstring("AVAILABLE ACTIONS"));
-            match active.as_ref() {
-                Some((_, _, false, true)) => {
-                    if ui.button_colored(
-                        &cstring("Update Current Preset##preset_manager_update"),
-                        MENU_SAVE_BUTTON,
-                        MENU_SAVE_BUTTON_HOVERED,
-                        MENU_SAVE_BUTTON_ACTIVE,
-                    ) {
-                        state.view = PresetUiView::Update;
-                    }
-                    ui.text_wrapped(&cstring(
-                        "Store your latest edits as a newer version of the preset you are using.",
-                    ));
-                }
-                Some((name, version, true, _)) => ui.text_wrapped(&cstring(format!(
-                    "{name} {version} is included with OMV and cannot be overwritten. Create your own preset instead."
-                ))),
-                Some((name, version, false, false)) => ui.text_wrapped(&cstring(format!(
-                    "{name} {version} has no new edits. Customize the look first if you want to update it."
-                ))),
-                None => ui.text_wrapped(&cstring(
-                    "Your current look is custom. You can save it as a new preset.",
-                )),
-            }
-            if ui.button(&cstring("Create a New Preset##preset_manager_create")) {
-                state.view = PresetUiView::Create;
-            }
-            ui.text_wrapped(&cstring(
-                "Give the current look its own name, version, author, and description.",
-            ));
+            ui.separator_text(&cstring("Manage Presets"));
+            ui.text_wrapped(&cstring("Update your active user preset, or create an independent preset from the current look."));
         }
         PresetUiView::Update => {
-            let Some((name, version, false, true)) = active else {
-                return action;
-            };
-            if ui.button(&cstring("Choose Another Action##preset_manager_home")) {
-                state.view = PresetUiView::Manager;
-                return action;
+            ui.separator_text(&cstring("Update Preset"));
+            if let Some(active) = state.active.as_ref() {
+                ui.text_wrapped(&cstring(format!("Publish your current look as a newer version of {} {}. Its filename and family stay the same.", active.name, active.version)));
             }
-            ui.separator_text(&cstring("UPDATE PRESET"));
-            ui.text_wrapped(&cstring(format!(
-                "Save the current look as the next version of {name}. The preset filename stays the same; its version changes from {version}."
-            )));
             draw_labeled_input_text(
                 ui,
                 "New version",
                 "##preset_update_version",
                 &mut state.update_version,
             );
-            if state.update_pending {
-                ui.text_colored(MENU_MUTED_TEXT, &cstring("Updating preset..."));
-            } else if state.create_pending {
-                ui.text_colored(
-                    MENU_MUTED_TEXT,
-                    &cstring("Finish creating the new preset first."),
-                );
+            if let Some(reason) = state.update_unavailable() {
+                ui.text_wrapped(&cstring(reason));
             } else if ui.button_colored(
                 &cstring("Update Preset & Keep Using It##preset_publish_version"),
                 MENU_SAVE_BUTTON,
                 MENU_SAVE_BUTTON_HOVERED,
                 MENU_SAVE_BUTTON_ACTIVE,
             ) {
-                action = Some(MenuAction::PublishPresetVersion);
+                return Some(MenuAction::PublishPresetVersion);
             }
         }
         PresetUiView::Create => {
-            if ui.button(&cstring("Choose Another Action##preset_manager_home")) {
-                state.view = PresetUiView::Manager;
-                return action;
-            }
-            ui.separator_text(&cstring("CREATE A NEW PRESET"));
-            ui.text_wrapped(&cstring(
-                "Make a new shareable preset from the current live look. This does not alter the preset you started from.",
-            ));
-            draw_labeled_input_text(ui, "Name", "##preset_name", &mut state.create_name);
+            ui.separator_text(&cstring("Create a New Preset"));
+            ui.text_wrapped(&cstring("Save the current look as an independent preset. Names and authors allow 80 characters; descriptions allow 512 characters and line breaks."));
+            draw_labeled_input_text(ui, "Name", "##preset_name", &mut state.creator().name);
             draw_labeled_input_text(ui, "Version", "##preset_version", &mut state.create_version);
-            draw_labeled_input_text(ui, "Author", "##preset_author", &mut state.create_author);
+            draw_labeled_input_text(ui, "Author", "##preset_author", &mut state.creator().author);
             draw_labeled_input_text_multiline(
                 ui,
                 "Description",
                 "##preset_description",
-                &mut state.create_description,
+                &mut state.creator().description,
                 72.0,
             );
-            if state.create_pending {
-                ui.text_colored(MENU_MUTED_TEXT, &cstring("Creating preset..."));
-            } else if state.update_pending {
-                ui.text_colored(
-                    MENU_MUTED_TEXT,
-                    &cstring("Finish updating the active preset first."),
-                );
+            if state.create_pending || state.update_pending {
+                ui.text_wrapped(&cstring("Publishing preset..."));
             } else if ui.button_colored(
                 &cstring("Create Preset & Use It##preset_create"),
                 MENU_SAVE_BUTTON,
                 MENU_SAVE_BUTTON_HOVERED,
                 MENU_SAVE_BUTTON_ACTIVE,
             ) {
-                action = Some(MenuAction::CreatePreset);
+                return Some(MenuAction::CreatePreset);
             }
         }
     }
-
-    action
+    None
 }
 
 fn draw_labeled_input_text(
@@ -10887,7 +11050,10 @@ fn text_buffer(buffer: &[u8]) -> &str {
 
 fn write_text_buffer(buffer: &mut [u8], text: &str) {
     buffer.fill(0);
-    let length = text.len().min(buffer.len().saturating_sub(1));
+    let mut length = text.len().min(buffer.len().saturating_sub(1));
+    while !text.is_char_boundary(length) {
+        length -= 1;
+    }
     buffer[..length].copy_from_slice(&text.as_bytes()[..length]);
 }
 

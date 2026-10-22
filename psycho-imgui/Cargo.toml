@@ -10,5 +10,9 @@ crate-type = ["rlib"]
 [dependencies]
 thiserror = { workspace = true }
 
+[features]
+# Native ImGui execution and input observation for offline behavioral tests.
+test-support = []
+
 [build-dependencies]
 cc = "1.0"

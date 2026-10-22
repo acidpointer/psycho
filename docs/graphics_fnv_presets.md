@@ -7,20 +7,26 @@ configuration. They allow an arbitrary practical number of installed presets,
 fast in-game switching, and creation of named and versioned user presets.
 Activation copies a preset into the automatically persisted Current Look; it
 never mounts the preset as a live configuration layer. Only the explicit
-**Update Current Preset** action updates an existing preset file.
+**Update Preset** publication action updates an existing preset file.
 
-The Manage Presets view exposes two deliberately different creator actions:
+The Presets and Customize tabs both show the current preset, its version and
+whether its visual settings have been edited. **Update Preset** and
+**Create a New Preset** remain visible beside that status:
 
-- **Update Current Preset** is available after a user preset is active and its
-  visual settings have been edited. The user supplies a strictly newer
-  semantic version. OMV preserves the preset UUID, name, author, and
-  description, captures the current live payload, atomically replaces the
-  contents of that exact preset path, and switches the current session to the
-  new version. The filename stays unchanged and OMV never explicitly deletes
-  the preset file.
-- **Create a New Preset** captures the same live settings under a newly
-  generated UUID. It starts an independent preset family even when the
-  current settings originated from another preset.
+- **Update Preset** opens the version form for an active user preset. A
+  pristine preset explains that no visual changes need publication. A changed,
+  missing, or conflicting source file explains why reactivation or a new
+  preset is needed. An edited user preset can publish a strictly newer semantic
+  version while preserving its UUID, name, author, description, and exact path.
+  The replacement is atomic; the filename stays unchanged.
+- On OMV Default, **Update Preset** explains the read-only family and opens
+  the user-copy form. A custom look without preset provenance also opens the
+  new-preset form. Neither route can overwrite the default family.
+- **Create a New Preset** captures the live look under a newly generated UUID,
+  independently of the preset it started from. Names and authors permit 80
+  Unicode characters; descriptions permit 512 characters including line breaks.
+  Native input preserves non-BMP codepoints, and render-owned buffers allow
+  the complete UTF-8 representation of these character limits.
 
 The built-in OMV Default family is read-only. An edited built-in preset can be
 saved only as a new user preset. These rules prevent publishing a user-owned
@@ -53,18 +59,17 @@ header show an advanced conflict card:
 - **Keep In-Game Look** explicitly authorizes one overwrite with the look
   currently visible in game.
 
-OMV still retains whether the current session is custom, a concrete preset, or
-edited from a concrete preset, but that provenance is not placed in the global
-header. The preset library marks the preset currently in use; creator
-eligibility uses the retained provenance internally.
+OMV retains whether the current session is custom, a concrete preset, or edited
+from a concrete preset. This provenance appears beside the actions in Presets
+and Customize. Only preset-owned visual changes affect its edited status;
+local preferences and inert compatibility values do not. Returning visual
+values to their preset values clears the edited status.
 
-The ordinary Presets view is intentionally a library rather than an authoring
-form. It shows searchable installed presets, a clean preview, and one primary
-**Use This Preset** action. Version and file/build metadata are hidden behind
-**Details**. Every version update and new-preset metadata field is isolated in
-the separate **Manage Presets** view, so users who only switch looks do not
-need to understand UUIDs, schema versions, payload revisions, Git identifiers,
-or publication rules.
+The library shows searchable installed presets, their versions, a description,
+and **Use This Preset** or **Reset to Preset**. Versions sort by semantic
+precedence within matching names. Build and file metadata remain behind
+**Details**. Authoring forms can be opened directly from either tab; Manage
+Presets remains an additional route to those actions.
 
 ## Files and ownership
 
@@ -115,8 +120,11 @@ After the latest Current Look revision is durably written, OMV records the
 active preset identity and immutable preset-payload revision in
 `omv-state.toml`. On the next launch OMV verifies that the same preset
 document is installed and compares the complete live state against it. A
-match restores the active label; a difference reports Modified from. Missing
-or corrupt state never affects graphics behavior.
+match restores the active label; a difference restores its edited provenance.
+A delayed initial restore cannot replace a later user activation or publication.
+If the source is unavailable, its pending identity can be checked again on a
+catalog refresh without applying graphics changes. Missing or corrupt state
+never affects graphics behavior.
 
 ## Current Look persistence contract
 
@@ -146,11 +154,25 @@ Each text file is serialized and atomically replaced independently.
 `omv.toml`, the launch-critical state, is published immediately after the
 set-wide revision guard; external shader sidecars follow and each receives a
 second last-moment revision check. The set is not a multi-file filesystem
-transaction. If a later file fails, the worker rebases files it already wrote
-and retains the live revision for a bounded retry. It never misreports its own
-partial publication as an external edit. Invalid external TOML fails reload
-without changing the live look, while a detected external revision suspends
-all normal autosaves until the user makes the conflict choice.
+transaction. Each successful file publication retains the revision of the exact
+serialized bytes, rather than reading a potentially newer external revision
+back from disk. A later failure leaves untouched baselines intact and retains
+the live revision for a bounded retry. Recovery cannot absorb an intervening
+external edit or misreport its own earlier writes as external changes.
+
+Reload owns the workbench until its result arrives, so intervening UI edits or
+preset actions cannot be discarded by reload completion. It verifies tracked
+revisions before and after parsing and retains those verified baselines.
+Invalid external TOML or a revision change during parsing rejects reload.
+Detected external changes suspend normal autosaves until the explicit conflict
+choice. Shader sidecar edits use this same guard and authoritative reload;
+asset discovery does not authorize autosave to overwrite them.
+
+Fingerprint guards are observations followed by atomic publication, not a
+filesystem compare-and-swap. An independent editor can still replace a file
+between the final guard and OMV's replacement. The guards do not promise
+linearizable exclusion against arbitrary external writers. The working file
+set and its provenance are also not one filesystem transaction.
 
 ## Version contract
 
@@ -179,7 +201,11 @@ git_dirty = false
 
 - `preset_format_version` versions the envelope and metadata representation.
 - `config_schema_version` versions visual-setting semantics.
-- `preset.version` is the preset author's strict semantic version.
+- `preset.version` is the preset author's strict semantic version. Precedence
+  follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html),
+  ignoring build metadata. Numeric components retain the established format's
+  complete 64-byte version-string domain instead of narrowing to machine
+  integers during updates or suggestions.
 - `settings.omv_enabled` is the preset-owned master switch for all OMV visual
   systems. It maps to the legacy working-config key
   `graphics.screen_space_shaders`; that `omv.toml` key remains unchanged for
@@ -266,7 +292,8 @@ OMV also fingerprints the exact shader file content. A preset dependency with
 a stable shader ID must match both that ID and the content revision. A legacy
 shader without an ID matches by normalized filename plus exact content
 revision. Every option key, type, and range must still match before any source
-is changed.
+is changed. Dependency resolution must also be one-to-one: an ID declaration
+and a legacy filename declaration cannot both target the same installation.
 
 A selected LUT is recorded by filename and exact content revision. If the
 required LUT or shader is absent, changed, duplicated, or ambiguous, the whole
@@ -280,12 +307,18 @@ publisher trust.
 ## Catalog and identity
 
 Preset identity is `(preset.id, preset.version)`, never filename or scan order.
+UUID hexadecimal case is normalized for identity comparisons without rewriting
+installed document spellings or their payload revisions. The OMV Default UUID
+remains read-only even when a loose file supplies a different version.
 
 - Identical duplicate identity and content is deduplicated.
 - Conflicting content with the same identity is marked incompatible; no file
   wins by load order.
 - Symlinks are ignored.
-- Scanning is bounded to four directory levels.
+- Scanning is bounded to four directory levels. Directory failures are visible
+  catalog issues; they do not discard the compiled default or unrelated valid
+  entries. Publication fails closed when a scan cannot establish that its
+  destination identity is free.
 - Each preset is limited to 1 MiB and all user-facing strings have explicit
   limits.
 - There is no fixed preset slot count. The UI searches the complete dynamic
@@ -294,7 +327,7 @@ Preset identity is `(preset.id, preset.version)`, never filename or scan order.
 Catalog scanning and user-preset publication run on the `omv-presets` worker.
 The render callback only polls already completed messages. Both publication
 paths write and flush a same-directory temporary file. Create a New Preset
-moves it into place with fail-if-exists semantics. Update Current Preset uses a
+moves it into place with fail-if-exists semantics. Update Preset uses a
 write-through atomic replacement of the exact existing path. OMV never passes
 a preset path to a remove operation; only an unpublished hidden temporary file
 may be removed after a failed publication.
@@ -320,18 +353,33 @@ effect paths.
 
 Create a New Preset captures the current live settings, validates name and
 strict semantic version, generates a version-4 UUID, and queues publication to
-the worker. Update Current Preset instead requires a non-built-in active preset
+the worker. Update Preset instead requires a non-built-in active preset
 and a semantic version whose precedence is strictly greater than the active
 version. Build metadata alone does not make a version newer. It preserves the
 family UUID, descriptive metadata, and exact source path. Before replacement,
-the worker rechecks the source identity and content fingerprint so an external
-edit cannot be silently overwritten.
+the worker checks that the destination UUID/version is not installed elsewhere,
+then rechecks the exact source identity and content fingerprint. Catalog refresh
+cannot silently rebase an active session's overwrite authority onto a changed
+file. An observed external change rejects publication.
 
 In both workflows, the preset becomes the current in-session identity only
-after durable publication and catalog refresh succeed. The Current Look is
-already autosaved independently; publication records the new preset identity
-without redundantly rewriting `omv.toml`. Publication itself never silently
-rewrites the working configuration.
+after durable publication and catalog verification succeed, and only if a later
+activation or reload has not superseded that intent. Completion compares the
+published snapshot with the current live look, so later edits remain marked
+edited. A missing or conflicting publication result is a terminal error with
+pending controls released; a later refresh cannot resurrect its activation.
+Errors distinguish publication, catalog, and provenance operations.
+
+Provenance waits until the newest working revision is durable and conflict-free.
+The existing preset worker acknowledges state writes; failures retry without a
+new user edit. Publication does not schedule a redundant working-config write
+or silently rewrite the Current Look.
+
+Transaction bookkeeping and full-size UTF-8 authoring buffers are allocated only
+from the Present-owned profile service. A compatibility slot reuses the former
+pending-key storage, and explicit field order preserves the startup-owned UI
+and runtime layouts. Existing worker startup, bounded channel capacities,
+configuration schema, serialized payload, and built-in version are retained.
 
 Workbench-created filenames are deliberately human-readable and stable:
 `<normalized-name>.omvpreset.toml`. Neither preset version nor UUID appears in
@@ -349,58 +397,31 @@ user opens Technical Details.
 
 ## Validation evidence and acceptance
 
-Static tests cover:
+Offline qualification executes the production preset parser, activation,
+publication and persistence workers against real files. Native workbench tests
+execute the shipped Dear ImGui widgets with actual mouse and text events and
+commit results through the same Present-owned handler. Their test-only native
+support is excluded from release builds. Source-string assertions do not prove
+profile workflow behavior.
 
-- trailing-edge autosave coalescing and stale-completion rejection;
-- external-change save blocking and explicit reload/overwrite resolution;
-- absence of the old manual Save/Undo persistence path;
-- strict built-in preset round-trip;
-- missing and unknown fields;
-- future schemas;
-- non-finite values;
-- semantic-version validation;
-- strict monotonic version publication, family-UUID preservation, and current
-  payload capture;
-- conflicting and identical duplicate identities;
-- machine-local setting preservation, including depth-provider selection;
-- built-in LUT revision equality;
-- path-safe version-free generated filenames and readable collision suffixes;
-- fail-if-exists atomic creation and no-delete atomic version replacement;
-- legacy unversioned config and future config rejection.
+Required behavior includes:
 
-Release validation requires:
+- visible and actionable Update controls in Presets and Customize;
+- default-family copy creation and user-preset update eligibility;
+- visual edit/revert detection independent of local and shadow preferences;
+- Unicode and multiline input preserved through native entry and publication;
+- update-in-place path, UUID, descriptive metadata, and restart restoration;
+- preservation of edits or activations made after publication capture;
+- restoration superseded by newer user intent;
+- terminal publication/catalog errors and independent provenance errors;
+- rejection of conflicting installed versions and changed update targets;
+- provenance gated by durable working revisions and retry after state errors;
+- strict schema-one compatibility, complete dependencies, and monotonic versions;
+- working-file conflicts, partial-write recovery, and authoritative reload.
 
-```bash
-cargo test --target i686-pc-windows-gnu -p omv
-cargo build --release --target i686-pc-windows-gnu -p omv
-```
-
-Validation on 2026-07-29 passed all 393 OMV tests and the supported optimized
-`i686-pc-windows-gnu` OMV release build.
-
-Ordinary game acceptance still needs:
-
-1. open the Presets tab with no loose preset directory and activate OMV
-   Default;
-2. use Create a New Preset to create a named `1.0.0` preset from edited live
-   values, wait one second, restart, and confirm the Current Look and active
-   identity return without a Save action;
-3. record its filename, edit the user preset, use Update Current Preset to
-   publish `1.0.1`, and confirm the filename is unchanged, only `1.0.1`
-   remains at that path, and it becomes active;
-4. confirm an equal, older, malformed, or build-metadata-only version is
-   rejected and that the built-in preset directs the user to Create New
-   Preset;
-5. install multiple third-party files and use search/page navigation;
-6. edit the active preset, confirm **Reset to Preset** restores it immediately,
-   then switch directly to another preset without a redundant save prompt;
-7. remove or alter a required LUT and external shader and confirm activation
-   is rejected with the current look unchanged;
-8. edit `omv.toml` outside the game and confirm autosave pauses, the conflict
-   card appears, Reload adopts the file, and Keep In-Game Look overwrites it
-   only after that explicit choice;
-9. update OMV over an edited `omv.toml` and confirm the file is preserved.
-
-The static suite proves format and transaction behavior. It does not prove
-visual equivalence on a real D3D9 device; normal gameplay comparison remains
-the final image acceptance step.
+Qualification uses the affected OMV and ImGui suites, production shader variants
+and budgets, the supported `i686-pc-windows-gnu` release build, formatting,
+document checks, and diff review. A game run is not an OMV qualification gate.
+Native UI layout and file-state tests do not establish game-only image,
+integration, startup, or performance behavior; owner playtesting remains the
+owner's choice.

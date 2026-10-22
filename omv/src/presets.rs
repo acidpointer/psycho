@@ -19,7 +19,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -271,7 +270,7 @@ pub(crate) struct PresetDocument {
 impl PresetDocument {
     pub(crate) fn key(&self) -> PresetKey {
         PresetKey {
-            id: self.metadata.id.clone(),
+            id: self.metadata.id.to_ascii_lowercase(),
             version: self.metadata.version.clone(),
         }
     }
@@ -298,6 +297,11 @@ impl PresetDocument {
         payload_revision(&self.settings, &self.dependencies)
     }
 
+    /// The compiled default family remains read-only even in loose documents.
+    pub(crate) fn is_read_only(&self) -> bool {
+        self.metadata.id.eq_ignore_ascii_case(DEFAULT_PRESET_ID)
+    }
+
     pub(crate) fn matches_current(
         &self,
         menu_config: &GraphicsMenuConfig,
@@ -307,6 +311,15 @@ impl PresetDocument {
         let mut expected_menu = *menu_config;
         let mut expected_sources = sources.to_vec();
         self.apply(&mut expected_menu, &mut expected_sources, luts)?;
+        // Schema-one compatibility data has no visual effect. Keep it in the
+        // serialized payload, but do not offer a new version for this alone.
+        expected_menu
+            .embedded_effects
+            .motion_blur
+            .first_person_strength = menu_config
+            .embedded_effects
+            .motion_blur
+            .first_person_strength;
         let current_settings = toml::Value::try_from(PresetVisualSettingsV1::capture(menu_config))?;
         let expected_settings =
             toml::Value::try_from(PresetVisualSettingsV1::capture(&expected_menu))?;
@@ -374,6 +387,17 @@ pub(crate) struct PresetPublishRequest {
 }
 
 impl PresetPublishRequest {
+    /// Identity and immutable payload captured by this publication request.
+    pub(crate) fn identity(&self) -> Result<(PresetKey, u64)> {
+        Ok((
+            PresetKey {
+                id: self.metadata.id.to_ascii_lowercase(),
+                version: self.metadata.version.clone(),
+            },
+            payload_revision(&self.settings, &self.dependencies)?,
+        ))
+    }
+
     pub(crate) fn capture(
         name: &str,
         version: &str,
@@ -416,6 +440,9 @@ impl PresetPublishRequest {
         luts: &LutCatalog,
     ) -> Result<Self> {
         let version = version.trim();
+        if source.is_read_only() {
+            bail!("the OMV Default family is read-only; create a user preset instead");
+        }
         validate_newer_version(&source.metadata.version, version)?;
         let metadata = PresetMetadata {
             id: source.metadata.id.clone(),
@@ -457,28 +484,92 @@ impl PresetPublishRequest {
 }
 
 pub(crate) fn suggest_next_patch_version(version: &str) -> String {
-    let Ok(version) = Version::parse(version) else {
+    if validate_semver(version).is_err() {
         return "1.0.0".to_owned();
-    };
-    if let Some(patch) = version.patch.checked_add(1) {
-        format!("{}.{}.{}", version.major, version.minor, patch)
-    } else if let Some(minor) = version.minor.checked_add(1) {
-        format!("{}.{}.0", version.major, minor)
-    } else if let Some(major) = version.major.checked_add(1) {
-        format!("{major}.0.0")
-    } else {
-        version.to_string()
     }
+    let (core, _) = semantic_parts(version);
+    let mut parts: Vec<String> = core.split('.').map(str::to_owned).collect();
+    for index in (0..3).rev() {
+        let mut digits = parts[index].as_bytes().to_vec();
+        let mut carry = true;
+        for digit in digits.iter_mut().rev() {
+            if *digit < b'9' {
+                *digit += 1;
+                carry = false;
+                break;
+            }
+            *digit = b'0';
+        }
+        if carry {
+            digits.insert(0, b'1');
+        }
+        // Validated ASCII decimal digits remain valid UTF-8 after increment.
+        parts[index] = digits.into_iter().map(char::from).collect();
+        let candidate = parts.join(".");
+        if candidate.len() <= 64 {
+            return candidate;
+        }
+        parts[index] = "0".to_owned();
+    }
+    String::new()
 }
 
 fn validate_newer_version(current: &str, candidate: &str) -> Result<()> {
+    validate_semver(current)?;
     validate_semver(candidate)?;
-    let current = Version::parse(current).context("current preset version is invalid")?;
-    let candidate = Version::parse(candidate).context("new preset version is invalid")?;
-    if candidate.cmp_precedence(&current).is_le() {
+    if compare_versions(candidate, current).is_le() {
         bail!("new preset version must be newer than {current}");
     }
     Ok(())
+}
+
+fn semantic_parts(version: &str) -> (&str, Option<&str>) {
+    let (without_build, _) = split_once_optional(version, '+');
+    split_once_optional(without_build, '-')
+}
+
+/// Semantic precedence without narrowing previously accepted numeric fields
+/// to u64. Callers supply versions already accepted by validate_semver.
+fn compare_versions(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (left_core, left_pre) = semantic_parts(left);
+    let (right_core, right_pre) = semantic_parts(right);
+    let numeric =
+        |left: &str, right: &str| left.len().cmp(&right.len()).then_with(|| left.cmp(right));
+    for (left, right) in left_core.split('.').zip(right_core.split('.')) {
+        let order = numeric(left, right);
+        if !order.is_eq() {
+            return order;
+        }
+    }
+    match (left_pre, right_pre) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(left), Some(right)) => {
+            let mut left = left.split('.');
+            let mut right = right.split('.');
+            loop {
+                let order = match (left.next(), right.next()) {
+                    (None, None) => return Ordering::Equal,
+                    (None, Some(_)) => return Ordering::Less,
+                    (Some(_), None) => return Ordering::Greater,
+                    (Some(left), Some(right)) => match (
+                        left.bytes().all(|byte| byte.is_ascii_digit()),
+                        right.bytes().all(|byte| byte.is_ascii_digit()),
+                    ) {
+                        (true, true) => numeric(left, right),
+                        (true, false) => Ordering::Less,
+                        (false, true) => Ordering::Greater,
+                        (false, false) => left.cmp(right),
+                    },
+                };
+                if !order.is_eq() {
+                    return order;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -502,7 +593,7 @@ impl PresetActiveState {
 
     pub(crate) fn key(&self) -> PresetKey {
         PresetKey {
-            id: self.preset_id.clone(),
+            id: self.preset_id.to_ascii_lowercase(),
             version: self.preset_version.clone(),
         }
     }
@@ -516,7 +607,16 @@ pub(crate) enum PresetEvent {
     Catalog(PresetCatalog),
     Published(PresetKey),
     ActiveState(Option<PresetActiveState>),
+    /// Initial provenance-read failure; unrelated to publication progress.
     Error(String),
+    /// Publication failed before its successful catalog handoff.
+    PublicationError(String),
+    /// A catalog could not be delivered, including after durable publication.
+    CatalogError(String),
+    /// The queued provenance write is durably complete.
+    StateRecorded,
+    /// A provenance write failed and may be retried independently.
+    StateError(String),
 }
 
 enum PresetCommand {
@@ -616,32 +716,42 @@ fn preset_worker(receiver: Receiver<PresetCommand>, sender: SyncSender<PresetEve
                 let result = publish_user_preset(request);
                 match result {
                     Ok(key) => {
+                        #[cfg(test)]
+                        tests::pause_after_publication();
                         if sender.send(PresetEvent::Published(key)).is_err() {
                             return;
                         }
                         publish_catalog(&sender);
                     }
                     Err(err) => {
-                        if sender.send(PresetEvent::Error(format!("{err:#}"))).is_err() {
+                        if sender
+                            .send(PresetEvent::PublicationError(format!("{err:#}")))
+                            .is_err()
+                        {
                             return;
                         }
                     }
                 }
             }
             PresetCommand::RecordActiveState(state) => {
-                if let Err(err) = save_active_state(state.as_ref())
-                    && sender
-                        .send(PresetEvent::Error(format!(
-                            "could not record active preset: {err:#}"
-                        )))
-                        .is_err()
-                {
+                let event = match save_active_state(state.as_ref()) {
+                    Ok(()) => PresetEvent::StateRecorded,
+                    Err(err) => {
+                        PresetEvent::StateError(format!("could not record active preset: {err:#}"))
+                    }
+                };
+                if sender.send(event).is_err() {
                     return;
                 }
             }
             PresetCommand::Stop => return,
         }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn pause_publication_for_test() -> (Receiver<()>, SyncSender<()>) {
+    tests::set_publication_pause()
 }
 
 fn payload_revision(
@@ -701,7 +811,7 @@ fn save_active_state(state: Option<&PresetActiveState>) -> Result<()> {
 fn publish_catalog(sender: &SyncSender<PresetEvent>) {
     let event = match scan_catalog() {
         Ok(catalog) => PresetEvent::Catalog(catalog),
-        Err(err) => PresetEvent::Error(format!("failed to scan presets: {err:#}")),
+        Err(err) => PresetEvent::CatalogError(format!("failed to scan presets: {err:#}")),
     };
     let _ = sender.send(event);
 }
@@ -717,7 +827,22 @@ fn scan_catalog() -> Result<PresetCatalog> {
     )];
 
     let mut paths = Vec::new();
-    collect_preset_files(Path::new(PRESET_DIRECTORY), 0, &mut paths)?;
+    let mut issues = Vec::new();
+    collect_preset_files(Path::new(PRESET_DIRECTORY), 0, &mut paths, &mut issues);
+    for (path, message) in issues {
+        entries.push(PresetCatalogEntry {
+            display_name: "Preset folder unavailable".to_owned(),
+            version: String::new(),
+            author: String::new(),
+            description: String::new(),
+            search_key: path.to_string_lossy().to_ascii_lowercase(),
+            document: None,
+            error: Some(message),
+            built_in: false,
+            path: Some(path),
+            content_hash: 0,
+        });
+    }
     paths.sort_by_key(|path| path.to_string_lossy().to_ascii_lowercase());
 
     for path in paths {
@@ -754,7 +879,7 @@ fn scan_catalog() -> Result<PresetCatalog> {
         left.display_name
             .to_ascii_lowercase()
             .cmp(&right.display_name.to_ascii_lowercase())
-            .then_with(|| left.version.cmp(&right.version))
+            .then_with(|| compare_versions(&right.version, &left.version))
             .then_with(|| right.built_in.cmp(&left.built_in))
     });
     Ok(PresetCatalog { entries })
@@ -766,6 +891,7 @@ fn valid_catalog_entry(
     built_in: bool,
     content_hash: u64,
 ) -> PresetCatalogEntry {
+    let built_in = built_in || document.is_read_only();
     let search_key = format!(
         "{}\n{}",
         document.metadata.name.to_ascii_lowercase(),
@@ -820,27 +946,51 @@ fn mark_duplicate_conflicts(entries: &mut [PresetCatalogEntry]) {
     }
 }
 
-fn collect_preset_files(directory: &Path, depth: usize, output: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_preset_files(
+    directory: &Path,
+    depth: usize,
+    output: &mut Vec<PathBuf>,
+    issues: &mut Vec<(PathBuf, String)>,
+) {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(err) => return Err(err).with_context(|| format!("read {}", directory.display())),
+        Err(err) if err.kind() == ErrorKind::NotFound => return,
+        Err(err) => {
+            issues.push((
+                directory.to_owned(),
+                format!("read {}: {err}", directory.display()),
+            ));
+            return;
+        }
     };
     for entry in entries {
-        let entry = entry.with_context(|| format!("enumerate {}", directory.display()))?;
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("inspect {}", entry.path().display()))?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                issues.push((
+                    directory.to_owned(),
+                    format!("enumerate {}: {err}", directory.display()),
+                ));
+                continue;
+            }
+        };
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(err) => {
+                issues.push((path.clone(), format!("inspect {}: {err}", path.display())));
+                continue;
+            }
+        };
         if file_type.is_symlink() {
             continue;
         }
         if file_type.is_dir() {
             if depth < MAX_PRESET_SCAN_DEPTH {
-                collect_preset_files(&entry.path(), depth + 1, output)?;
+                collect_preset_files(&path, depth + 1, output, issues);
             }
             continue;
         }
-        let path = entry.path();
         if file_type.is_file()
             && path
                 .file_name()
@@ -848,6 +998,31 @@ fn collect_preset_files(directory: &Path, depth: usize, output: &mut Vec<PathBuf
                 .is_some_and(|name| name.to_ascii_lowercase().ends_with(PRESET_SUFFIX))
         {
             output.push(path);
+        }
+    }
+}
+
+// A failed scan cannot establish that a version is free. Read documents before
+// deduplication, since conflicting entries deliberately lose activation rights.
+fn validate_publication_identity(key: &PresetKey, source: Option<&Path>) -> Result<()> {
+    let mut paths = Vec::new();
+    let mut issues = Vec::new();
+    collect_preset_files(Path::new(PRESET_DIRECTORY), 0, &mut paths, &mut issues);
+    if let Some((_, issue)) = issues.first() {
+        bail!("cannot verify preset identity: {issue}");
+    }
+    for path in paths {
+        if source == Some(path.as_path()) {
+            continue;
+        }
+        if let Ok((document, _)) = read_preset_file(&path)
+            && document.key() == *key
+        {
+            bail!(
+                "preset version {} is already installed at {}",
+                key.version,
+                path.display()
+            );
         }
     }
     Ok(())
@@ -1204,7 +1379,18 @@ fn validate_metadata(metadata: &PresetMetadata) -> Result<()> {
     validate_text("preset name", &metadata.name, 1, 80)?;
     validate_semver(&metadata.version)?;
     validate_text("preset author", &metadata.author, 0, 80)?;
-    validate_text("preset description", &metadata.description, 0, 512)?;
+    // Line breaks belong to the multiline description editor. Other control
+    // characters remain invalid; count the original Unicode characters.
+    if metadata.description.chars().count() > 512 {
+        bail!("preset description must contain at most 512 characters");
+    }
+    if metadata
+        .description
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\n' | '\r'))
+    {
+        bail!("preset description contains a control character");
+    }
     validate_build_provenance(&metadata.created_with)?;
     Ok(())
 }
@@ -1490,6 +1676,7 @@ fn apply_external_shaders(
     sources: &mut [ScreenShaderSource],
 ) -> Result<()> {
     let mut matches = Vec::with_capacity(preset_shaders.len());
+    let mut resolved = BTreeSet::new();
     for preset in preset_shaders {
         let expected_revision = validate_revision(&preset.source_revision)?;
         let candidates: Vec<_> = sources
@@ -1504,7 +1691,10 @@ fn apply_external_shaders(
                         .as_deref()
                         .is_none_or(|version| source.shader_version.as_deref() == Some(version))
                     && match preset.shader_id.as_deref() {
-                        Some(id) => source.shader_id.as_deref() == Some(id),
+                        Some(id) => source
+                            .shader_id
+                            .as_deref()
+                            .is_some_and(|installed| installed.eq_ignore_ascii_case(id)),
                         None => source
                             .path
                             .file_name()
@@ -1523,6 +1713,12 @@ fn apply_external_shaders(
             );
         }
         let index = candidates[0];
+        if !resolved.insert(index) {
+            bail!(
+                "multiple dependencies resolve to external shader '{}'",
+                sources[index].name
+            );
+        }
         validate_external_options(preset, &sources[index])?;
         matches.push(index);
     }
@@ -1632,13 +1828,17 @@ fn external_runtime_equal(left: &ScreenShaderSource, right: &ScreenShaderSource)
 }
 
 fn shader_identity(shader: &ExternalShaderPresetV1) -> String {
-    shader.shader_id.clone().unwrap_or_else(|| {
-        format!(
-            "{}@{}",
-            shader.file_name.to_ascii_lowercase(),
-            shader.source_revision
-        )
-    })
+    shader
+        .shader_id
+        .as_ref()
+        .map(|id| id.to_ascii_lowercase())
+        .unwrap_or_else(|| {
+            format!(
+                "{}@{}",
+                shader.file_name.to_ascii_lowercase(),
+                shader.source_revision.to_ascii_lowercase()
+            )
+        })
 }
 
 fn builtin_default_preset() -> Result<PresetDocument> {
@@ -1678,6 +1878,9 @@ fn publish_user_preset(request: PresetPublishRequest) -> Result<PresetKey> {
     validate_metadata(&document.metadata)?;
     validate_visual_settings(&document.settings)?;
     validate_dependencies(&document.dependencies)?;
+    if document.is_read_only() {
+        bail!("the OMV Default family is read-only; create a user preset instead");
+    }
     let text = document.canonical_text()?;
     if text.len() as u64 > MAX_PRESET_BYTES {
         bail!("serialized preset exceeds the size limit");
@@ -1687,6 +1890,7 @@ fn publish_user_preset(request: PresetPublishRequest) -> Result<PresetKey> {
             let directory = Path::new(PRESET_DIRECTORY);
             fs::create_dir_all(directory)
                 .with_context(|| format!("failed to create {}", directory.display()))?;
+            validate_publication_identity(&document.key(), None)?;
             let path = next_new_preset_path(directory, &document.metadata)?;
             crate::file_io::atomic_create_text(&path, &text)?;
         }
@@ -1695,6 +1899,8 @@ fn publish_user_preset(request: PresetPublishRequest) -> Result<PresetKey> {
             source_key,
             expected_content_hash,
         } => {
+            validate_newer_version(&source_key.version, &document.metadata.version)?;
+            validate_publication_identity(&document.key(), Some(&path))?;
             validate_update_target(&path)?;
             let (installed, current_content_hash) = read_preset_file(&path)?;
             if installed.key() != source_key {
@@ -1709,7 +1915,7 @@ fn publish_user_preset(request: PresetPublishRequest) -> Result<PresetKey> {
                     path.display()
                 );
             }
-            if document.metadata.id != source_key.id {
+            if !document.metadata.id.eq_ignore_ascii_case(&source_key.id) {
                 bail!("preset update cannot change its family ID");
             }
             crate::file_io::atomic_write_text(&path, &text)?;
@@ -1835,8 +2041,72 @@ fn fingerprint(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
 
+    struct PublicationPause {
+        reached: SyncSender<()>,
+        resume: Receiver<()>,
+    }
+    static PUBLICATION_PAUSE: std::sync::Mutex<Option<PublicationPause>> =
+        std::sync::Mutex::new(None);
+
+    pub(super) fn set_publication_pause() -> (Receiver<()>, SyncSender<()>) {
+        let (reached_sender, reached) = sync_channel(1);
+        let (resume, resume_receiver) = sync_channel(1);
+        *PUBLICATION_PAUSE.lock().unwrap() = Some(PublicationPause {
+            reached: reached_sender,
+            resume: resume_receiver,
+        });
+        (reached, resume)
+    }
+
+    pub(super) fn pause_after_publication() {
+        let pause = PUBLICATION_PAUSE.lock().unwrap().take();
+        if let Some(pause) = pause {
+            pause.reached.send(()).unwrap();
+            pause.resume.recv().unwrap();
+        }
+    }
+
     fn builtin_text() -> String {
         builtin_default_preset().unwrap().canonical_text().unwrap()
+    }
+
+    #[test]
+    fn previously_accepted_large_semantic_versions_remain_updatable() {
+        let mut preset = builtin_default_preset().unwrap();
+        preset.metadata.version = "18446744073709551616.0.0".to_owned();
+        let loaded = parse_preset(&preset.canonical_text().unwrap()).unwrap();
+        assert!(
+            validate_newer_version(&loaded.metadata.version, "18446744073709551616.0.1").is_ok()
+        );
+        assert_eq!(
+            suggest_next_patch_version(&loaded.metadata.version),
+            "18446744073709551616.0.1"
+        );
+    }
+
+    #[test]
+    fn uuid_hex_case_cannot_split_one_preset_identity() {
+        let mut lower = builtin_default_preset().unwrap();
+        lower.metadata.id = "35ec76b6-366e-40af-8386-1bd333c9b502".to_owned();
+        let mut upper = lower.clone();
+        upper.metadata.id.make_ascii_uppercase();
+        let lower = parse_preset(&lower.canonical_text().unwrap()).unwrap();
+        let upper = parse_preset(&upper.canonical_text().unwrap()).unwrap();
+        assert_eq!(lower.key(), upper.key());
+    }
+
+    #[test]
+    fn inert_motion_blur_data_does_not_make_a_visual_look_modified() {
+        let preset = builtin_default_preset().unwrap();
+        let mut luts = LutCatalog::default();
+        luts.assets = crate::luts::shipped_luts_for_test()
+            .into_iter()
+            .map(std::sync::Arc::new)
+            .collect();
+        let mut menu = GraphicsMenuConfig::default();
+        preset.apply(&mut menu, &mut [], &luts).unwrap();
+        menu.embedded_effects.motion_blur.first_person_strength = 0.91;
+        assert!(preset.matches_current(&menu, &[], &luts).unwrap());
     }
 
     #[test]
@@ -1969,7 +2239,8 @@ mod tests {
 
     #[test]
     fn updated_preset_version_preserves_family_and_captures_current_payload() {
-        let source = builtin_default_preset().unwrap();
+        let mut source = builtin_default_preset().unwrap();
+        source.metadata.id = "35ec76b6-366e-40af-8386-1bd333c9b502".to_owned();
         let mut menu = GraphicsMenuConfig::default();
         menu.screen_space_shaders = false;
         let mut luts = LutCatalog::default();
@@ -2014,6 +2285,21 @@ mod tests {
 
     #[test]
     fn updated_preset_version_must_advance_semantic_precedence() {
+        // Published precedence examples from Semantic Versioning 2.0.0.
+        let sequence = [
+            "1.0.0-alpha",
+            "1.0.0-alpha.1",
+            "1.0.0-alpha.beta",
+            "1.0.0-beta",
+            "1.0.0-beta.2",
+            "1.0.0-beta.11",
+            "1.0.0-rc.1",
+            "1.0.0",
+        ];
+        for pair in sequence.windows(2) {
+            assert!(validate_newer_version(pair[0], pair[1]).is_ok());
+            assert!(validate_newer_version(pair[1], pair[0]).is_err());
+        }
         assert!(validate_newer_version("1.2.3", "1.2.4").is_ok());
         assert!(validate_newer_version("1.2.3", "2.0.0-beta.1").is_ok());
         assert!(validate_newer_version("1.2.3", "1.2.3").is_err());

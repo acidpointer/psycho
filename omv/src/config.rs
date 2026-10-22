@@ -1727,7 +1727,10 @@ impl EmbeddedEffectsConfig {
     }
 }
 
-pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
+/// Persists the working look and returns the exact bytes published for conflict tracking.
+pub(crate) fn save_menu_config(
+    config: &GraphicsMenuConfig,
+) -> Result<crate::file_io::TextRevision> {
     let path = Path::new(CONFIG_PATH);
     let (content, working_exists) = match fs::read_to_string(path) {
         Ok(content) => (content, true),
@@ -1815,10 +1818,11 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
 
     let updated = doc.to_string();
     if working_exists && updated == content {
-        return Ok(());
+        return Ok(crate::file_io::TextRevision::of(content.as_bytes()));
     }
 
-    crate::file_io::atomic_write_text(path, &updated)
+    crate::file_io::atomic_write_text(path, &updated)?;
+    Ok(crate::file_io::TextRevision::of(updated.as_bytes()))
 }
 
 fn save_adaptive_tone_config(doc: &mut DocumentMut, config: &AdaptiveToneConfig) {

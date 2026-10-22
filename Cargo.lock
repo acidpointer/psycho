@@ -847,7 +847,6 @@ dependencies = [
  "parking_lot",
  "psycho-imgui",
  "rand",
- "semver",
  "serde",
  "toml",
  "toml_edit",

@@ -239,6 +239,19 @@ impl Default for AutosaveCoordinator {
 }
 
 impl AutosaveCoordinator {
+    /// Whether the latest working revision is durable and conflict-free.
+    pub(crate) fn is_settled(&self) -> bool {
+        !self.is_dirty()
+            && self.save_in_flight.is_none()
+            && !self.reload_in_flight
+            && !self.external_change
+    }
+
+    /// True while a disk reload owns the workbench's editing transaction.
+    pub(crate) fn is_reloading(&self) -> bool {
+        self.reload_in_flight
+    }
+
     /// Records a UI edit and moves the trailing-edge autosave deadline.
     pub(crate) fn note_change(&mut self, now: Instant) {
         self.latest_revision = self.latest_revision.wrapping_add(1).max(1);
@@ -473,15 +486,10 @@ fn current_look_worker(
                         }
                     }
                     Err(err) => {
-                        // Rebase after our own failed publication. Otherwise a
-                        // successfully written earlier file would be mistaken
-                        // for an external edit on the retry.
-                        let message = match tracked.rebase() {
-                            Ok(()) => format!("{err:#}"),
-                            Err(rebase_err) => {
-                                format!("{err:#}; could not refresh file revisions: {rebase_err:#}")
-                            }
-                        };
+                        // Successful files already retain their exact written
+                        // revision. Untouched files keep their old baseline so
+                        // recovery cannot absorb a concurrent external edit.
+                        let message = recover_failed_save(&mut tracked, err);
                         if sender
                             .send(CurrentLookEvent::Error {
                                 operation: CurrentLookOperation::Save(revision),
@@ -556,6 +564,14 @@ fn current_look_worker(
     }
 }
 
+// Kept as the worker's recovery boundary so offline tests can execute the
+// actual failed-save recovery with a real editor interleaving.
+fn recover_failed_save(_tracked: &mut TrackedFiles, err: anyhow::Error) -> String {
+    #[cfg(test)]
+    tests::pause_failed_save_recovery();
+    format!("{err:#}")
+}
+
 enum SnapshotSaveOutcome {
     Saved,
     ExternalChange,
@@ -570,8 +586,8 @@ fn save_snapshot(
     // revision guard. Sidecars follow; each file still uses its own atomic
     // replacement because ordinary filesystems cannot atomically replace the
     // complete heterogeneous set.
-    crate::config::save_menu_config(&snapshot.menu_config)?;
-    tracked.rebase_path(Path::new(CONFIG_PATH))?;
+    let revision = crate::config::save_menu_config(&snapshot.menu_config)?;
+    tracked.record_published(Path::new(CONFIG_PATH), revision);
 
     for source in &mut snapshot.sources {
         if !source.is_external_file() {
@@ -583,8 +599,9 @@ fn save_snapshot(
         if !overwrite_external && tracked.path_changed(&source.config_path)? {
             return Ok(SnapshotSaveOutcome::ExternalChange);
         }
-        source.save_config_to_disk()?;
-        tracked.rebase_path(&source.config_path)?;
+        if let Some(revision) = source.save_config_to_disk()? {
+            tracked.record_published(&source.config_path, revision);
+        }
     }
     Ok(SnapshotSaveOutcome::Saved)
 }
@@ -594,10 +611,14 @@ fn reload_snapshot(
     mut sources: Vec<ScreenShaderSource>,
 ) -> Result<(GraphicsMenuConfig, Vec<ScreenShaderSource>)> {
     tracked.replace_external_paths(external_config_paths(&sources))?;
+    let revisions = tracked.current_revisions()?;
     let menu_config = crate::config::load_menu_config_from_disk()?;
     let native_shadows = crate::config::load_native_shadows_config_from_disk()?;
     shaders::reload_external_shader_configs(&mut sources)?;
-    tracked.rebase()?;
+    if tracked.current_revisions()? != revisions {
+        bail!("working files changed during reload; retry after the external edit finishes");
+    }
+    tracked.baseline = revisions;
     // Shadow configuration is intentionally absent from the pre-Deferred
     // Current Look message layout. External reloads already execute on this
     // post-Deferred worker, so publish the validated table only after every
@@ -661,11 +682,20 @@ impl TrackedFiles {
         Ok(file_revision(path)? != *expected)
     }
 
-    fn rebase_path(&mut self, path: &Path) -> Result<()> {
+    fn record_published(&mut self, path: &Path, written: crate::file_io::TextRevision) {
         if let Some(revision) = self.baseline.get_mut(path) {
-            *revision = file_revision(path)?;
+            *revision = FileRevision::Content {
+                bytes: written.bytes,
+                fingerprint: written.fingerprint,
+            };
         }
-        Ok(())
+    }
+
+    fn current_revisions(&self) -> Result<BTreeMap<PathBuf, FileRevision>> {
+        self.baseline
+            .keys()
+            .map(|path| Ok((path.clone(), file_revision(path)?)))
+            .collect()
     }
 
     fn rebase(&mut self) -> Result<()> {
@@ -714,6 +744,145 @@ mod tests {
     impl Drop for TestDirectory {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct RecoveryPause {
+        reached: std::sync::mpsc::SyncSender<()>,
+        resume: std::sync::mpsc::Receiver<()>,
+    }
+    static RECOVERY_PAUSE: std::sync::Mutex<Option<RecoveryPause>> = std::sync::Mutex::new(None);
+
+    pub(super) fn pause_failed_save_recovery() {
+        let pause = RECOVERY_PAUSE.lock().unwrap().take();
+        if let Some(pause) = pause {
+            pause.reached.send(()).unwrap();
+            pause.resume.recv().unwrap();
+        }
+    }
+
+    #[test]
+    fn failed_save_recovery_preserves_an_intervening_external_edit() {
+        let Some(_workspace) = crate::test_workspace::isolated(
+            "current_look::tests::failed_save_recovery_preserves_an_intervening_external_edit",
+        ) else {
+            return;
+        };
+        let path = std::path::Path::new(crate::config::CONFIG_PATH);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "broken = [").unwrap();
+        let (reached_sender, reached) = std::sync::mpsc::sync_channel(1);
+        let (resume, resume_receiver) = std::sync::mpsc::sync_channel(1);
+        *RECOVERY_PAUSE.lock().unwrap() = Some(RecoveryPause {
+            reached: reached_sender,
+            resume: resume_receiver,
+        });
+        let service = super::CurrentLookService::start().unwrap();
+        service
+            .save(
+                super::CurrentLookSnapshot::capture(
+                    1,
+                    crate::config::GraphicsMenuConfig::default(),
+                    &[],
+                ),
+                false,
+            )
+            .unwrap();
+        reached
+            .recv_timeout(Duration::from_secs(5))
+            .expect("actual worker reached failed-save recovery");
+        fs::write(path, "[graphics]\nscreen_space_shaders = false\n").unwrap();
+        resume.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_millis(2500);
+        while Instant::now() < deadline {
+            if service
+                .try_take_events()
+                .iter()
+                .any(|event| matches!(event, super::CurrentLookEvent::ExternalChange { .. }))
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!(
+            "the actual failed-save worker absorbed an intervening external edit instead of reporting a conflict"
+        );
+    }
+
+    #[test]
+    fn shader_sidecar_edits_block_autosave_and_reload_the_authoritative_options() {
+        let Some(_workspace) = crate::test_workspace::isolated(
+            "current_look::tests::shader_sidecar_edits_block_autosave_and_reload_the_authoritative_options",
+        ) else {
+            return;
+        };
+        let menu = crate::config::GraphicsMenuConfig::default();
+        crate::config::save_menu_config(&menu).unwrap();
+        fs::create_dir_all(crate::shaders::SHADER_DIR).unwrap();
+        let shader = std::path::Path::new(crate::shaders::SHADER_DIR).join("cas.hlsl");
+        fs::write(
+            &shader,
+            include_bytes!("../shaders/runtime/01_depth_aware_cas.hlsl"),
+        )
+        .unwrap();
+        let sidecar = shader.with_extension("toml");
+        fs::write(&sidecar, "[shader]\nenabled = true\n").unwrap();
+        let sources = crate::shaders::scan_screen_shaders(&[]).unwrap().sources;
+        assert_eq!(sources.len(), 1);
+        assert!(sources[0].enabled && sources[0].shader_error.is_none());
+        let service = super::CurrentLookService::start().unwrap();
+        service
+            .save(
+                super::CurrentLookSnapshot::capture(1, menu, &sources),
+                false,
+            )
+            .unwrap();
+        wait_event(&service, |event| {
+            matches!(event, super::CurrentLookEvent::Saved { revision: 1 })
+        });
+        let external = "[shader]\nenabled = false\n";
+        fs::write(&sidecar, external).unwrap();
+        service
+            .save(
+                super::CurrentLookSnapshot::capture(2, menu, &sources),
+                false,
+            )
+            .unwrap();
+        wait_event(&service, |event| {
+            matches!(
+                event,
+                super::CurrentLookEvent::ExternalChange {
+                    blocked_revision: Some(2)
+                }
+            )
+        });
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), external);
+        service.reload(&sources).unwrap();
+        let result = wait_event(&service, |event| {
+            matches!(event, super::CurrentLookEvent::Reloaded { .. })
+        });
+        if let super::CurrentLookEvent::Reloaded { sources, .. } = result {
+            assert!(!sources[0].enabled);
+        }
+        assert_eq!(fs::read_to_string(sidecar).unwrap(), external);
+    }
+
+    fn wait_event(
+        service: &super::CurrentLookService,
+        matches: impl Fn(&super::CurrentLookEvent) -> bool,
+    ) -> super::CurrentLookEvent {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            for event in service.try_take_events() {
+                if matches(&event) {
+                    return event;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Current Look worker event timed out"
+            );
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 

@@ -11,6 +11,9 @@ use std::{
 
 use thiserror::Error;
 
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
 #[derive(Debug, Error)]
 pub enum Error {
     /// The D3D render-target window handle was null.

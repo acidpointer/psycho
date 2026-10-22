@@ -9,6 +9,12 @@
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 
+#ifdef PSYCHO_IMGUI_TEST_SUPPORT
+#include "test_support.h"
+#else
+#define PSYCHO_IMGUI_RECORD(label) ((void)0)
+#endif
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 extern "C" {
@@ -440,7 +446,9 @@ void psycho_imgui_end_tab_bar() {
 }
 
 bool psycho_imgui_begin_tab_item(const char* label) {
-	return ImGui::BeginTabItem(label);
+	const bool visible = ImGui::BeginTabItem(label);
+	PSYCHO_IMGUI_RECORD(label);
+	return visible;
 }
 
 void psycho_imgui_end_tab_item() {
@@ -509,7 +517,9 @@ void psycho_imgui_spacing() {
 }
 
 bool psycho_imgui_checkbox(const char* label, bool* value) {
-	return ImGui::Checkbox(label, value);
+	const bool changed = ImGui::Checkbox(label, value);
+	PSYCHO_IMGUI_RECORD(label);
+	return changed;
 }
 
 bool psycho_imgui_radio_button(const char* label, bool active) {
@@ -602,7 +612,9 @@ bool psycho_imgui_input_text(const char* label, char* buffer, size_t buffer_size
 	if (label == nullptr || buffer == nullptr || buffer_size < 2) {
 		return false;
 	}
-	return ImGui::InputText(label, buffer, buffer_size);
+	const bool changed = ImGui::InputText(label, buffer, buffer_size);
+	PSYCHO_IMGUI_RECORD(label);
+	return changed;
 }
 
 bool psycho_imgui_input_text_multiline(
@@ -613,11 +625,13 @@ bool psycho_imgui_input_text_multiline(
 	if (label == nullptr || buffer == nullptr || buffer_size < 2) {
 		return false;
 	}
-	return ImGui::InputTextMultiline(
+	const bool changed = ImGui::InputTextMultiline(
 		label,
 		buffer,
 		buffer_size,
 		ImVec2(-FLT_MIN, height > 0.0f ? height : ImGui::GetTextLineHeight() * 4.0f));
+	PSYCHO_IMGUI_RECORD(label);
+	return changed;
 }
 
 bool psycho_imgui_precise_float(
@@ -734,7 +748,9 @@ bool psycho_imgui_precise_int(
 }
 
 bool psycho_imgui_selectable(const char* label, bool selected) {
-	return ImGui::Selectable(label, selected);
+	const bool pressed = ImGui::Selectable(label, selected);
+	PSYCHO_IMGUI_RECORD(label);
+	return pressed;
 }
 
 bool psycho_imgui_begin_combo(const char* label, const char* preview) {
@@ -746,7 +762,9 @@ void psycho_imgui_end_combo() {
 }
 
 bool psycho_imgui_button(const char* label) {
-	return ImGui::Button(label);
+	const bool pressed = ImGui::Button(label);
+	PSYCHO_IMGUI_RECORD(label);
+	return pressed;
 }
 
 bool psycho_imgui_button_colored(
@@ -762,6 +780,7 @@ bool psycho_imgui_button_colored(
 		ImGuiCol_ButtonActive,
 		ImVec4(active_r, active_g, active_b, active_a));
 	const bool pressed = ImGui::Button(label);
+	PSYCHO_IMGUI_RECORD(label);
 	ImGui::PopStyleColor(3);
 	return pressed;
 }

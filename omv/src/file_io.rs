@@ -11,6 +11,26 @@ use libpsycho::os::windows::winapi::{
     move_file_replace_write_through_wide, move_file_write_through_wide,
 };
 
+/// The exact bytes parsed or published by a worker, independent of a later
+/// filesystem read. This is a change detector, not an authenticity signature.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TextRevision {
+    pub(crate) bytes: u64,
+    pub(crate) fingerprint: u64,
+}
+
+impl TextRevision {
+    /// Fingerprints the exact input bytes without observing the filesystem.
+    pub(crate) fn of(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.len() as u64,
+            fingerprint: bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+                (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            }),
+        }
+    }
+}
+
 pub(crate) fn atomic_write_text(path: &Path, text: &str) -> Result<()> {
     atomic_publish_text(path, text, true)
 }

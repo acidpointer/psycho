@@ -18,6 +18,10 @@ fn main() {
     println!("cargo:rerun-if-changed=vendor/imgui/backends/imgui_impl_win32.cpp");
 
     let mut build = cc::Build::new();
+    println!("cargo:rerun-if-changed=src/test_support.h");
+    if env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
+        build.define("PSYCHO_IMGUI_TEST_SUPPORT", None);
+    }
     build
         .cpp(true)
         .include(&imgui_dir)
@@ -25,6 +29,9 @@ fn main() {
         .define("WIN32_LEAN_AND_MEAN", None)
         .define("NOMINMAX", None)
         .define("IMGUI_USE_BGRA_PACKED_COLOR", None)
+        // Preset metadata accepts Unicode scalar values, including non-BMP
+        // characters. Keep native input from replacing them with U+FFFD.
+        .define("IMGUI_USE_WCHAR32", None)
         .cpp_link_stdlib_static(true)
         .file("src/bridge.cpp")
         .file(imgui_dir.join("imgui.cpp"))

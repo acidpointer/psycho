@@ -26,3 +26,6 @@ mod render_state;
 mod runtime;
 mod shaders;
 mod startup;
+
+#[cfg(test)]
+mod test_workspace;
