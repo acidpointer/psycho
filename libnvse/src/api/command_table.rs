@@ -7,15 +7,27 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let cmd_table = nvse.query_command_table()?;
+//!
 //! // Look up a command by name
-//! if let Some(cmd) = cmd_table.get_by_name("player.additem") {
+//! if let Some(cmd) = cmd_table.get_by_name("AddItem") {
 //!     log::info!("Found command: opcode={:#X}", cmd.opcode());
+//!
+//!     // Check which plugin registered the command
+//!     if let Some(plugin) = cmd_table.get_parent_plugin(&cmd) {
+//!         log::info!("Registered by: {:?}", plugin.name());
+//!     }
 //! }
 //!
-//! // Check which plugin registered a command
+//! // Look up a plugin by name
 //! if let Some(info) = cmd_table.get_plugin_info("MyPlugin") {
 //!     log::info!("Plugin version: {}", info.version());
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ffi::CStr;
