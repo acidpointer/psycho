@@ -22,6 +22,16 @@ fn git_value(repository: &PathBuf, arguments: &[&str]) -> Option<String> {
     .then(|| value.to_owned())
 }
 
+/// Commit and dirty state supplied by builds whose source tree has no `.git`
+/// (the Nix sandbox). When set they take precedence over git queries.
+const GIT_COMMIT_OVERRIDE: &str = "PSYCHO_GIT_COMMIT";
+const GIT_DIRTY_OVERRIDE: &str = "PSYCHO_GIT_DIRTY";
+
+/// Return a non-empty environment value, or `None` when unset or empty.
+fn env_value(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.is_empty())
+}
+
 fn main() {
     let Some(manifest_dir) = env::var_os("CARGO_MANIFEST_DIR") else {
         println!("cargo:warning=CARGO_MANIFEST_DIR is not set for omv build script");
@@ -39,13 +49,19 @@ fn main() {
     println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-all-symbols");
     println!("cargo:rustc-cdylib-link-arg={}", def_file.display());
 
-    let build_unix = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs());
+    // Honor SOURCE_DATE_EPOCH so reproducible builds embed a fixed time.
+    let build_unix = env_value("SOURCE_DATE_EPOCH")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_secs())
+        });
     let target = env::var("TARGET").unwrap_or_else(|_| "unknown".to_owned());
     let profile = env::var("PROFILE").unwrap_or_else(|_| "unknown".to_owned());
-    let git_commit =
-        git_value(&repository, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
+    let git_commit = env_value(GIT_COMMIT_OVERRIDE)
+        .or_else(|| git_value(&repository, &["rev-parse", "HEAD"]))
+        .unwrap_or_else(|| "unknown".to_owned());
     let git_tag =
         git_value(&repository, &["describe", "--tags", "--exact-match"]).unwrap_or_default();
     let git_branch = git_value(&repository, &["symbolic-ref", "--short", "-q", "HEAD"])
@@ -67,20 +83,24 @@ fn main() {
                 "detached".to_owned()
             }
         });
-    let git_dirty = Command::new("git")
-        .arg("-C")
-        .arg(&repository)
-        .args(["status", "--porcelain", "--untracked-files=normal"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map_or("unknown", |output| {
-            if output.stdout.is_empty() {
-                "false"
-            } else {
-                "true"
-            }
-        });
+    let git_dirty_override =
+        env_value(GIT_DIRTY_OVERRIDE).filter(|value| matches!(value.as_str(), "true" | "false"));
+    let git_dirty = git_dirty_override.as_deref().unwrap_or_else(|| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&repository)
+            .args(["status", "--porcelain", "--untracked-files=normal"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map_or("unknown", |output| {
+                if output.stdout.is_empty() {
+                    "false"
+                } else {
+                    "true"
+                }
+            })
+    });
 
     println!("cargo:rustc-env=OMV_BUILD_UNIX={build_unix}");
     println!("cargo:rustc-env=OMV_BUILD_TARGET={target}");
@@ -117,6 +137,9 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+    println!("cargo:rerun-if-env-changed={GIT_COMMIT_OVERRIDE}");
+    println!("cargo:rerun-if-env-changed={GIT_DIRTY_OVERRIDE}");
     println!("cargo:rerun-if-env-changed=GITHUB_HEAD_REF");
     println!("cargo:rerun-if-env-changed=GITHUB_REF_NAME");
     println!("cargo:rerun-if-env-changed=GITHUB_REF_TYPE");
