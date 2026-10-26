@@ -29,7 +29,12 @@ fn main() {
         );
     }
 
-    patch_xnvse_headers(&nvse_dir);
+    let out_dir = match env::var_os("OUT_DIR") {
+        Some(out_dir) => PathBuf::from(out_dir),
+        None => fail("OUT_DIR not set"),
+    };
+
+    let patched_include_dir = patch_xnvse_headers(&nvse_dir, &out_dir);
 
     // Clang target must match the ABI of the game binary (MSVC).
     // Even when compiling with MinGW, we target MSVC ABI because
@@ -43,9 +48,13 @@ fn main() {
 
     let mut builder = bindgen::Builder::default()
         .header("wrapper/nvse_wrapper.h")
-        // Include paths: xNVSE source
+        // Include paths: the patched header copy shadows its original, then
+        // xNVSE source. The patched copy no longer sits next to its siblings,
+        // so the original directory resolves its quoted relative includes.
+        .clang_arg(format!("-I{}", patched_include_dir.display()))
         .clang_arg(format!("-I{}", nvse_dir.display()))
         .clang_arg(format!("-I{}", nvse_dir.join("nvse").display()))
+        .clang_arg(format!("-I{}", nvse_dir.join("nvse/nvse").display()))
         // Target and defines
         .clang_arg("-target")
         .clang_arg(clang_target)
@@ -151,15 +160,53 @@ fn fail(message: impl AsRef<str>) -> ! {
     process::exit(1);
 }
 
-fn patch_xnvse_headers(nvse_dir: &Path) {
-    // Remove [[nodiscard]] attributes that cause clang parsing errors.
-    // [[nodiscard]] is a compiler hint only, removing it is ABI-safe.
+/// Writes a bindgen-compatible copy of xNVSE's `PluginAPI.h` into `OUT_DIR`.
+///
+/// Strips `[[nodiscard]]` attributes, which cause clang parsing errors. The
+/// attribute is only a compiler hint, so removing it is ABI-safe.
+///
+/// The copy is written to `<out_dir>/xnvse_patched/nvse/PluginAPI.h` and the
+/// submodule is never modified, so `git submodule` state stays clean and the
+/// patch is redone on every build script run.
+///
+/// # Arguments
+///
+/// * `nvse_dir` - Root of the xNVSE checkout (the `xnvse` submodule).
+/// * `out_dir` - Cargo's `OUT_DIR` for this build script.
+///
+/// # Returns
+///
+/// The `xnvse_patched` include root. It must be passed to clang with `-I`
+/// before the xNVSE include paths so `#include "nvse/PluginAPI.h"` in the
+/// wrapper resolves to the patched copy. Headers that include the bare
+/// `"PluginAPI.h"` from `nvse/nvse/` still find the original first, because
+/// quoted includes search the including file's directory before `-I` paths.
+///
+/// # Failure
+///
+/// Exits the build script through [`fail`] if the source header cannot be
+/// read or the patched copy cannot be written.
+fn patch_xnvse_headers(nvse_dir: &Path, out_dir: &Path) -> PathBuf {
     let plugin_api = nvse_dir.join("nvse/nvse/PluginAPI.h");
-    if let Ok(content) = fs::read_to_string(&plugin_api)
-        && content.contains("[[nodiscard]]")
-    {
-        let patched = content.replace("[[nodiscard]]", "");
-        fs::write(&plugin_api, patched).ok();
-        eprintln!("[OK] Patched PluginAPI.h (removed [[nodiscard]] attributes)");
+
+    let content = match fs::read_to_string(&plugin_api) {
+        Ok(content) => content,
+        Err(err) => fail(format!("Couldn't read {}: {err}", plugin_api.display())),
+    };
+
+    let include_dir = out_dir.join("xnvse_patched");
+    let patched_dir = include_dir.join("nvse");
+    let patched_path = patched_dir.join("PluginAPI.h");
+
+    if let Err(err) = fs::create_dir_all(&patched_dir) {
+        fail(format!("Couldn't create {}: {err}", patched_dir.display()));
     }
+
+    let patched = content.replace("[[nodiscard]]", "");
+
+    if let Err(err) = fs::write(&patched_path, patched) {
+        fail(format!("Couldn't write {}: {err}", patched_path.display()));
+    }
+
+    include_dir
 }
