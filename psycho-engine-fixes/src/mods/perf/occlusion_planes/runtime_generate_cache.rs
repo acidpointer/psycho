@@ -6,7 +6,11 @@
 use super::*;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
+
+#[path = "runtime_generate_cache_io.rs"]
+mod io_writer;
+use io_writer::{CacheWriter, Checkpoint};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 
@@ -166,14 +170,13 @@ pub(super) fn capture(
 // placements. Old PSOC versions are deliberately rejected at the same path.
 const VERSION: u32 = 11;
 const HEADER: usize = 20;
-const MAX_RECORD: usize =
-    8 + MAX_VERTICES_PER_MESH * 12 + MAX_TRIANGLES_PER_MESH * 6 + 1 + 6 * 21 + 8;
 const MAX_FILE: usize =
     HEADER + VERTEX_BUDGET * 12 + TRIANGLE_BUDGET * 6 + MAX_REFS * (8 + 1 + 6 * 21 + 8);
 static DIRTY: AtomicBool = AtomicBool::new(false);
 static REVISION: AtomicU64 = AtomicU64::new(0);
 static WRITING: AtomicBool = AtomicBool::new(false);
 static SAVE: Mutex<Option<SaveWork>> = Mutex::new(None);
+static IO_WRITER: OnceLock<Option<CacheWriter>> = OnceLock::new();
 
 /// Mark a newly computed local footprint for eventual persistence.
 pub(super) fn mark_dirty() {
@@ -407,41 +410,80 @@ fn decode<R: Read>(reader: R) -> io::Result<SurfacePool> {
 /// Load at DeferredInit, before native capture can create the pool. Invalid or
 /// older files are cache misses; no world-space placement is trusted from disk.
 pub(super) fn load(path: &str) {
-    let pool = if path.is_empty() {
+    // Reader and writer share one owned absolute destination. Resolve only at
+    // DeferredInit, never during pre-CRT configuration or individual frames.
+    let destination = if path.is_empty() {
         None
     } else {
-        std::fs::File::open(path).ok().and_then(|file| {
+        match std::path::absolute(path) {
+            Ok(path) => Some(path),
+            Err(error) => {
+                log::warn!(
+                    "[OCCLUSION_PLANES] Cache path unavailable; analysis stays in memory: {error}"
+                );
+                None
+            }
+        }
+    };
+    let pool = destination
+        .as_ref()
+        .and_then(|path| std::fs::File::open(path).ok())
+        .and_then(|file| {
             if file.metadata().ok()?.len() > MAX_FILE as u64 {
                 return None;
             }
             decode(std::io::BufReader::new(file)).ok()
-        })
-    };
+        });
     let _ = POOL.set(Mutex::new(pool.unwrap_or_else(SurfacePool::new)));
     DIRTY.store(false, Ordering::Release);
+    let writer = destination
+        .as_ref()
+        .and_then(|path| match CacheWriter::new(path) {
+            Ok(writer) => Some(writer),
+            Err(error) => {
+                log::warn!(
+                    "[OCCLUSION_PLANES] Cache writer unavailable; analysis stays in memory: {error}"
+                );
+                None
+            }
+        });
+    let _ = IO_WRITER.set(writer);
 }
 
+/// Frame-side serialization only. No filesystem operation, worker wait or
+/// additional decoded pool occurs here; one bounded record is encoded per call.
 struct SaveWork {
     entries: std::vec::IntoIter<Weak<Surface>>,
     bytes: Vec<u8>,
     count: u32,
     revision: u64,
-    path: String,
-    temporary: String,
-    file: Option<std::fs::File>,
-    offset: usize,
     encoded: bool,
-    published: bool,
 }
 
 impl SaveWork {
-    fn new(pool: &SurfacePool, path: &str) -> Self {
-        let mut bytes = Vec::with_capacity(HEADER);
+    fn new(pool: &SurfacePool) -> io::Result<Self> {
+        // Reserve one bounded upper size from resident inputs, avoiding repeated
+        // whole-buffer growth/copies on the frame thread. Future face results
+        // fit the six-footprint allowance even if computed during preparation.
+        let capacity = pool
+            .entries
+            .iter()
+            .try_fold(HEADER, |size, entry| {
+                size.checked_add(
+                    8 + entry.vertices.len() * 12 + entry.triangles.len() * 6 + 1 + 6 * 21 + 8,
+                )
+            })
+            .filter(|size| *size <= MAX_FILE)
+            .ok_or_else(invalid)?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(capacity)
+            .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
         bytes.extend_from_slice(b"PSOC");
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&generation_signature().to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
-        Self {
+        Ok(Self {
             entries: pool
                 .entries
                 .iter()
@@ -451,79 +493,70 @@ impl SaveWork {
             bytes,
             count: 0,
             revision: REVISION.load(Ordering::Relaxed),
-            path: path.to_owned(),
-            temporary: format!("{path}.tmp"),
-            file: None,
-            offset: 0,
             encoded: false,
-            published: false,
-        }
+        })
     }
 
-    /// One admitted mesh record or bounded write chunk per call. File system
-    /// latency, sync and rename are not hard wall-clock bounded operations.
     fn advance(&mut self) -> io::Result<bool> {
-        if !self.encoded {
-            if let Some(entry) = self.entries.next() {
-                if let Some(entry) = entry.upgrade() {
-                    let record = encode(&entry);
-                    if self
-                        .bytes
-                        .len()
-                        .checked_add(record.len())
-                        .is_none_or(|n| n > MAX_FILE)
-                    {
-                        return Err(invalid());
-                    }
-                    self.bytes.extend_from_slice(&record);
-                    self.count += 1;
+        if self.encoded {
+            return Ok(true);
+        }
+        if let Some(entry) = self.entries.next() {
+            if let Some(entry) = entry.upgrade() {
+                let record = encode(&entry);
+                if self
+                    .bytes
+                    .len()
+                    .checked_add(record.len())
+                    .is_none_or(|size| size > MAX_FILE)
+                {
+                    return Err(invalid());
                 }
-                return Ok(false);
+                self.bytes.extend_from_slice(&record);
+                self.count += 1;
             }
-            self.bytes[16..20].copy_from_slice(&self.count.to_le_bytes());
-            self.encoded = true;
-            self.file = Some(std::fs::File::create(&self.temporary)?);
             return Ok(false);
         }
-        let Some(file) = self.file.as_mut() else {
-            return Err(invalid());
-        };
-        if self.offset < self.bytes.len() {
-            let end = (self.offset + MAX_RECORD).min(self.bytes.len());
-            let written = file.write(&self.bytes[self.offset..end])?;
-            if written == 0 {
-                return Err(io::ErrorKind::WriteZero.into());
-            }
-            self.offset += written;
-            return Ok(false);
-        }
-        file.sync_all()?;
-        self.file.take();
-        std::fs::rename(&self.temporary, &self.path)?;
-        self.published = true;
-        if self.revision == REVISION.load(Ordering::Relaxed) {
-            DIRTY.store(false, Ordering::Release);
-        }
+        self.bytes[16..20].copy_from_slice(&self.count.to_le_bytes());
+        self.encoded = true;
         Ok(true)
     }
-}
 
-impl Drop for SaveWork {
-    fn drop(&mut self) {
-        self.file.take();
-        if !self.published {
-            let _ = std::fs::remove_file(&self.temporary);
+    fn finish(self) -> io::Result<Checkpoint> {
+        if !self.encoded {
+            return Err(invalid());
         }
+        Ok(Checkpoint {
+            bytes: self.bytes,
+            revision: self.revision,
+        })
     }
 }
 
-/// Start only on a cold request, then advance in idle frames. An inactive frame
-/// takes only atomics; no lock, allocation or file operation occurs.
+/// Prepare on cold requests in idle frames. While the one writer runs, a frame
+/// takes atomics only. All create/write/sync/rename/cleanup runs on that worker.
 pub(super) fn save_step(path: &str, request: bool) -> io::Result<()> {
-    if path.is_empty() {
+    if path.is_empty()
+        || (!WRITING.load(Ordering::Acquire) && !(request && DIRTY.load(Ordering::Acquire)))
+    {
         return Ok(());
     }
-    if !WRITING.load(Ordering::Acquire) && !(request && DIRTY.load(Ordering::Acquire)) {
+    let writer = IO_WRITER
+        .get()
+        .and_then(Option::as_ref)
+        .ok_or_else(|| io::Error::other("local analysis writer unavailable"))?;
+    if writer.busy() {
+        return Ok(());
+    }
+    if let Some(result) = writer.take_result() {
+        WRITING.store(false, Ordering::Release);
+        if let Some(error) = result.error {
+            DIRTY.store(true, Ordering::Release);
+            return Err(error);
+        }
+        if result.revision == REVISION.load(Ordering::Relaxed) {
+            DIRTY.store(false, Ordering::Release);
+        }
         return Ok(());
     }
     let mut save = SAVE.lock();
@@ -531,19 +564,27 @@ pub(super) fn save_step(path: &str, request: bool) -> io::Result<()> {
         let Some(pool) = POOL.get() else {
             return Ok(());
         };
-        *save = Some(SaveWork::new(&pool.lock(), path));
+        *save = Some(SaveWork::new(&pool.lock())?);
         WRITING.store(true, Ordering::Release);
     }
     let result = save.as_mut().ok_or_else(invalid)?.advance();
     match result {
         Ok(false) => Ok(()),
-        other => {
+        Ok(true) => {
+            let checkpoint = save.take().ok_or_else(invalid)?.finish()?;
+            drop(save);
+            if let Err(error) = writer.submit(checkpoint) {
+                WRITING.store(false, Ordering::Release);
+                DIRTY.store(true, Ordering::Release);
+                return Err(error);
+            }
+            Ok(())
+        }
+        Err(error) => {
             save.take();
             WRITING.store(false, Ordering::Release);
-            if other.is_err() {
-                DIRTY.store(true, Ordering::Release);
-            }
-            other.map(|_| ())
+            DIRTY.store(true, Ordering::Release);
+            Err(error)
         }
     }
 }
@@ -701,10 +742,11 @@ mod tests {
     }
 
     #[test]
-    fn incremental_file_checkpoint_replaces_and_preserves_old_on_failure() {
+    fn worker_checkpoint_replaces_and_preserves_old_on_failure() {
+        use std::os::windows::fs::OpenOptionsExt;
         let (pool, _surface) = actual();
         let directory = std::env::temp_dir().join(format!(
-            "psycho-occlusion-cache-{}-{}",
+            "psycho-cache-worker-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -714,22 +756,57 @@ mod tests {
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("cache");
         std::fs::write(&path, b"old").unwrap();
-        let mut work = SaveWork::new(&pool, path.to_str().unwrap());
-        while !work.advance().unwrap() {}
+        let writer = CacheWriter::new(&path).unwrap();
+        let prepare = || {
+            let mut work = SaveWork::new(&pool).unwrap();
+            while !work.advance().unwrap() {}
+            work.finish().unwrap()
+        };
+        let wait = || {
+            let started = std::time::Instant::now();
+            loop {
+                if let Some(result) = writer.take_result() {
+                    break result;
+                }
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(5),
+                    "real file writer did not finish"
+                );
+                std::thread::yield_now();
+            }
+        };
+        writer.submit(prepare()).unwrap();
+        assert_eq!(
+            writer.submit(prepare()).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "a second checkpoint must wait until completion is consumed"
+        );
+        let result = wait();
+        assert!(result.error.is_none());
+        assert_ne!(
+            result.thread,
+            std::thread::current().id(),
+            "filesystem work ran on sender thread"
+        );
         assert!(decode(std::fs::read(&path).unwrap().as_slice()).is_ok());
-        drop(work);
         let original = std::fs::read(&path).unwrap();
-        let mut failed = SaveWork::new(&pool, path.to_str().unwrap());
-        // Remove the real temporary file just before replacement. The rename
-        // fails against the same destination, preserving its previous payload.
-        while !failed.encoded || failed.offset < failed.bytes.len() {
-            assert!(!failed.advance().unwrap());
-        }
-        std::fs::remove_file(&failed.temporary).unwrap();
-        assert!(failed.advance().is_err());
-        drop(failed);
+        // A real exclusive Windows file handle makes atomic replacement fail
+        // against the same destination. The writer must preserve old bytes.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        writer.submit(prepare()).unwrap();
+        let failed = wait();
+        assert!(failed.error.is_some());
+        drop(held);
         assert_eq!(std::fs::read(&path).unwrap(), original);
         assert!(!directory.join("cache.tmp").exists());
+        // The same worker remains usable after an actual filesystem failure.
+        writer.submit(prepare()).unwrap();
+        assert!(wait().error.is_none());
+        assert!(decode(std::fs::read(&path).unwrap().as_slice()).is_ok());
         std::fs::remove_file(path).unwrap();
         std::fs::remove_dir(directory).unwrap();
     }
@@ -758,5 +835,73 @@ mod tests {
         }
         let warm = started.elapsed().as_secs_f64() * 1e6 / runs as f64;
         println!("actual mesh direct_us={direct:.3} warm_with_content_validation_us={warm:.3}");
+    }
+    #[test]
+    #[ignore = "investigate a supplied real runtime local-mesh cache"]
+    fn captured_cache_matches_direct_surface_analysis() {
+        let path = std::env::var("PSYCHO_OCCLUSION_CAPTURE").expect("supplied cache path");
+        let file = std::fs::File::open(path).unwrap();
+        let pool = decode(std::io::BufReader::new(file)).unwrap();
+        let mut vertices = 0;
+        let mut triangles = 0;
+        let mut planes = 0;
+        for (index, surface) in pool.entries.iter().enumerate() {
+            vertices += surface.vertices.len();
+            triangles += surface.triangles.len();
+            for rotation in [
+                [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            ] {
+                for scale in [-1.0, 1.0] {
+                    let world = WorldTransform {
+                        rotation,
+                        translation: [0.0; 3],
+                        scale,
+                    };
+                    let direct = extract(surface, &world, false);
+                    let cached = extract(surface, &world, true);
+                    assert_eq!(
+                        super::super::super::runtime::plane_signature(&direct),
+                        super::super::super::runtime::plane_signature(&cached),
+                        "captured mesh {index}: cached local analysis changed output"
+                    );
+                    planes += cached.len();
+                }
+            }
+        }
+        println!(
+            "captured meshes={} vertices={vertices} triangles={triangles} transformed_planes={planes}",
+            pool.entries.len()
+        );
+    }
+    #[test]
+    fn checkpoint_preparation_does_not_write_on_the_frame_thread() {
+        let (pool, _surface) = actual();
+        let directory = std::env::temp_dir().join(format!(
+            "psycho-cache-prepare-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("cache");
+        let mut preparation = SaveWork::new(&pool).unwrap();
+        while !preparation.advance().unwrap() {}
+        let wrote_cache = path.exists();
+        let wrote_temporary = directory.join("cache.tmp").exists();
+        drop(preparation);
+        if wrote_cache {
+            std::fs::remove_file(&path).unwrap();
+        }
+        if directory.join("cache.tmp").exists() {
+            std::fs::remove_file(directory.join("cache.tmp")).unwrap();
+        }
+        std::fs::remove_dir(directory).unwrap();
+        assert!(
+            !wrote_cache && !wrote_temporary,
+            "frame-side checkpoint preparation performed blocking filesystem work"
+        );
     }
 }

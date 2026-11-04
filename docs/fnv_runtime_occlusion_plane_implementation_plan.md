@@ -385,8 +385,10 @@ pending slices have distinct outcomes: only completion spends a settle attempt.
 Equality compares sorted full plane descriptors, including actual native side
 policy; 32-bit hashes and rounded confidence cannot establish semantic equality.
 A repeatable set with no observed unavailable input or truncation ends settling.
-Empty, unavailable or budget-limited scans keep five fast retries followed by a
-cold retry at the existing 1,800-frame cadence. Completeness records observations
+Empty or unavailable scans keep five fast retries followed by a cold retry at
+the existing 1,800-frame cadence. A stable hard-limited result with no observed
+missing source data switches directly to that cold cadence, without being
+marked complete. Completeness records observations
 of that pass; it does not prove arbitrary future script-driven 3D immutability.
 
 Desired records survive native allocation failure separately from tracked native
@@ -406,20 +408,26 @@ to fill the optional union.
 
 ### 4.3.1 Resumable, frame-budgeted generation
 
-Each capture resolves current reference membership under CellRefLock. Relinking
-without membership change cannot skip work; membership change restarts owned
-results. A partial reference rewalks its hierarchy and checks the saved address
+Each acquisition resolves current eligible reference membership under CellRefLock.
+Ineligible actors/transients cannot emit planes; their changes do not invalidate
+work when the admitted static membership remains the same. At the unchanged raw
+reference cap, changes to that admitted prefix still require revalidation.
+Relinking without eligible membership change cannot skip work; a relevant change
+restarts owned results. Initial and restarted admission preserve native list order;
+only the equality copy is sorted. CPU-only frames do not acquire the cell lock or
+walk native lists. Relevant membership is validated again before publication. A partial reference rewalks its hierarchy and checks the saved address
 prefix against freshly encountered objects. Only comparison tokens survive a
 slice. Native geometry arrays are copied into bounded Rust-owned surfaces before
 releasing the lock; CPU analysis never borrows an engine mesh across frames.
 
-Capture targets 96 references, 8,000 vertices/triangles of work and 1 ms per
-advance. It checks inside a large reference between meshes; the final atomic
-mesh can overshoot the count target. Coverage yields between faces. Grouping,
-merge comparison/emission and top-K selection advance in batches of 96 operations.
-An individual face, mesh, lock wait or native call can exceed the soft target.
-There is no hard frame-latency guarantee and no reduction of admitted coverage
-to meet a timer.
+Acquisition targets 96 eligible references and a soft 1 ms elapsed budget, under
+the existing total input limits. The old triangle-coverage chunk no longer limits
+inexpensive native copying. Admission checks precede the cell lock; an admitted
+bounded unit makes progress after the lock even if waiting or enumeration spent
+the target. Owned coverage starts only with time remaining, then yields between
+faces. Grouping, merge comparison/emission and top-K selection advance in batches
+of 96 operations. One mesh, face, wait or native call can exceed the target; no
+hard frame-latency guarantee or reduction of coverage is claimed.
 
 Opening recovery uses a fixed-stack histogram: 16 row passes replace 136 suffix
 row passes and their allocations. The first complete histogram sweep already
@@ -439,11 +447,12 @@ union; their conservativeness remains a research gate before expanding coverage.
 
 Generation timing includes lock acquisition, capture, owned analysis, merge,
 selection and source-certificate preparation. The outer frame warning also
-includes neighborhood work, native publication and checkpoint work. Its cooldown
+includes neighborhood work, native publication and checkpoint preparation. Its cooldown
 advances on normal admitted frames. Native publication remains atomic; its
-creation/destruction cost and filesystem sync/rename latency are unmeasured in
-the game and are not claimed bounded by 1 ms. Persistent work advances in idle
-frames, separately from generation completion.
+creation/destruction cost is unmeasured in the game and is not claimed bounded
+by 1 ms. Checkpoint preparation advances in idle frames, separately from generation
+completion. File creation, writes, sync, rename and cleanup run on one background
+writer and are not charged to the frame timer.
 
 ### 4.4 Data lookup
 
@@ -710,15 +719,25 @@ neighborhood map. World events clear placements but retain reusable local data.
 This validates reuse; it is not a new continuous tracker for arbitrary scripted
 geometry mutation while the player stays in one cell.
 
-One sequenced checkpoint encodes at most one admitted mesh record or writes one
-bounded chunk per idle advance. It uses weak inputs, an encoded-size cap and a
-temporary file followed by sync and atomic replacement. Failure leaves the old
-file and dirty state for a later checkpoint. Changes during a checkpoint keep
-newer work dirty; older snapshots cannot finish after newer writers. No worker,
-new startup initializer, config field or host ABI is added. Loading callbacks only
-request a checkpoint. Menu presentation can progress it; process termination
-before completion can lose recent reusable analysis, which is regenerated safely.
-Filesystem latency, final sync/rename and crash durability are not hard bounded.
+Frame-side preparation encodes at most one admitted mesh record per idle advance,
+using weak inputs and a capacity bound derived from resident data. It performs no
+filesystem operations. A single file writer starts at DeferredInit and accepts
+one complete owned byte buffer at a time. While it runs, the frame owner only
+polls atomics. No second preparation, decoded pool, engine pointer, callback or
+world ownership is handed to it. The loaded core remains resident under Syringe's
+process-lifetime module policy (`syringe/src/win32.rs`, `syringe/src/mods.rs`).
+
+The writer performs create/write/sync/atomic replacement and temporary-file
+cleanup. Failures preserve the old file and dirty state for a later checkpoint;
+worker creation failure retains in-memory analysis without frame-side I/O fallback.
+Busy admission and completion sequencing prevent old writes overtaking newer
+ones. Source changes during preparation/write remain dirty by revision. No new
+pre-Deferred worker, configuration field or host ABI is added. Termination during
+a write can lose recent reusable analysis, which is regenerated safely. The
+encoded-buffer limit and worker storage are additional VAS beyond the decoded
+array budget; this is not a total-memory claim. File latency cannot block the
+presentation thread, but native acquisition, publication and destruction remain
+unbounded engine operations.
 
 Presence repair uses the independent desired set, not a stale disk world cache.
 Exact native descriptors keep unchanged objects linked across settle passes.
@@ -894,9 +913,10 @@ Behavioral (real runtime, owner-run):
   has been captured to correlate `active` with frame time. Before lowering
   `occlusion_planes_max_per_cell`, capture a fixed-camera A/B with planes on and
   off and the `frame work` warning; do not lower it on inference.
-- Checkpoint encoding and writes are now incremental and bounded in size, on
-  idle frames. Sync/rename and native publication/destruction latency remain
-  game-only measurements; no worker or off-thread engine traversal is added.
+- Checkpoint encoding is incremental and bounded on idle frames; filesystem
+  operations run on one post-DeferredInit owned-byte writer. Native publication
+  and destruction latency remain game-only measurements. No off-thread engine
+  traversal is added.
 - The shipped TOML, Rust fallback and dashboard fallback enable the feature
   by default at the owner's request. This implementation's runtime-test waiver
   and unverified gameplay/image/performance scope are recorded in section 11.
@@ -1634,3 +1654,79 @@ affected core/helper suites, supported 32-bit release build, formatting, documen
 checks and final diff review. Startup imports, CRT initializers and normalized
 TLS inputs match the retained baseline. Static/offline agreement does not prove
 game startup, native integration, images or FPS. Deployment remains user-only.
+
+
+## 13. Reported performance and active-count regression
+
+The owner reports significantly degraded performance after `ea3fcc6` and frequent
+`0/N` active readings despite rotating the camera. The supplied session reached
+DeferredInit with radius zero and recorded module frames of 6.7, 16.2 and 8.8 ms.
+Its log and revision-11 local cache are retained in
+`.reports/20261104-occlusion-regression/`. Debug scan summaries were disabled;
+no exact native admission history or restart sequence was captured. The standing
+owner waiver permits offline correction, not a claim of runtime acceptance.
+
+Direct review establishes distinct faults:
+
+- The active-count sampler is inside the fully settled branch. Collection and
+  incomplete/capped settling can leave its displayed value unchanged forever.
+  A stale zero is not evidence that the native `+0x40` flags were zero.
+- Capture reacquires CellRefLock, enumerates and sorts the entire reference
+  membership on every CPU-only face/merge/selection frame. Membership includes
+  non-occluding actors and transient references; their changes discard geometry
+  work even when the admitted static sources remain unchanged.
+- The old 8,000-triangle coverage target also limits inexpensive native input
+  copying, stretching publication latency independently of the elapsed budget.
+- Owned coverage starts another face even after acquisition has spent the frame
+  budget. This fails offline on the real archived WoodShack input before edits.
+- Checkpoint preparation also creates/writes/flushes/renames files on the frame
+  thread. A production-path test reproduces that filesystem effect before edits.
+  The new worker is required for this fault; it is not a gameplay worker.
+- Stable hard-limited output still spends the entire fast settle window although
+  retries cannot raise fixed input limits. It now retains cold rescans without
+  claiming completeness or dropping admitted planes.
+
+Correction plan: sample and repair periodically in every admitted normal frame,
+independent of generation/settle state; separate native acquisition from owned
+CPU stages; respect the shared elapsed target before starting more work; bound
+native capture by elapsed time, reference count and the existing total input
+limits; compare only eligible reference membership and validate it again before
+publication. Keep graph/plane ownership, reader/publication exclusion, native
+side policy, default enablement, cap, radius and the decoded input budget intact.
+No new engine hook, config field, host ABI or deployment is introduced. A single
+post-DeferredInit writer is necessary to remove blocking file operations from
+presentation. It receives only encoded bytes and never owns decoded/engine data.
+
+Acceptance uses the unchanged expired-budget failure, direct versus cached
+production extraction across the supplied real meshes, the actual owned
+scheduler and affected suites. Native list sampling, streaming and gameplay FPS
+remain game-only and unrun. The supplied cache's 172 meshes reproduce direct
+extraction across the tested rigid/mirrored instances; this does not prove full
+scene composition or engine frame performance. The earlier single-mesh warm
+microbenchmark did not qualify scheduling and must not be used as an overall
+feature-performance claim.
+
+The historical October "cache-write" evidence includes a native plane-cache
+write fault, not proof that a disk worker corrupted game memory. This correction
+keeps the accepted native ownership repair and isolates file publication by its
+owned-byte input type. Direct source/binary ownership evidence remains distinct
+from attribution of the earlier crash writer.
+
+
+### Regression correction qualification
+
+Both newly reproduced failures now pass: an expired generation frame leaves the
+queued real surface untouched, and checkpoint preparation performs no filesystem
+publication. The real worker publishes a decodable cache on another thread,
+rejects a second in-flight checkpoint, preserves old bytes under an exclusive
+Windows sharing violation, cleans its temporary file and succeeds on retry.
+Reader and writer use the same absolute destination fixed at DeferredInit.
+
+Affected suites, captured-mesh equivalence, supported 32-bit release, formatting,
+document and diff checks passed. The deployed reported core matched the retained
+pre-edit release. Imports, CRT initializers and normalized TLS inputs match that
+baseline after correction. Pure CPU probes remained variable and do not establish
+an overall FPS improvement. Native list repair/admission, streaming, images and
+actual gameplay performance remain unrun under the owner waiver. The original
+ownership repair, side policy, cap, radius, enablement and decoded input limits
+are preserved. Deployment remains user-only.

@@ -390,7 +390,13 @@ struct GenerationJob {
 #[derive(Clone, Copy, Debug)]
 enum ReconcileOutcome {
     Pending,
-    Finished { initial: bool, settle: bool },
+    Finished {
+        initial: bool,
+        settle: bool,
+    },
+    /// Stable admitted output stopped at a hard limit, without observed missing
+    /// source data. Keep a cold rescan without declaring full completeness.
+    Limited,
 }
 
 impl ReconcileOutcome {
@@ -398,6 +404,7 @@ impl ReconcileOutcome {
     fn schedule(self, remaining: usize) -> Option<(usize, usize)> {
         match self {
             Self::Pending => None,
+            Self::Limited => Some((0, CACHE_SAVE_INTERVAL_FRAMES)),
             Self::Finished { settle: false, .. } => Some((0, 0)),
             Self::Finished {
                 initial: true,
@@ -460,6 +467,10 @@ mod lifecycle_tests {
             Some((SETTLE_RETRIES - 1, SETTLE_INTERVAL_FRAMES))
         );
         assert_eq!(retry.schedule(1), Some((0, CACHE_SAVE_INTERVAL_FRAMES)));
+        assert_eq!(
+            ReconcileOutcome::Limited.schedule(SETTLE_RETRIES),
+            Some((0, CACHE_SAVE_INTERVAL_FRAMES))
+        );
     }
 }
 
@@ -709,7 +720,7 @@ fn verify_contracts() -> anyhow::Result<()> {
 /// warning exists so a future regression cannot hide behind the feature.
 fn frame_tick() {
     let started = Instant::now();
-    frame_tick_inner();
+    frame_tick_inner(started);
     let elapsed_us = started.elapsed().as_micros() as u64;
     if elapsed_us > FRAME_COST_WARN_US {
         log_frame_cost(elapsed_us);
@@ -726,7 +737,7 @@ fn log_frame_cost(elapsed_us: u64) {
     log::warn!("[OCCLUSION_PLANES] frame work {elapsed_us} us");
 }
 
-fn frame_tick_inner() {
+fn frame_tick_inner(frame_started: Instant) {
     if get_current_thread_id() != MAIN_THREAD.load(Ordering::Acquire) {
         invalidate_world();
         return;
@@ -777,6 +788,11 @@ fn frame_tick_inner() {
             key,
             graph: scene,
         };
+        // Sampling/repair belongs to presentation, not to successful settling.
+        // Capped or streaming cells and CPU-only slices still need live counts.
+        if presence_due() {
+            maintain_planes(fns, scene_graph, generation_target);
+        }
         // A resumable cell generation is in flight: advance it every frame (not
         // only on the settle interval) so the plane set appears as soon as
         // possible while each frame pays only the fixed work budget. The target
@@ -790,7 +806,14 @@ fn frame_tick_inner() {
                 .is_some_and(|job| job.target == generation_target)
             {
                 let observer = read_observer(owner);
-                consume_outcome(reconcile(fns, scene_graph, cell, observer, false));
+                consume_outcome(reconcile(
+                    fns,
+                    scene_graph,
+                    cell,
+                    observer,
+                    false,
+                    frame_started,
+                ));
                 return;
             }
             // The player left the cell whose walk was in flight; drop it.
@@ -808,41 +831,7 @@ fn frame_tick_inner() {
         }
         let settle_left = SETTLE_RETRIES_LEFT.load(Ordering::Acquire);
         if !pending && same_target {
-            let maintenance_due =
-                (settle_left == 0 || INCOMPLETE.load(Ordering::Acquire)) && presence_due();
-            if maintenance_due && INCOMPLETE.load(Ordering::Acquire) {
-                repair_desired(fns, generation_target);
-            }
             if settle_left == 0 && !RESCAN_PENDING.load(Ordering::Acquire) {
-                // The engine can clear the occluder list on cell unload without
-                // changing the cell identity. Check periodically that our planes
-                // are still present and re-append them from the cache if not.
-                // With no tracked planes there is nothing to maintain, so the
-                // whole path stays idle.
-                if maintenance_due {
-                    let total = TRACKED_COUNT.load(Ordering::Acquire);
-                    if total == 0 {
-                        DASH_PRESENT.store(0, Ordering::Relaxed);
-                        DASH_ACTIVE.store(0, Ordering::Relaxed);
-                        if debug_log_enabled() && LAST_ACTIVE.swap(0, Ordering::AcqRel) != 0 {
-                            log::debug!("[OCCLUSION_PLANES] presence tracked=0 present=0 active=0");
-                        }
-                    } else {
-                        let (total, present, active) = tracked_status(scene_graph);
-                        if present < total {
-                            repair_desired(fns, generation_target);
-                        }
-                        let previous = LAST_ACTIVE.swap(active, Ordering::AcqRel);
-                        // Log only when planes start or stop being admitted, so
-                        // camera motion cannot turn this into per-frame spam.
-                        if debug_log_enabled() && (previous == 0) != (active == 0) {
-                            log::debug!(
-                                "[OCCLUSION_PLANES] presence tracked={total} present={present} \
-                                 active={active}"
-                            );
-                        }
-                    }
-                }
                 refresh_neighbors(fns, scene_graph, cell, read_observer(owner));
                 tick_cache_save();
                 return;
@@ -859,7 +848,14 @@ fn frame_tick_inner() {
                 return;
             }
             let observer = read_observer(owner);
-            consume_outcome(reconcile(fns, scene_graph, cell, observer, false));
+            consume_outcome(reconcile(
+                fns,
+                scene_graph,
+                cell,
+                observer,
+                false,
+                frame_started,
+            ));
             return;
         }
         if !pending {
@@ -875,7 +871,14 @@ fn frame_tick_inner() {
         // A confirmed new target always captures current sources, even when
         // its local mesh analysis is already cached.
         let observer = read_observer(owner);
-        consume_outcome(reconcile(fns, scene_graph, cell, observer, true));
+        consume_outcome(reconcile(
+            fns,
+            scene_graph,
+            cell,
+            observer,
+            true,
+            frame_started,
+        ));
     }
 }
 
@@ -933,6 +936,32 @@ fn presence_due() -> bool {
     true
 }
 
+/// Native maintenance is admitted by the caller's normal main-frame boundary.
+/// Its cadence advances during capture, completion and incomplete retries too.
+unsafe fn maintain_planes(fns: &EngineFns, scene_graph: *mut c_void, target: GenerationTarget) {
+    if INCOMPLETE.load(Ordering::Acquire) {
+        unsafe { repair_desired(fns, target) };
+    }
+    let total = TRACKED_COUNT.load(Ordering::Acquire);
+    let (present, active) = if total == 0 {
+        DASH_PRESENT.store(0, Ordering::Relaxed);
+        DASH_ACTIVE.store(0, Ordering::Relaxed);
+        (0, 0)
+    } else {
+        let (_, present, active) = unsafe { tracked_status(scene_graph) };
+        if present < total {
+            unsafe { repair_desired(fns, target) };
+        }
+        (present, active)
+    };
+    let previous = LAST_ACTIVE.swap(active, Ordering::AcqRel);
+    if debug_log_enabled() && (previous == 0) != (active == 0) {
+        log::debug!(
+            "[OCCLUSION_PLANES] presence tracked={total} present={present} active={active}"
+        );
+    }
+}
+
 /// Snapshot of the tracked set: `(total, present, active)`. `present` counts
 /// tracked planes whose node is still linked; `active` counts the linked planes
 /// the engine admitted for the current camera (`+0x40 == 1`).
@@ -945,6 +974,8 @@ unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
     let tracked = TRACKED.lock();
     let total = tracked.planes.len();
     if tracked.graph != scene_graph as usize {
+        DASH_PRESENT.store(0, Ordering::Relaxed);
+        DASH_ACTIVE.store(0, Ordering::Relaxed);
         return (total, 0, 0);
     }
     if total == 0 {
@@ -1323,8 +1354,9 @@ fn refresh_neighbors(
     if let Some(job) = jobs.active.as_mut() {
         let current = unsafe { resolve_neighbor(cell, job.key) };
         let result = if let Some(current) = current.filter(|ptr| *ptr as usize == job.cell) {
+            let frame_started = Instant::now();
             let _cell_lock = unsafe { CellRefLock::acquire(current, fns) };
-            unsafe { job.work.validate_inputs(current) }
+            unsafe { job.work.validate_inputs(current, frame_started) }
         } else {
             Some(None)
         };
@@ -1666,6 +1698,7 @@ unsafe fn reconcile(
     cell: *mut c_void,
     observer: Option<[f32; 3]>,
     force: bool,
+    frame_started: Instant,
 ) -> ReconcileOutcome {
     let key = unsafe { cell_key(cell) };
     let target = GenerationTarget {
@@ -1696,6 +1729,7 @@ unsafe fn reconcile(
     let from_cache;
     let generate_ms;
     let render_ready;
+    let source_pending;
     let planes;
     let raw;
     NEIGHBOR_WORK.lock().clear();
@@ -1729,13 +1763,28 @@ unsafe fn reconcile(
             let generation = guard.as_mut().expect("generation was just inserted");
             // SAFETY: current main-frame cell, not the saved identity token.
             // Keep one native CellRefLock level through the complete slice.
-            let slice_started = Instant::now();
+            if generation.work.needs_native_capture() && Generation::budget_remaining(frame_started)
             {
+                let lock_started = Instant::now();
                 let _cell_lock = unsafe { CellRefLock::acquire(cell, fns) };
-                generation.work.account_lock_wait(slice_started.elapsed());
-                unsafe { generation.work.capture(cell) };
+                generation.work.account_lock_wait(lock_started.elapsed());
+                unsafe { generation.work.capture(cell, frame_started) };
             }
-            let done = generation.work.advance(slice_started);
+            let mut done = generation.work.advance(frame_started);
+            if done {
+                // CPU-only frames never touch the list. Validate relevant
+                // membership once here before accepting their completed output.
+                if Generation::budget_remaining(frame_started) {
+                    let lock_started = Instant::now();
+                    let _cell_lock = unsafe { CellRefLock::acquire(cell, fns) };
+                    generation.work.account_lock_wait(lock_started.elapsed());
+                    // Complete the admitted validation after acquiring the
+                    // lock even when its wait consumed the soft time target.
+                    done = unsafe { generation.work.validate_membership(cell) };
+                } else {
+                    done = false;
+                }
+            }
             if target.epoch != WORLD_EPOCH.load(Ordering::Acquire) {
                 *guard = None;
                 GENERATION_ACTIVE.store(false, Ordering::Release);
@@ -1758,6 +1807,7 @@ unsafe fn reconcile(
         initial = finished.initial;
         let proof = finished.work.source_proof();
         from_cache = finished.work.used_analysis();
+        source_pending = finished.work.source_pending();
         let (generated_planes, generated_raw, ready, generation_ms) = finished.work.finish();
         generate_ms = generation_ms;
         DASH_REBUILDS.fetch_add(1, Ordering::Relaxed);
@@ -1808,6 +1858,9 @@ unsafe fn reconcile(
         }
         if !initial {
             RESCAN_PENDING.store(true, Ordering::Release);
+            if !source_pending {
+                return ReconcileOutcome::Limited;
+            }
             return ReconcileOutcome::Finished {
                 initial,
                 settle: true,

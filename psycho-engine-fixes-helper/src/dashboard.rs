@@ -2059,7 +2059,7 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
         if active > 0 { GOOD } else { ACCENT },
         active_detail,
         width,
-        "Rectangles the engine admits for the current camera. Rectangles facing away are not tested, so this is normally lower than the placed count.",
+        "Rectangles the engine admits for the sampled camera view. Counts refresh periodically during cell measurement and settling too. Facing-away or off-screen rectangles are not admitted.",
     );
     ui.same_line();
     metric_card(
@@ -2170,7 +2170,7 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
             "Time",
             format!("{} ms", core.occlusion_last_generation_ms),
             MUTED,
-            "Generation work summed across slices, including lock acquisition, capture, analysis and completion. Native publication and checkpoint I/O are measured by the frame-work warning.",
+            "Generation work summed across slices, including lock acquisition, capture, analysis and completion. The frame-work warning includes native publication and checkpoint preparation. Cache file writes run in the background.",
         );
     }
 

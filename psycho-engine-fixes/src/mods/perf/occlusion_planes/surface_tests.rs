@@ -174,3 +174,75 @@ fn actual_owned_snapshot_completes_without_native_memory() {
         super::super::runtime::plane_signature(&expected)
     );
 }
+
+#[test]
+fn actual_owned_snapshot_respects_expired_frame_budget() {
+    let (vertices, triangles) = mesh();
+    let local = aabb_of(&vertices);
+    let mut generation = Generation::new(128, None);
+    generation.done = true;
+    generation.stats.refs = 1;
+    generation.snapshots.push_back(MeshSnapshot {
+        surface: surface_cache::capture(local, &vertices, &triangles).unwrap(),
+        world: WorldTransform {
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            translation: [0.0; 3],
+            scale: 1.0,
+        },
+        source_form_id: 0,
+        reference: ReferenceIdentity {
+            form_id: 0,
+            address: 0,
+        },
+        geometry: 0,
+        recorded: false,
+        face: 0,
+    });
+    // The real monotonic frame clock says native acquisition already spent the
+    // budget. Owned coverage must wait for a fresh frame, without discarding it.
+    let expired = std::time::Instant::now() - std::time::Duration::from_millis(10);
+    assert!(!generation.advance(expired));
+    assert_eq!(
+        generation.snapshots.front().unwrap().face,
+        0,
+        "an expired frame must not start another face"
+    );
+    assert!(generation.candidates.is_empty());
+    while !generation.advance(std::time::Instant::now()) {}
+    let (planes, _, ready, _) = generation.finish();
+    assert!(ready);
+    assert_eq!(planes.len(), 4);
+}
+
+#[test]
+fn actual_limited_snapshot_retains_coverage_without_full_completeness() {
+    let (vertices, triangles) = mesh();
+    let local = aabb_of(&vertices);
+    let mut generation = Generation::new(128, None);
+    generation.done = true;
+    generation.stats.refs = 1;
+    // Native capture records this when a hard shared input limit stops a scan.
+    // This admitted actual surface remains usable; the result is not complete.
+    generation.stats.budget_stop = 1;
+    generation.snapshots.push_back(MeshSnapshot {
+        surface: surface_cache::capture(local, &vertices, &triangles).unwrap(),
+        world: WorldTransform {
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            translation: [0.0; 3],
+            scale: 1.0,
+        },
+        source_form_id: 0,
+        reference: ReferenceIdentity {
+            form_id: 0,
+            address: 0,
+        },
+        geometry: 0,
+        recorded: false,
+        face: 0,
+    });
+    assert!(!generation.source_pending());
+    while !generation.advance(std::time::Instant::now()) {}
+    let (planes, _, ready, _) = generation.finish();
+    assert!(!ready);
+    assert_eq!(planes.len(), 4);
+}

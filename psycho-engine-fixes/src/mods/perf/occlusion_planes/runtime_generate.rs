@@ -3,9 +3,9 @@
 //! The runtime walks the loaded cell's reference list and, for each opaque,
 //! unskinned static geometry, derives conservative occlusion rectangles from
 //! the geometry's own local vertex box and live world transform. Planes are
-//! emitted per geometry (never merged across an object), oriented by the node's
-//! world rotation, fitted to the largest axis-aligned rectangle supported by
-//! the vertices near each face, and shrunk once more for safety.
+//! initially emitted per geometry, oriented by the node's world rotation,
+//! fitted to supported rectangles and shrunk for safety. Completion can merge
+//! coplanar candidates under the existing documented tolerances.
 //!
 //! Only uncompressed vertex data is accepted. The engine's local/world bound is
 //! a sphere; turning it into a box produces a rectangle that can float far
@@ -17,14 +17,13 @@
 //! coverage face stays one-sided, so the engine's own camera-side test rejects
 //! it whenever the camera is behind its face. Horizontal faces (ground and
 //! roofs) are skipped, and a face whose support hull cannot contain a useful
-//! rectangle is rejected. Coplanar rectangles that share a full edge are merged
-//! into their rectangular union, which culls more per plane without covering
-//! empty space.
+//! rectangle is rejected. Merge tolerances remain a conservativeness research
+//! gate; this regression correction does not expand geometric coverage policy.
 //!
 //! This is still a heuristic. A convex hull around a concave mesh can over-cover
 //! empty space, so planes are shrunk, only large geometry is kept, the per-cell
 //! count is capped, and the feature has a kill switch. The owner's in-game
-//! visual check remains required.
+//! image composition remains unverified under the owner's runtime-test waiver.
 //!
 //! Every offset and virtual slot is verified against the supported executable:
 //! the `tList` walk matches the engine's child traversal at `0x00A5DBE0`, the
@@ -265,11 +264,11 @@ pub(super) struct ScanStats {
 /// feature: a release build measured 20-32 ms for the Fairfax exterior cells
 /// (the triangle coverage test alone is linear in the mesh triangles), which
 /// drops a frame on cell entry while the settle window repeats it. The walk is
-/// resumable. Capture checks this work target between meshes; one admitted
-/// mesh may overshoot it. Coverage yields between faces. The cell input budget
-/// and final coverage are preserved; neither count nor elapsed time is a hard
-/// frame-latency guarantee.
-const GENERATION_TRIANGLES_PER_FRAME: usize = 8_000;
+/// resumable. Native capture uses elapsed admission and the total cell input
+/// bounds; coverage yields between faces. Synchronous bounded union selection
+/// and offline component wrappers use this completion chunk; it is not a
+/// native-copy latency limit.
+const COMPLETION_CHUNK: usize = 8_000;
 /// Upper bound on references examined in one frame's generation slice.
 const GENERATION_REFS_PER_FRAME: usize = 96;
 /// Soft wall-clock target, checked between native mesh captures, owned faces
@@ -339,6 +338,7 @@ struct MeshSnapshot {
 
 pub(super) struct Generation {
     order: Vec<ReferenceIdentity>,
+    native_order: Vec<ReferenceIdentity>,
     membership: Vec<ReferenceIdentity>,
     live: Vec<ReferenceIdentity>,
     enumerated: bool,
@@ -376,6 +376,7 @@ impl Generation {
     pub(super) fn new(max_planes: usize, observer: Option<[f32; 3]>) -> Self {
         Self {
             order: Vec::new(),
+            native_order: Vec::new(),
             membership: Vec::new(),
             live: Vec::new(),
             enumerated: false,
@@ -423,9 +424,16 @@ impl Generation {
     /// reference list, node transforms and mesh arrays are read-only here. The
     /// caller owns CellRefLock for this slice. The cell is supplied afresh for
     /// each call; the work item never dereferences a saved engine pointer.
-    pub(super) unsafe fn capture(&mut self, cell: *mut c_void) {
+    pub(super) unsafe fn capture(&mut self, cell: *mut c_void, frame_started: std::time::Instant) {
+        if !self.needs_native_capture() {
+            return;
+        }
+        // The caller admits acquisition before taking CellRefLock. Once that
+        // lock is acquired, make bounded progress even if the wait or list
+        // enumeration spent the soft target; otherwise dense cells can starve.
+
         let started = std::time::Instant::now();
-        let _ = unsafe { self.advance_slice(cell) };
+        let _ = unsafe { self.advance_slice(cell, frame_started) };
         self.stack.clear();
         for mesh in &mut self.snapshots {
             if mesh.recorded {
@@ -455,6 +463,32 @@ impl Generation {
             });
         }
         self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    /// Only acquisition needs a native cell. Queued face work and completion
+    /// operate on owned data and must not rewalk or lock the engine every frame.
+    pub(super) fn needs_native_capture(&self) -> bool {
+        !self.done
+            && self.snapshots.is_empty()
+            && self.merge.is_none()
+            && self.selection.is_none()
+            && self.selected.is_none()
+    }
+
+    /// Elapsed admission for the complete frame's generation work.
+    pub(super) fn budget_remaining(frame_started: std::time::Instant) -> bool {
+        frame_started.elapsed().as_millis() < GENERATION_SLICE_BUDGET_MS
+    }
+
+    /// Recheck only relevant membership at the final publication boundary.
+    ///
+    /// # Safety
+    /// Same fresh loaded cell and CellRefLock ownership required by capture.
+    pub(super) unsafe fn validate_membership(&mut self, cell: *mut c_void) -> bool {
+        let started = std::time::Instant::now();
+        let changed = unsafe { self.refresh_membership(cell) };
+        self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
+        !changed
     }
 
     /// Include native lock acquisition in total generation work. The caller
@@ -491,8 +525,9 @@ impl Generation {
     pub(super) unsafe fn validate_inputs(
         &mut self,
         cell: *mut c_void,
+        frame_started: std::time::Instant,
     ) -> Option<Option<Arc<SourceProof>>> {
-        unsafe { self.capture(cell) };
+        unsafe { self.capture(cell, frame_started) };
         self.snapshots.clear();
         if !self.done {
             return None;
@@ -504,15 +539,19 @@ impl Generation {
         })
     }
 
+    /// Missing eligible source data can recover during the fast settle window.
+    /// Hard input limits cannot be raised by repeating an unchanged pass.
+    pub(super) fn source_pending(&self) -> bool {
+        (self.stats.refs == 0 && self.stats.not_stat == 0)
+            || self.stats.render_null != 0
+            || self.stats.node_null != 0
+            || self.stats.unavailable != 0
+            || self.stats.base_null != 0
+            || self.stats.parent_mismatch != 0
+    }
+
     fn ready(&self) -> bool {
-        !self.truncated
-            && self.stats.budget_stop == 0
-            && self.stats.refs > 0
-            && self.stats.render_null == 0
-            && self.stats.node_null == 0
-            && self.stats.unavailable == 0
-            && self.stats.base_null == 0
-            && self.stats.parent_mismatch == 0
+        !self.truncated && self.stats.budget_stop == 0 && !self.source_pending()
     }
 
     /// Advance only owned CPU work, after releasing the native reference lock.
@@ -527,6 +566,12 @@ impl Generation {
     }
 
     fn advance_owned(&mut self, frame_started: std::time::Instant) -> bool {
+        if self.selected.is_some() {
+            return true;
+        }
+        if !Self::budget_remaining(frame_started) {
+            return false;
+        }
         loop {
             if let Some(mesh) = self.snapshots.front_mut() {
                 let start = self.candidates.len();
@@ -595,35 +640,47 @@ impl Generation {
         }
     }
 
-    /// One bounded slice of the walk.
-    ///
-    /// # Safety
-    ///
-    /// Same contract as [`Generation::advance`].
-    unsafe fn advance_slice(&mut self, cell: *mut c_void) -> bool {
-        let mut triangle_slice = GENERATION_TRIANGLES_PER_FRAME;
-        let mut refs_left = GENERATION_REFS_PER_FRAME;
-        let slice_started = std::time::Instant::now();
-        // Safety: see the function contract. Every pointer is read from the
-        // cell's own list and null-checked before it is dereferenced.
+    /// Enumerate the same bounded native prefix, comparing only static-like
+    /// sources. Unrelated changes cannot discard work while this admitted set
+    /// stays the same. Missing sources remain explicitly unavailable. Sorting
+    /// is for equality only; every restart preserves native admission order.
+    unsafe fn refresh_membership(&mut self, cell: *mut c_void) -> bool {
+        self.live.clear();
+        let mut truncated = false;
+        let mut examined = 0;
+        let mut not_stat = 0;
+        let mut missing = 0;
+        let mut parent_mismatch = 0;
+        // SAFETY: the caller supplies this frame's loaded cell under CellRefLock.
+        // Every reference/base is resolved from the fresh list before reading.
         unsafe {
-            // Re-resolve the complete admitted membership under this slice's
-            // CellRefLock. A relink with unchanged membership cannot skip work;
-            // a changed membership abandons the old results before publication.
-            self.live.clear();
             let mut node = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
-            let mut truncated = false;
             loop {
                 let reference = read_ptr_at(node, TLIST_DATA);
                 if !reference.is_null() {
-                    if self.live.len() == MAX_REFS {
+                    if examined == MAX_REFS {
                         truncated = true;
                         break;
                     }
-                    self.live.push(ReferenceIdentity {
-                        form_id: read_u32_at(reference, TESFORM_REF_ID),
-                        address: reference as usize,
-                    });
+                    examined += 1;
+                    // Preserve capture_reference's ownership guard before
+                    // inspecting a base form in the eligibility prefilter.
+                    let parent = read_ptr_at(reference, REFR_PARENT_CELL);
+                    if !parent.is_null() && parent != cell {
+                        parent_mismatch += 1;
+                    } else {
+                        let base = read_ptr_at(reference, REFR_BASE_FORM);
+                        if base.is_null() {
+                            missing += 1;
+                        } else if admits_base_type(read_u8_at(base, TESFORM_TYPE_ID)) {
+                            self.live.push(ReferenceIdentity {
+                                form_id: read_u32_at(reference, TESFORM_REF_ID),
+                                address: reference as usize,
+                            });
+                        } else {
+                            not_stat += 1;
+                        }
+                    }
                 }
                 let next = read_ptr_at(node, TLIST_NEXT);
                 if next.is_null() {
@@ -631,35 +688,55 @@ impl Generation {
                 }
                 node = next;
             }
-            // Keep native initial enumeration order for the existing shared
-            // geometry budgets. Only the membership comparison is sorted.
-            if !self.enumerated {
-                self.order.clone_from(&self.live);
-            }
-            self.live.sort_unstable();
-            if self.enumerated && (self.membership != self.live || self.truncated != truncated) {
-                self.cursor = 0;
-                self.reference_walk.clear();
-                self.done = false;
-                self.snapshots.clear();
-                self.sources.clear();
-                self.proof = None;
-                self.proof_complete = true;
-                self.merge = None;
-                self.selection = None;
-                self.selected = None;
-                self.candidates.clear();
-                self.vertex_budget = VERTEX_BUDGET;
-                self.triangle_budget = TRIANGLE_BUDGET;
-                self.stats = ScanStats::default();
-                self.analysis_reused = false;
-                // This fresh sorted order is deterministic for the restarted
-                // scan; no stale reference pointer is used to resume work.
-                self.order.clone_from(&self.live);
-            }
-            self.membership.clone_from(&self.live);
-            self.enumerated = true;
-            self.truncated = truncated;
+        }
+        self.native_order.clone_from(&self.live);
+        self.live.sort_unstable();
+        let changed =
+            self.enumerated && (self.membership != self.live || self.truncated != truncated);
+        if changed {
+            self.cursor = 0;
+            self.reference_walk.clear();
+            self.done = false;
+            self.snapshots.clear();
+            self.sources.clear();
+            self.proof = None;
+            self.proof_complete = true;
+            self.merge = None;
+            self.selection = None;
+            self.selected = None;
+            self.candidates.clear();
+            self.vertex_budget = VERTEX_BUDGET;
+            self.triangle_budget = TRIANGLE_BUDGET;
+            self.stats = ScanStats::default();
+            self.analysis_reused = false;
+        }
+        if changed || !self.enumerated {
+            self.order.clone_from(&self.native_order);
+        }
+        self.membership.clone_from(&self.live);
+        self.enumerated = true;
+        self.truncated = truncated;
+        self.stats.not_stat = not_stat;
+        self.stats.base_null = missing;
+        self.stats.parent_mismatch = parent_mismatch;
+        changed
+    }
+
+    /// One bounded slice of the walk.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`Generation::advance`].
+    unsafe fn advance_slice(
+        &mut self,
+        cell: *mut c_void,
+        slice_started: std::time::Instant,
+    ) -> bool {
+        let mut refs_left = GENERATION_REFS_PER_FRAME;
+        // Safety: see the function contract. Every pointer is read from the
+        // cell's own list and null-checked before it is dereferenced.
+        unsafe {
+            self.refresh_membership(cell);
             if self.done
                 || !self.snapshots.is_empty()
                 || self.merge.is_some()
@@ -696,8 +773,6 @@ impl Generation {
                     if self.reference_walk.is_empty() {
                         self.stats.refs += 1;
                     }
-                    let triangles_before = self.triangle_budget;
-                    let vertices_before = self.vertex_budget;
                     let captured = capture_reference(
                         reference,
                         cell,
@@ -710,7 +785,6 @@ impl Generation {
                         &mut self.stats,
                         &mut self.reference_walk,
                         slice_started,
-                        triangle_slice,
                     );
                     match captured {
                         CaptureResult::Changed => {
@@ -739,9 +813,6 @@ impl Generation {
                             self.reference_walk.clear();
                         }
                     }
-                    let spent = (triangles_before - self.triangle_budget)
-                        .max(vertices_before - self.vertex_budget);
-                    triangle_slice = triangle_slice.saturating_sub(spent);
                     refs_left = refs_left.saturating_sub(1);
                 }
                 if self.cursor == self.order.len() || self.stats.refs >= MAX_REFS {
@@ -749,7 +820,6 @@ impl Generation {
                     return true;
                 }
                 if refs_left == 0
-                    || triangle_slice == 0
                     || self.vertex_budget == 0
                     || self.triangle_budget == 0
                     || slice_started.elapsed().as_millis() >= GENERATION_SLICE_BUDGET_MS
@@ -856,7 +926,7 @@ pub(super) fn select_planes(
     max_planes: usize,
 ) -> Selection {
     let mut work = SelectionWork::new(candidates, observer, max_planes);
-    while !work.advance(GENERATION_TRIANGLES_PER_FRAME) {}
+    while !work.advance(COMPLETION_CHUNK) {}
     work.finish()
 }
 
@@ -881,7 +951,6 @@ unsafe fn capture_reference(
     stats: &mut ScanStats,
     walked: &mut Vec<usize>,
     slice_started: std::time::Instant,
-    snapshot_budget: usize,
 ) -> CaptureResult {
     // Stop examining further references once a shared budget is spent, so the
     // cell-load pass stays bounded instead of falling back to coarse sphere
@@ -947,7 +1016,6 @@ unsafe fn capture_reference(
             },
             walked,
             slice_started,
-            snapshot_budget,
         )
     }
 }
@@ -1004,12 +1072,9 @@ unsafe fn capture_object_meshes(
     reference: ReferenceIdentity,
     walked: &mut Vec<usize>,
     slice_started: std::time::Instant,
-    snapshot_budget: usize,
 ) -> CaptureResult {
     stack.clear();
     stack.push(root as usize);
-    let initial_vertices = *vertex_budget;
-    let initial_triangles = *triangle_budget;
     let resume = walked.len();
     let mut visited = 0usize;
     while let Some(object) = stack.pop() {
@@ -1098,12 +1163,7 @@ unsafe fn capture_object_meshes(
                 }
             }
         }
-        if !replay
-            && !stack.is_empty()
-            && (slice_started.elapsed().as_millis() >= GENERATION_SLICE_BUDGET_MS
-                || (initial_vertices - *vertex_budget).max(initial_triangles - *triangle_budget)
-                    >= snapshot_budget)
-        {
+        if !replay && !stack.is_empty() && !Generation::budget_remaining(slice_started) {
             return CaptureResult::Yield;
         }
     }
@@ -2234,7 +2294,7 @@ const MERGE_PAIR_BUDGET: usize = 30_000;
 #[cfg(test)]
 pub(super) fn merge_coplanar(candidates: &mut Vec<(f32, PlaneRecord)>) {
     let mut work = MergeWork::new(std::mem::take(candidates));
-    while !work.advance(GENERATION_TRIANGLES_PER_FRAME) {}
+    while !work.advance(COMPLETION_CHUNK) {}
     *candidates = work.finish();
 }
 
