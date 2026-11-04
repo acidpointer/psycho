@@ -13,16 +13,16 @@
 //!
 //! # Ownership
 //!
-//! The module owns exactly one native reference per injected plane and removes
-//! only the list nodes it created. It never clears the whole list and never
-//! reads an existing plane's fields. Authored occluders and rooms are outside
-//! its scope.
+//! The module owns one native reference per injected plane and one reference to
+//! its containing BSPortalGraph. It unlinks its own nodes before releasing the
+//! planes and releases the graph outside the publication lock. It never clears
+//! an authored list. Authored occluders and rooms remain engine-owned.
 //!
 //! # Lifecycle
 //!
-//! Configuration is recorded at core startup. The feature verifies its native
-//! byte signatures and loads its cache on the `DeferredInit` event. The
-//! already-forwarded `OnFramePresent` event drives a cell/scene-graph identity
+//! Configuration and two inert publisher bridges are prepared at the pre-CRT
+//! barrier. DeferredInit verifies native contracts, publishes synchronization
+//! and loads the cache. Only normal main-thread presentation drives cell/graph identity
 //! check; a new cell must be stable before it replaces the current planes. On a
 //! transition the runtime rebuilds and then retries a bounded settle window, so
 //! references whose 3D attaches after the first frame are still collected; a
@@ -30,16 +30,21 @@
 //! walk is resumable and advances a fixed work slice per frame, so a dense cell
 //! never blocks the frame thread. A cache entry is reused only after its settle
 //! window completed. Creation, insertion, removal and release happen only on a
-//! rebuild. Load, new-game and exit-to-menu events defer cleanup to the next
-//! frame, so the module never scans a list that may be under teardown.
+//! rebuild. Loading/unknown phases and world-lifetime events cancel the world
+//! epoch without touching engine memory. The next normal presentation cleans
+//! the retained graph before looking up a player or cell. Each collection
+//! slice receives the current cell afresh under its native reference-list lock.
 //!
 //! # Failure behavior
 //!
-//! A signature, cache or allocation failure leaves the native list untouched.
+//! A signature/publication failure prevents activation. A stale cache is
+//! regenerated; failed plane allocations leave the admitted subset owned and
+//! schedule a bounded retry. See docs/fnv_runtime_occlusion_plane_implementation_plan.md.
 
 mod cache;
 mod contract;
 mod data;
+mod native_list;
 mod raw;
 mod runtime;
 mod runtime_generate;
@@ -49,11 +54,16 @@ mod tests;
 
 use crate::config::PerformanceConfig;
 
-/// Record configuration at startup. No file or engine access occurs here;
-/// activation waits for the `DeferredInit` event.
+/// Record configuration and serialize native publication at the pre-CRT
+/// barrier. Cache and world access wait for DeferredInit and normal gameplay.
 pub(crate) fn install(performance: &PerformanceConfig) {
+    let mut enabled = performance.occlusion_planes;
+    if enabled && let Err(error) = native_list::install() {
+        log::error!("[OCCLUSION_PLANES] Native publication contract unavailable: {error:#}");
+        enabled = false;
+    }
     runtime::configure(
-        performance.occlusion_planes,
+        enabled,
         performance.occlusion_planes_max_per_cell,
         performance.occlusion_planes_grid_radius,
         &performance.occlusion_planes_cache_path,
@@ -62,8 +72,8 @@ pub(crate) fn install(performance: &PerformanceConfig) {
 }
 
 /// Route one core event id to the occlusion-plane lifecycle.
-pub(crate) fn observe_event(kind: u32) {
-    runtime::observe_event(kind);
+pub(crate) fn observe_event(kind: u32, frame_phase: i32) {
+    runtime::observe_event(kind, frame_phase);
 }
 
 /// Read the occlusion-plane runtime counters for the dashboard.

@@ -283,8 +283,8 @@ inverse_world_index_setup = true
 
 # Add invisible occluders to cells without authored visibility data, so hidden
 # objects behind large solid buildings are rejected earlier.
-# EXPERIMENTAL! Not recommended for regular play!
-occlusion_planes = false
+# Enabled by default; set false to disable generated occluders.
+occlusion_planes = true
 
 # Shared budget and per-cell cap for generated occluders (1 to 256). Nearby
 # cells share the same budget.

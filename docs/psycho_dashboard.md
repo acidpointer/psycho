@@ -481,6 +481,10 @@ promotion removes the temporary file and leaves the previous config in place.
 The dashboard draft is sanitized to the core's supported allocator and LOD
 multiplier ranges before serialization.
 
+Occlusion planes default on in the shipped TOML, core fallback and dashboard
+fallback. An omitted setting stays enabled; an explicitly disabled setting
+remains disabled when the document is edited.
+
 Saving changes disk state only. The core already published its runtime config
 during early startup, so a full process exit and relaunch is always required.
 The UI repeats this rule in the page heading, explanatory text, dirty-state

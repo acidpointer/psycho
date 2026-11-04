@@ -53,7 +53,7 @@ For task routing and authority chains, see
 | [`fnv_actor_input_contract.md`](fnv_actor_input_contract.md) | Fallout: New Vegas actor input contract | contract |
 | [`libpsycho_hardware_detection.md`](libpsycho_hardware_detection.md) | libpsycho hardware detection | reference |
 | [`fnv_runtime_visibility_injection_research.md`](fnv_runtime_visibility_injection_research.md) | Runtime visibility injection for unoptimized locations | plan/research |
-| [`fnv_runtime_occlusion_plane_implementation_plan.md`](fnv_runtime_occlusion_plane_implementation_plan.md) | Runtime occlusion-plane injection: implementation plan | plan/research |
+| [`fnv_runtime_occlusion_plane_implementation_plan.md`](fnv_runtime_occlusion_plane_implementation_plan.md) | Runtime occlusion-plane injection, stability investigation and repair plan | plan/research |
 
 ## OMV graphics
 

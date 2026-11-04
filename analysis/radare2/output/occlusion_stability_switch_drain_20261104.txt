@@ -1,0 +1,119 @@
+Whitespace: trailing spaces normalized; original capture: .reports/20261104-occlusion-stability/raw-radare2/occlusion_stability_switch_drain_20261104.txt
+Psycho radare2 evidence
+UTC: 2026-11-04T14:23:18+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00B5C3C0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00B5C3C0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b5c3c0
+name: fcn.00b5c3c0
+size: 129
+is-pure: false
+realsz: 129
+stackframe: 28
+callconv: cdecl
+cyclic-cost: 62
+cyclomatic-complexity: 6
+bits: 32
+type: fcn [NEW]
+num-bbs: 10
+num-instrs: 46
+edges: 14
+minaddr: 0x00b5c3c0
+maxaddr: 0x00b5c441
+is-lineal: true
+end-bbs: 1
+maxbbins: 10
+midbbins: 4.60
+ratbbins: 2.17
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 3
+locals: 1
+args: 0
+
+┌ 129: fcn.00b5c3c0 ();
+│ afv: vars(1:sp[0x4..0x4])
+│           0x00b5c3c0      51             push ecx
+│           0x00b5c3c1      55             push ebp
+│           0x00b5c3c2      56             push esi
+│           0x00b5c3c3      8bf1           mov esi, ecx
+│           0x00b5c3c5      57             push edi
+│           0x00b5c3c6      8bbec0000000   mov edi, dword [esi + 0xc0]
+│           0x00b5c3cc      33ed           xor ebp, ebp
+│           0x00b5c3ce      8974240c       mov dword [var_ch], esi
+│           0x00b5c3d2      3bfd           cmp edi, ebp
+│       ┌─< 0x00b5c3d4      744f           je 0xb5c425
+│       │   0x00b5c3d6      53             push ebx
+│      ┌──> 0x00b5c3d7      8b7708         mov esi, dword [edi + 8]
+│      ╎│   0x00b5c3da      8d4708         lea eax, [edi + 8]
+│      ╎│   0x00b5c3dd      8b3f           mov edi, dword [edi]
+│      ╎│   0x00b5c3df      3bf5           cmp esi, ebp
+│     ┌───< 0x00b5c3e1      7439           je 0xb5c41c
+│     │╎│   0x00b5c3e3      8b860c010000   mov eax, dword [esi + 0x10c]
+│     │╎│   0x00b5c3e9      8b0da8911f01   mov ecx, dword [0x11f91a8]  ; [0x11f91a8:4]=0
+│     │╎│   0x00b5c3ef      50             push eax
+│     │╎│   0x00b5c3f0      e8cb100100     call 0xb6d4c0
+│     │╎│   0x00b5c3f5      8b9e0c010000   mov ebx, dword [esi + 0x10c]
+│     │╎│   0x00b5c3fb      3bdd           cmp ebx, ebp
+│    ┌────< 0x00b5c3fd      741d           je 0xb5c41c
+│    ││╎│   0x00b5c3ff      8d4b04         lea ecx, [ebx + 4]
+│    ││╎│   0x00b5c402      51             push ecx
+│    ││╎│   0x00b5c403      ff15c4f1fd00   call dword [sym.imp.KERNEL32.dll_InterlockedDecrement] ; 0xfdf1c4
+│    ││╎│   0x00b5c409      85c0           test eax, eax
+│   ┌─────< 0x00b5c40b      7509           jne 0xb5c416
+│   │││╎│   0x00b5c40d      8b13           mov edx, dword [ebx]
+│   │││╎│   0x00b5c40f      8b4204         mov eax, dword [edx + 4]
+│   │││╎│   0x00b5c412      8bcb           mov ecx, ebx
+│   │││╎│   0x00b5c414      ffd0           call eax
+│   └─────> 0x00b5c416      89ae0c010000   mov dword [esi + 0x10c], ebp
+│    └└───> 0x00b5c41c      3bfd           cmp edi, ebp
+│      └──< 0x00b5c41e      75b7           jne 0xb5c3d7
+│       │   0x00b5c420      8b742410       mov esi, dword [var_ch]
+│       │   0x00b5c424      5b             pop ebx
+│       └─> 0x00b5c425      8d8ec0000000   lea ecx, [esi + 0xc0]
+│           0x00b5c42b      e810893100     call 0xe74d40
+│           0x00b5c430      5f             pop edi
+│           0x00b5c431      89aed0000000   mov dword [esi + 0xd0], ebp
+│           0x00b5c437      89aed4000000   mov dword [esi + 0xd4], ebp
+│           0x00b5c43d      5e             pop esi
+│           0x00b5c43e      5d             pop ebp
+│           0x00b5c43f      59             pop ecx
+└           0x00b5c440      c3             ret
+
+void __fastcall fcn.00b5c3c0(int param_1)
+
+{
+    uint *puVar1;
+    int iVar2;
+    int *piVar3;
+    int iVar4;
+
+    puVar1 = *(param_1 + 0xc0);
+    while (puVar1 != NULL) {
+        iVar2 = puVar1[2];
+        puVar1 = *puVar1;
+        if (iVar2 != 0) {
+            func_0x00b6d4c0(*(iVar2 + 0x10c));
+            piVar3 = *(iVar2 + 0x10c);
+            if (piVar3 != NULL) {
+                iVar4 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar3 + 1);
+                if (iVar4 == 0) {
+                    (**(*piVar3 + 4))();
+                }
+                *(iVar2 + 0x10c) = 0;
+            }
+        }
+    }
+    func_0x00e74d40();
+    *(param_1 + 0xd0) = 0;
+    *(param_1 + 0xd4) = 0;
+    return;
+}

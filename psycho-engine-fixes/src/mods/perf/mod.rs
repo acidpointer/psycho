@@ -37,9 +37,9 @@ pub use rng::install_rng_hook;
 /// Radio uses DeferredInit for optional native policy optimization. Its queries
 /// finish inside each scan; frame and teardown events require no radio work.
 /// The lighting candidates publish admission at DeferredInit without code writes.
-pub(crate) fn observe_event(kind: u32) {
+pub(crate) fn observe_event(kind: u32, frame_phase: i32) {
     radio::observe_event(kind);
     light_property_scores::observe_event(kind);
     scene_light_scan::observe_event(kind);
-    occlusion_planes::observe_event(kind);
+    occlusion_planes::observe_event(kind, frame_phase);
 }

@@ -1078,6 +1078,15 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn occlusion_defaults_on_and_preserves_explicit_disable() {
+        let empty = parse_document("").expect("empty configuration");
+        assert!(EditableConfig::from_document(&empty).occlusion_planes);
+        let disabled = parse_document("[performance]\nocclusion_planes = false\n")
+            .expect("explicitly disabled configuration");
+        assert!(!EditableConfig::from_document(&disabled).occlusion_planes);
+    }
+
+    #[test]
     fn edited_document_preserves_comments_and_unknown_mod_keys() {
         let source = r#"# keep this support note
 [memory]

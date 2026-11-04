@@ -1,8 +1,15 @@
 # Runtime occlusion-plane injection: implementation plan
 
-Status: runtime mechanism, mod-resilient reference-count path and runtime
-occluder collection implemented and enabled by default; in-game qualification
-is not done. The collector accepts only uncompressed vertex data, builds each
+Status: enabled by default in the shipped TOML, core fallback and dashboard
+fallback at the owner's request; explicit false disables it. The ownership,
+presentation-phase, collection identity
+and surface/cache corrections are implemented as an unreleased candidate under
+the owner's explicit no-runtime-test authorization. See the
+[implementation contract](#11-ownership-and-phase-correction-implementation)
+for offline qualification and game-only limits. The
+[stability investigation and repair plan](#10-stability-investigation-and-repair-plan-2026-11-04)
+below supersedes the lifecycle safety assumptions in the original plan.
+The collector accepts only uncompressed vertex data, builds each
 geometry's box in local space and orients the faces by the live world transform,
 fits every rectangle inside the vertices that support that face, and verifies the
 rectangle against the mesh's own triangles so a window opening, an empty door
@@ -20,8 +27,8 @@ removing, reordering or updating a mod invalidates the cache through the
 plugin-list signature. A 2026-10-19 report of a skipped frame while running led
 to a resumable, frame-budgeted generator: a cell's mesh walk is sliced across
 frames instead of blocking the frame thread for 20-32 ms (see section 4.3.1).
-This is a heuristic and needs the owner's in-game visual check. No game run and
-no FPS claim.
+The heuristic's game-only image composition remains unverified under the owner's
+runtime-test waiver. No game run and no FPS claim.
 Companion to
 [runtime visibility injection research](fnv_runtime_visibility_injection_research.md).
 Address evidence is in
@@ -245,8 +252,9 @@ Evidence: [cross-cell visibility contract](../analysis/radare2/output/fnv_runtim
 - Interior flag: `*(u8*)(cell + 0x24) & 1`.
 - Exterior grid: `*(i32*)(cell + 0x48)`, `*(i32*)(cell + 0x4C)`.
 - Worldspace: `*(cell + 0xC0)`; its FormID is at `+0x0C`.
-- `0x00702360` / `TES_SINGLETON + 0x77C` expose loading state if a guard is
-  needed.
+- `0x00702360` is a menu-mode predicate, not a loading-only predicate. The
+  injector uses xNVSE's explicit presentation-phase payload, not this menu
+  predicate or an inferred cell-state value, for loading admission.
 
 ### 2.6 Host events
 
@@ -293,15 +301,16 @@ psycho-engine-fixes
         v
   DeferredInit  : ready, load cache
   OnFramePresent: reconcile(player, cell, scene_graph)
-  load/new/exit : clear and release
+  load/new/exit : invalidate; next normal present unlinks and releases
         |
         v
   native BSOcclusionPlane in scene_graph+8
 ```
 
-No native code is patched. The module only calls verified getters/constructors
-and manages its own planes. The runtime collector reads the loaded cell's
-reference list and node transforms.
+Two native append caller bridges serialize publication with injector list
+maintenance. The module calls verified getters/constructors and manages its
+own planes and graph reference. The runtime collector reads the current cell's
+reference list under its native lock and reads admitted static node transforms.
 
 ## 4. Runtime module design
 
@@ -374,12 +383,16 @@ Uninitialized -> Ready (DeferredInit)
 Ready -> Active (first frame with a player, cell and scene graph)
 Active -> Active (same target, no rebuild)
 Active -> Reconcile (target changed, or a settle retry is due)
-Active -> Ready (load/new/exit: remove + release all)
+Active -> Reset pending (loading/unknown/load/new/exit: invalidate epoch only)
+Reset pending -> Ready (normal main presentation: unlink + release owned state)
 ```
 
 `on_frame` pseudo-flow:
 
-1. read `player = *(0x011DEA3C)`; bail if null.
+1. admit only a normal presentation on the DeferredInit thread, after native
+   publishers that entered before synchronization was published have drained.
+   Retire pending owned state before looking up a player/cell. Then read
+   `player = *(0x011DEA3C)`; bail if null.
 2. read `cell = *(player + 0x40)`; bail if null.
 3. read `owner` with `0x00450B80(0)` (the same call the engine uses) and
    `scene_graph = *(owner + 0x1E0)`; bail if null.
@@ -411,8 +424,9 @@ Active -> Ready (load/new/exit: remove + release all)
    set against the remaining tracked set by quantized plane key. Unchanged
    planes stay linked; unmatched old nodes are unlinked in Rust and returned
    through `0x004A49E0(list, node)`; only new records are created. A changed
-   scene graph means the old list is gone, so release every old plane without
-   dereferencing retired nodes. The desired set is the union of the center set
+   graph requires unlinking the previous graph's injected nodes before plane
+   release; one retained graph reference proves the old list is still live.
+   Release that graph outside the publication lock. The desired set is the union of the center set
    and the cached neighbor sets, deduplicated by plane key, scored by solid
    angle and capped by the shared budget. Cells that remain in the new
    neighborhood keep their in-memory planes, so crossing a cell boundary
@@ -511,9 +525,9 @@ Add to `PerformanceConfig`:
   per-cell `scan`, `cell` and `presence` diagnostics; warnings and errors always
   log. Turn it on with `debug_log = true` only while investigating the feature.
 
-Frame-path budget: the common frame does no hashing. The scene/cell pointers
-are compared directly, and the cell identity hash (`FxHasher`) is only computed
-when a pointer changes. The presence check runs every 30 frames and walks the
+Frame-path budget: every admitted frame checks the current cell identity and
+its fixed-size hash, including when its address is unchanged. The presence
+check runs every 30 frames and walks the
 occluder list once (a single walk maps every linked plane to its admission
 state), not once per tracked plane. While a generation is in flight the frame
 path pays only one fixed slice (`GENERATION_REFS_PER_FRAME` references,
@@ -571,10 +585,13 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
   native list untouched.
 - If the cache is missing/corrupt, log and regenerate.
 - If allocation fails, skip that plane and continue.
-- If the scene graph, cell or player is null, do nothing.
+- If the scene graph, cell or player is null, skip collection/injection.
+  Pending cleanup of a strongly owned graph still finishes before those lookups.
 - Never clear the whole list; only remove nodes whose `+8` matches a tracked
   plane.
-- All engine calls run on the xNVSE event thread (main).
+- Injector engine calls run only in normal presentation on the DeferredInit
+  main thread. The two native publication bridges run on their callers' threads
+  and preserve the original provider, arguments and last-error behavior.
 
 ## 5. Runtime occluder collection
 
@@ -957,5 +974,465 @@ Behavioral (real runtime, owner-run):
   engine-owned `TESObjectCELL`/`Ni*` memory that the engine mutates and frees on
   the main thread, so a worker thread could read freed memory during cell
   streaming. The cache-only design removes the work from the frame path instead.
-- The feature ships enabled by the owner's request; the in-game A/B, false
-  culling check and startup playtest remain the release gates.
+- The shipped TOML, Rust fallback and dashboard fallback enable the feature
+  by default at the owner's request. This implementation's runtime-test waiver
+  and unverified gameplay/image/performance scope are recorded in section 11.
+
+## 10. Stability investigation and repair plan, 2026-11-04
+
+### 10.1 Scope, conclusion and evidence limits
+
+Research baseline: `cec29ce`, before the separately authorized implementation
+in section 11. Descriptions of current code in this section refer to that
+baseline; the failure evidence is retained rather than rewritten as a passing
+game test.
+
+The owner reports a substantial FPS benefit followed by rapid crashes and
+explicitly selected the October 18-22 archives for this investigation. Preserve
+the native early-culling feature and its coverage while repairing stability.
+This is research and a repair plan, not an implemented crash fix.
+
+There is a concrete unsafe ownership assumption in the injector: **changing the
+active graph pointer is treated as destruction of the previous graph's list**.
+Native graph switching does not establish that destruction. If the old graph
+survives, the injector releases planes without removing its old list entries.
+That supplies a specific dangling-pointer mechanism to investigate first.
+Loading-frame admission is also missing, and the production geometry coverage
+predicate has an independently reproduced defect. These findings do not prove
+which writer produced the archived invalid linked-plane pointer, or that all
+the archived crashes share one cause. A complete incident root cause remains
+open.
+
+The supported executable identity above was reverified. New native evidence:
+
+- [Constructor, consumers, dynamic storage and node-pool ownership](../analysis/radare2/output/occlusion_stability_native_ownership_20261104.txt).
+- [Complete active-graph switch](../analysis/radare2/output/occlusion_stability_graph_retirement_20261104.txt).
+- [Its owner-state drain](../analysis/radare2/output/occlusion_stability_switch_drain_20261104.txt).
+- [Entry-aligned switch callers and owning-pointer helpers](../analysis/radare2/output/occlusion_stability_switch_ownership_verified_20261104.txt).
+- [Graph-destructor list clear](../analysis/radare2/output/occlusion_stability_graph_destructor_20261104.txt).
+- [Compound builder](../analysis/radare2/output/occlusion_stability_0x00C47D20_20261104.txt),
+  [append](../analysis/radare2/output/occlusion_stability_0x00C5AE70_20261104.txt),
+  [list insertion](../analysis/radare2/output/occlusion_stability_0x00559A70_20261104.txt)
+  and [node free](../analysis/radare2/output/occlusion_stability_0x004A49E0_20261104.txt).
+
+The verified caller capture supersedes the explicitly misaligned preliminary
+probes in `occlusion_stability_switch_ownership_20261104.txt`. Decompiler types
+and calling-convention labels are not authority; use the exact instructions.
+The captured native caller references cover five direct graph-switch calls,
+not indirect or plugin writes.
+
+The [incident matrix](../.reports/20261104-occlusion-stability/incident-matrix.json)
+records the selected reports, complete reported calltraces, registers, matching
+feature log markers and available configuration. It does not reconstruct
+allocation or writer history. No game directory, reproducible save/route,
+minidump or live process is available. The newly discovered November 4 log has
+the feature disabled and an empty crash report; it is not incident evidence.
+Archived candidate binaries, old source snapshots and the current source must
+be kept distinct.
+
+### 10.2 What the crashes actually establish
+
+| Incident family | Reliable failure | What remains unknown |
+| --- | --- | --- |
+| [October 18 linked plane](crash_20261018_occlusion_link_plan.md#established-fault) | `0x00C33887` reads the dirty byte through invalid `this = 0xA5000000`; caller `0x00C47EB3` is the selected-link cache path. | Source allocation identity, selected slot, publication/retirement history and corrupting writer. |
+| [October 21 cache write](crash_20261018_occlusion_link_plan.md#october-21-follow-up-readable-linked-pointer-forbidden-cache-write) | Native corner-cache publication writes through linked `this = 0x004F004D`, an executable code address, while the older readable-memory guard is active. | How that value reached the source link or caller local. Writability containment repairs admission, not ownership. |
+| [October 21 scene destruction](../.reports/20261021-invisible-terrain-crash/CrashLogger.log), recurring in the [13:03 archive](../.reports/20261021-1303-recurrent-scene-crash/CrashLogger.log) | `0x00667137` reads an array cookie through invalid array storage during scene-object destruction. | The writer of the child-array pointer; the destroyed scene node is not identified as an injected plane. |
+| [October 21 transition](../.reports/20261021-1911-transition-crash/CrashLogger.log), [second transition](../.reports/20261021-second-transition-crash/CrashLogger.log), [October 22 water recurrence](../.reports/20261022-0035-water-recurrence/CrashLogger.log) | `0x0043B4AD` indexes child storage with ECX zero and EAX zero. The archived provider installs a different instruction sequence at this native address. | Why the caller reaches empty storage and whether injection caused it. The last two reports share a water-visibility caller chain; the first has a different caller context. |
+| [October 19 fade owner](crash_20261019_vault108_fade_owner_plan.md), [October 20 Corvega](crash_20261020_corvega_exit_scene_owner_plan.md), [fast-travel fade list](crash_20261020_fast_travel_fade_list_plan.md) | Separate scene-owner, lookup and fade-list failure boundaries, covered by their owning investigations. | A common originating writer is not supplied by the fact that planes were enabled. |
+| [Teleport doors](crash_20261019_teleport_door_null_base_plan.md) and [October 20 level-up inventory](crash_20261020_levelup_inventory_plan.md) | Different reference/base-form and inventory mutation paths. | A connection to plane generation or plane-list retirement is not established. |
+
+The archive playtimes vary from roughly one minute to nearly 24 minutes. They
+do not establish a ten-minute timer, monotonic plane accumulation or one common
+crash signature. Unwind warnings and recognizable objects elsewhere on the
+stack are not writer identification. The existing linked-plane investigation
+explains why its unwind warning is not independent heap-corruption proof.
+
+For the child-storage family, retain the
+[provider installer and literal bytes](../.reports/20261021-1911-transition-crash/provider-installer.txt)
+and [disassembly at the installed address](../.reports/20261021-1911-transition-crash/replacement-at-native-address.txt).
+The installed instruction is `mov eax, [ecx+eax*4]`, whereas the supported
+unmodified executable has a different instruction boundary there. Diagnosing
+only the unmodified executable would misidentify this fault. This establishes
+the immediate null-storage access, not a defect attribution to that provider.
+No modification or compatibility patch to another mod is proposed.
+
+### 10.3 Ownership defect: active selection is not retirement
+
+The current `runtime.rs::inject` computes `same_scene` from pointer equality.
+When it is false, it creates an empty `linked` map, drains the tracked planes,
+and releases every retained plane. It does not unlink anything from the former
+graph. The comment asserts that the old list is gone. The native evidence does
+not support this assertion:
+
+1. Getter `0x00454B30` returns `owner+0x1E0` without retaining it. This is an
+   active visibility-graph selection, not evidence of ownership transfer.
+2. Switch `0x00B5DDF0` clears owner-side work lists, updates room/object
+   associations, and stores the new graph at `0x00B5E06E`. It performs no
+   direct clear of the former graph's occluder list at `graph+8` or release
+   of the graph as an owning pointer. Its `0x00B5D180`/`0x00B5C3C0` drain
+   operates on other owner lists and releases scene-object state. These
+   operations do not establish that the old graph and its occluder nodes have
+   been destroyed before the injector's next callback.
+3. The graph has a separate owning pointer in `TESObjectCELL+0xD4`, read by
+   `0x009D9F20`. The activation caller at `0x00552AAC` publishes that graph.
+   Cell cleanup `0x00545C10` clears active selection at `0x00545C6C` and only
+   subsequently releases the cell's owning pointer at `0x00545C7C` through
+   `0x0066B0D0`. Reference cleanup `0x00583270` similarly separates selection
+   removal from its owning-pointer release. Selection and lifetime are distinct.
+4. Actual graph destruction clears `graph+8` through `0x004ED900`, called at
+   `0x00C5AE34`. This is the retirement operation the injector currently
+   assumes has already occurred merely because selection changed.
+5. Append stores a borrowed plane pointer in a list node. It takes no strong
+   plane reference. The injector's own decrement can therefore destroy a plane
+   while a surviving old graph still contains its pointer.
+
+The conditional failure sequence is precise:
+
+```text
+graph A owns list node -> injected plane P; injector owns P's strong reference
+engine selects graph B while graph A survives
+injector sees a different pointer and releases P without unlinking A's node
+graph A still contains P's address after P's destruction
+later use of A can dereference freed or reused storage
+```
+
+The native switch does not itself prove the survival interval through the
+injector callback in any supplied incident. No captured plane address is tied
+to this sequence. Thus this is an unsupported ownership invariant and a
+specific candidate use-after-free mechanism, not a reproduced incident root
+cause. The old graph must not simply be dereferenced after a pointer change:
+it may instead already have been destroyed. Both cases require an ownership
+protocol.
+
+The ordinary same-graph removal is materially different: it discovers current
+nodes by plane pointer, unlinks them, returns nodes through the native pool,
+then releases planes. The audited node offsets, `RET 4` ABI and refcount
+decrement-to-`DeleteThis` shape agree with the native implementation. This does
+not establish exclusion from simultaneous native readers.
+
+### 10.4 Frame phase, collection and synchronization
+
+Local xNVSE source and the
+[upstream implementation](https://github.com/xNVSE/NVSE/blob/master/nvse/nvse/Hooks_Gameplay.cpp)
+define `DisplayFrameHook<false>` for the main loop and
+`DisplayFrameHook<true>` for loading screens, at `0x0087055E` and
+`0x007147C4`. Both dispatch `OnFramePresent` with a four-byte integer flag.
+The [archived xNVSE callback disassembly](../.reports/20261021-corruption-causality-followup/nvse-present-callbacks.txt)
+independently shows payload values zero and one. This is not an assumption
+that every presentation is a gameplay boundary.
+
+Current helper `events.rs` forwards null data, length zero and boolean `-1`.
+Core `host_events.rs` ignores those arguments. The injector routes every
+presentation to `frame_tick`, with no loading admission. Pre-load/new-game/menu
+events only set `RESET_PENDING`; on the next successful scene lookup the
+injector can cancel generation and reconcile again, including during a loading
+presentation. Null checks establish neither scene lifetime nor cell attachment.
+
+The resumable collector does not keep list nodes or geometry pointers across
+frames: it restarts the list walk at its cursor, and clears the node stack per
+reference. It does keep an unretained cell address, and continuation admission
+checks that address alone. A loading interruption, graph switch or address
+reuse is not represented by a generation epoch. Reading volatile memory does
+not pin an object or synchronize with attach/detach writers.
+
+The injector's Rust mutex protects its own tracking data. Native readers do
+not acquire it. Native list-node allocation/free use a shared pool lock, but
+the neighbor/head/tail edits occur outside that pool operation. That lock is
+not a visibility-reader fence. The two owner locks in `0x00B5DDF0`, or the
+critical section in `0x00C5B8D0` covering other lists, must not be borrowed as
+an assumed lock for `graph+8`. Complete reader/writer and task-completion
+coverage remains an implementation gate.
+
+Archived [loading-admission work](../.reports/20261021-loading-phase-implementation/core-occlusion.asm)
+and a [later source snapshot](../.reports/20261022-single-diagnostic-build/before/psycho-engine-fixes/src/mods/perf/occlusion_planes/runtime.rs)
+already contain a loading/unknown-phase guard. They are not the current source,
+and are not proof of crash recovery. Restoring admission alone must not be
+presented as a complete stability fix.
+
+### 10.5 Geometry and cache defect reproduced offline
+
+The archived fixture is the complete `BlackVoid` mesh from `WoodShack01`:
+[asset provenance](../.reports/20261021-generator-surface-audit/asset-input.json),
+[vertices and strip triangles](../.reports/20261021-generator-surface-audit/blackvoid-actual-surface.bin)
+and [actual-production harness](../.reports/20261021-generator-surface-audit/production_math_research.rs).
+Its triangle `[23,23,23]` has no surface. The current
+`point_in_triangle_2d` nevertheless accepts a displaced point because all three
+cross products are zero. `near_face_triangles_into` also retains such triangles
+when their vertices satisfy the face-distance test. Zero projected area must
+not constitute evidence of a solid face.
+
+The archived harness was attached under `cfg(test)` to the unchanged production
+module and executed through Wine with the supported 32-bit release-profile
+test command. The no-surface assertion failed again. The companion test that
+extracts the complete mesh with and without strip connectors passed and emitted
+the same rectangles. This proves the predicate defect but does not prove a
+false rectangle for this complete asset, invisible terrain, pointer corruption
+or a game crash. The fixture provenance explicitly does not establish the
+crash-time VFS asset.
+
+The [new regression result](../.reports/20261104-occlusion-stability/unchanged-geometry-unsandboxed.log)
+and [input/source record](../.reports/20261104-occlusion-stability/regression-inputs.json)
+are preserved. The temporary test attachment was removed and the source
+restored byte-for-byte. Earlier
+[correction evidence](../.reports/20261022-occlusion-correction/qualification.json)
+includes a geometry fix and cache invalidation, but those changes are absent
+from the current predicate and its version-9 cache reader. Reusing an old cache
+after correcting generation would bypass regeneration; any extraction repair
+must advance the cache/generation revision and reject the actual old cache.
+
+### 10.6 Plane count and rendering-pipeline hypotheses
+
+No fixed small plane-count limit was found in the audited paths. The native
+list allocates one node per plane. The compound builder checks capacity before
+appending frusta/instructions, growing storage through `0x00C4A070` and
+`0x00C4A1E0`; it does not index a discovered fixed array by total plane count.
+This is bounded static evidence, not proof of support for arbitrary counts or
+allocation failure.
+
+The archived configurations examined use a shared cap of 128 and grid radius
+zero. The current configuration clamps generated planes to 1-256 and union
+selection applies one shared cap. Authored planes are additional native input;
+the cap is not a limit on total engine planes. Native cost still grows with
+tested bounds times admitted planes, and compound storage can grow. No archived
+workload establishes a count threshold, monotonic leak, allocation failure or
+plane-count-induced overwrite. Reducing the cap is not an established crash
+repair.
+
+Injection does not replace D3D render hooks or install a new shader/pass. It
+does modify native scene visibility before draw submission, including compound
+visibility consumers. Therefore the absence of render-hook changes does not
+establish integration safety. Conversely, a rendering crash does not identify
+an OMV pass or GPU resource as its cause. The reported FPS benefit is the
+owner's runtime observation; this investigation makes no new FPS measurement.
+
+### 10.7 Ordered repair plan and proof gates
+
+1. **Establish incident ownership at the real boundary.** Reproduce an archived
+   failure with its actual save/route, configuration and enabled feature before
+   a crash repair. Compare the same workload with only plane injection changed;
+   preserve rendering settings, other fixes and allocator selection. Record
+   whether the bad source plane is authored or injected, its graph, all four
+   link slots, and allocation/publication/unlink/destruction history. Existing
+   archives lack these records. If observation is needed, use bounded,
+   test-only instrumentation at the actual native boundaries, with no changed
+   ownership or exception suppression. A debug-only build is not required.
+   No game execution or new instrumentation was performed by this research.
+
+2. **Close native lifetime and reader exclusion before editing ownership.**
+   Trace graph-owner publication/release and all discovered list consumers,
+   including worker/task entry and completion. Prove a mutation point at which
+   old nodes cannot still be in use. The intended invariant is: an injected
+   plane is released only after every list that exposes it has unlinked it and
+   every admitted reader has finished. An active-pointer comparison, a mapped
+   address, a fixed frame delay or a private mutex cannot supply that proof.
+   The current evidence is insufficient to choose a safe native hook.
+
+3. **Implement an explicit injection owner at the proven boundary.**
+   Replace the changed-graph release assumption in `runtime.rs` with ownership
+   of the graph/list and its plane references. A supported design can retain
+   the graph while its injected nodes exist, then unlink its own nodes before
+   releasing planes and finally the graph; an engine retirement callback is
+   another option if its complete lifetime/ABI contract is proven. Choose only
+   after step 2. Handle both surviving and destroyed old graphs and native
+   list clears. Avoid leaking planes until process exit or blindly touching
+   an old graph. Preserve authored nodes and exactly one injector-owned strong
+   plane reference. Keep allocation and rollback explicit.
+
+4. **Carry presentation phase and a world generation identity.**
+   Update helper `events.rs`, core `host_events.rs`, `perf` routing and
+   occlusion event admission to preserve the existing phase payload/ABI.
+   Loading or unknown phase must not walk live cell/mesh memory, mutate lists,
+   create planes or run deferred cleanup against a retiring owner. Invalidate
+   an interrupted generator using a world epoch plus cell identity and graph
+   association. Resume only at the boundary established in step 2; a normal
+   presentation alone is not evidence that background streaming has finished.
+   Keep transitions allocation-free where possible and avoid added per-bound
+   permission queries, polling or logs. Read the complete startup contract
+   before changing these shared paths and preserve pre-DeferredInit behavior.
+
+5. **Correct coverage independently and invalidate affected caches.**
+   Reject repeated-index and zero-projected-area triangles consistently in
+   face selection and point containment, using the actual asset regression.
+   Preserve genuine triangle edges and valid thin geometry; do not introduce
+   an arbitrary tolerance that silently removes coverage. Retain the complete
+   asset/control test and opening tests. Advance cache/generation revision and
+   exercise the production decoder with the archived pre-correction cache.
+   Keep this separate from the native ownership fix and do not label it a
+   repaired crash without native evidence.
+
+6. **Qualify stability, correctness and cost separately.**
+   The behavioral gate must exercise actual native creation, insertion,
+   consumption, graph switching and retirement. Include buffered surviving
+   graphs, destroyed graphs, A-to-B-to-A transitions, same-address reuse,
+   save load/reload, new game, main menu, loading presentations and interrupted
+   generation. Confirm no dangling injected list entry, duplicate unlink,
+   double release or authored-node mutation. Execute native linked-plane
+   clipping for valid authored/generated input, not just permission rejection.
+   Cover the water/child-array recurrence separately if it remains after the
+   ownership repair. Preserve the affected scene's visibility and compare
+   frame-time distributions on the same workload/settings through repeated
+   transitions and beyond the reported failure interval. A ten-minute clean
+   run alone does not prove resolution. Run focused regressions, affected
+   core/helper suites, the supported complete 32-bit release build, formatting,
+   startup acceptance and diff review before calling the fix ready.
+
+More pointer guards can contain a bad input but cannot identify a writable
+reused object or repair a dangling owner. Do not clear authored links, alter
+the allocator, disable the feature, reduce its coverage or replace it with a
+different occlusion system as a substitute for these gates. The shipped-TOML
+versus-Rust-default mismatch is a separate configuration inconsistency to
+resolve with the experimental rollout policy; it is not the crash mechanism.
+
+### 10.8 Research handoff state before implementation authorization
+
+Production code is unchanged. The current geometry defect has fresh offline
+failure evidence; the graph-lifetime and phase findings have source/binary
+evidence. Native incident reproduction, invalidating writer identity, reader
+exclusion, startup, rendered correctness and performance acceptance remain
+unverified. Research used the existing reporter archives without assuming a
+reporter-only implementation exception. No deployment, packaging or commit
+was performed. The next ownership implementation is blocked on the real
+behavioral reproduction and the reader/lifetime contract, rather than on a
+speculative plane-count adjustment. The subsequent explicit owner instruction
+waived runtime testing and authorized the implementation in section 11.
+
+## 11. Ownership and phase correction implementation
+
+The owner explicitly authorized implementing all identified occlusion issues
+without runtime testing. This task-specific authorization includes repairing
+the injector's own ownership, beyond the guard-only scope of
+`psycho_engine_fix_exception.md`. Native ABI, source/binary evidence, scope,
+offline tests and honest reporting remain required. No game execution is an
+implementation gate for this authorized candidate, and none is requested or
+claimed. This does not establish the original corrupting writer or repair the
+separately investigated unrelated crash families in section 10.2.
+
+### Graph ownership and mutation boundary
+
+`runtime::Injection` owns its graph and every injected plane. Incoming graph
+ownership is acquired before outgoing ownership is released. A graph switch
+unlinks all tracked old nodes while the old graph is still strongly owned,
+then releases the planes. `RetiredGraph` releases the graph only after the
+publication guard and tracking mutex have dropped. This prevents both a
+dangling old list and graph destruction under a lock that a native publisher
+could be waiting for while holding another engine lock. Empty sets and failed
+allocations also release an unused graph outside the publication lock.
+
+Native reader coverage was extended against the same verified executable:
+
+| Reader | Native caller coverage found |
+| --- | --- |
+| `0x00B5AC90`, plane activation | One direct call at `0x0086EBF5` in main frame `0x0086E650`. |
+| `0x00B5BBE0`, bound/list traversal | Six direct calls in `0x0045B070`, and three in `0x006FA6D0`. The latter is called by `0x006FD080`, whose found caller is `0x0045B235` in that same `0x0045B070` pass. |
+| `0x00B5F170`, compound construction | Three direct calls in `0x0045B070`. Its builder copies frusta into owned compound storage; it does not publish our plane pointers to later culling work. |
+| `0x0045B070`, outer visibility pass | Found caller `0x0086EC18` in main frame `0x0086E650`. |
+
+The main frame calls render owner `0x0086FF70` at `0x0086EDE8`, after the
+synchronous visibility pass. Its normal present call is `0x0087055E`, where
+xNVSE dispatches the normal presentation message. Injector list changes are
+confined to that main-thread callback, after these readers have returned.
+The thread ID is captured at DeferredInit; a foreign-thread invocation cancels
+work without entering the engine. This contract covers the verified native
+references and normal chained providers, not arbitrary external code that
+introduces an asynchronous engine-list reader outside the native contract.
+
+Evidence: [reader/publisher references](../analysis/radare2/output/occlusion_stability_reader_callers_20261104.txt),
+[list methods and reader bodies](../analysis/radare2/output/occlusion_stability_list_threads_20261104.txt),
+[secondary reader owner](../analysis/radare2/output/occlusion_stability_world_thread_owners_20261104.txt)
+and [complete render/present owner](../analysis/radare2/output/occlusion_normal_present_owner_20261104.txt).
+The last source-owner capture's `0x0093E840` probes do not cover the separate
+`0x00940161`/`0x0094383C` attachment callers and are not used as thread proof.
+Publisher serialization avoids depending on those callers' thread ownership.
+
+`native_list` chains both native append callers (`0x0054AA11` reference
+attachment and `0x005BBBD1` console creation), using exact caller context and
+the provider captured at each call. A recursive mutex serializes those whole
+calls with injector list scans/unlinks. It is never taken by a per-bound or
+per-draw consumer, or held over mesh collection or cache I/O. Graph destruction
+cannot clear the list while injected nodes exist because the injector holds
+a strong graph reference. The native pool lock remains owned by the engine.
+
+Both bridges are prepared transactionally at the existing pre-CRT barrier.
+Before DeferredInit they forward without first-touching the recursive mutex or
+its thread-local state. An atomic enroll-before-check counter tracks those
+unguarded calls. DeferredInit verifies that both prepared callers still target
+our bridges and publishes synchronization without code writes. The first
+normal callback waits by returning and retrying until pre-publication calls
+have completed; it holds no engine lock while doing so. There is no guessed
+frame delay. A rollback survivor always retains its original provider.
+
+### World identity and collection lifetime
+
+The helper decodes xNVSE's four-byte integer presentation payload into the
+existing host ABI scalar: zero normal, one loading, minus one unknown. It does
+not treat that integer pointer as PostLoadGame's pointer-valued boolean. No
+host export, configuration layout, event number or dashboard structure changed.
+Other subsystems retain their existing event routing.
+
+Loading/unknown presentations and pre-load/new-game/menu events only advance
+the world epoch and mark reset pending. The next normal main-thread callback
+retires the retained injection and cancels Rust generation/neighborhood state
+before player/cell lookup, so menu cleanup does not require a live player.
+An interrupted generation must match epoch, full cell key, cell address and
+graph. The generator no longer stores a dereferenceable cell pointer: every
+slice receives the current cell anew. Each slice holds one verified native
+CellRefLock recursion level, released by RAII before selection/injection.
+Identity is checked even when the cell address has not changed.
+
+The lock protects reference-list membership, not arbitrary geometry writes.
+Static mesh reads remain confined to the native main-frame boundary and the
+existing admitted static/unskinned geometry contract. No worker walks a scene
+graph. [Native lock entry](../analysis/radare2/output/occlusion_cell_lock_enter_20261104.txt)
+and [leave](../analysis/radare2/output/occlusion_cell_lock_leave_20261104.txt)
+have exact activation signatures.
+
+### Surface coverage, caches and configuration
+
+Zero projected area and nonfinite projected area are rejected both when
+choosing near-face triangles and in point containment. Exact zero is used;
+no arbitrary minimum area removes valid thin triangles or genuine shared
+edges. The actual BlackVoid strip connector no longer supplies surface or
+boundary-edge evidence. The complete asset still emits its four rectangles
+and is unchanged by removing its zero-area connectors.
+
+Cache revision 10 rejects the actual archived revision-9 cache even when its
+plugin/configuration signature matches. This forces regeneration instead of
+reusing pre-correction planes. The compact actual mesh and cache are preserved
+with provenance in the module's `fixtures/` directory, so regressions no longer
+depend on optional developer report paths. The owner subsequently requested
+default-on behavior: shipped TOML, core and dashboard now agree, and explicit
+false remains false. This default policy is separate from the ownership repair.
+
+### Qualification and remaining uncertainty
+
+The real archived-input baseline reproduced the connector containment,
+near-face selection and cache-admission failures before production corrections.
+Their production regressions now pass, including complete-surface preservation
+and existing opening/coverage tests. The production phase decoder exercises
+normal, loading, unknown, malformed-length and null payloads. Actual core and
+dashboard parsers default on while preserving explicit disable.
+
+Results and pre-edit artifacts are retained under
+[offline qualification](../.reports/20261104-occlusion-stability/implementation/qualification.json).
+The affected core/helper suites, supported 32-bit release build, formatting,
+document checks and diff review passed. The
+[compiled ABI capture](../analysis/radare2/output/occlusion_stability_candidate_abi_20261104.txt)
+confirms both bridges preserve thiscall argument/stack cleanup, retain the
+pre-DeferredInit direct-provider path, and release retired graphs after both
+list guards. The existing host export retains its four-argument stdcall ABI
+and forwards the phase scalar. The
+[startup comparison](../.reports/20261104-occlusion-stability/implementation/startup-comparison.json)
+against the pre-edit local artifacts found unchanged import sequences, TLS
+layout and CRT initializers. That comparison is not a deployed-artifact match
+or runtime startup acceptance.
+Native graph switching, linked-plane clipping, continued gameplay, startup,
+image correctness and frame-time/FPS behavior were not executed locally. The graph and
+publisher changes are qualified by native contracts and compiled ABI review,
+not mocks or reconstructed engine objects. The owner runtime-test waiver does
+not convert those static results into gameplay observations. Agents have not
+deployed or packaged artifacts, and the original incident writer remains unknown.
+
+After the default-on change, the owner reported "no crashes" and requested
+committing the fix. This is positive owner-reported runtime evidence. Session
+duration, route, deployed artifact identity, transition coverage and performance
+measurements were not supplied, so those details remain unverified.

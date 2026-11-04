@@ -257,8 +257,8 @@ fn install_runtime_hooks(
         log::info!("[SCENE_ROOT_ADMISSION] Single-search admission disabled by config");
     }
 
-    // Occlusion-plane injection records configuration here and activates on
-    // DeferredInit; it never patches code and has no startup transaction.
+    // Prepare the native plane-publication bridges at the pre-CRT barrier.
+    // World/cache activation still waits for DeferredInit.
     install_occlusion_planes(performance);
 
     if performance.rng {

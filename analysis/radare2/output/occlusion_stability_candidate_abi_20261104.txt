@@ -1,0 +1,1603 @@
+Compiled candidate ABI review, 2026-11-04. Local release artifact; no deployed identity claim.
+Tool: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Binary: target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+Options: scr.color=0, bin.relocs.apply=true
+Commands: af @ 0x100c2cb0; pdf @ 0x100c2cb0; af @ 0x100c2dd0; pdf @ 0x100c2dd0; af @ 0x1014d770; pdf @ 0x1014d770; af @ 0x1014ec80; pdf @ 0x1014ec80; af @ 0x10155170; pdf @ 0x10155170; af @ 0x100c0670; pdf @ 0x100c0670
+┌ 281: sym.psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::_0_ (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(2:sp[0x14..0x18])
+; psycho_engine_fixes::mods::perf::occlusion_planes::native_list::appe
+; nd::<0>
+│           0x100c2cb0      55             push ebp
+│           0x100c2cb1      89e5           mov ebp, esp
+│           0x100c2cb3      53             push ebx
+│           0x100c2cb4      57             push edi
+│           0x100c2cb5      56             push esi
+│           0x100c2cb6      50             push eax
+│           0x100c2cb7      8b35e0665610   mov esi, dword [0x105666e0] ; [0x105666e0:4]=0
+│           0x100c2cbd      f0ff05e866..   lock inc dword [0x105666e8] ; [0x105666e8:4]=0
+│           0x100c2cc4      0fb605cf66..   movzx eax, byte [0x105666cf] ; [0x105666cf:1]=0
+│           0x100c2ccb      84c0           test al, al
+│       ┌─< 0x100c2ccd      7439           je 0x100c2d08
+│       │   0x100c2ccf      894df0         mov dword [var_10h], ecx
+│       │   0x100c2cd2      f0ff0de866..   lock dec dword [0x105666e8] ; [0x105666e8:4]=0
+│       │   0x100c2cd9      e8d2700c00     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│       │   0x100c2cde      89c7           mov edi, eax
+│       │   0x100c2ce0      8d05dd665610   lea eax, [0x105666dd]
+│       │   0x100c2ce6      50             push eax
+│       │   0x100c2ce7      e8d41a2400     call sym.__RNvXNtCs8zndHw5nrnV_11parking_lot7remutexNtB2_11RawThreadIdNtNtCs3fFlPYWpS9N_8lock_api7remutex11GetThreadId17nonzero_thread_i
+│       │   0x100c2cec      83c404         add esp, 4
+│       │   0x100c2cef      8b0dd4665610   mov ecx, dword [0x105666d4] ; [0x105666d4:4]=0
+│       │   0x100c2cf5      89c3           mov ebx, eax
+│       │   0x100c2cf7      39d9           cmp ecx, ebx
+│      ┌──< 0x100c2cf9      751e           jne 0x100c2d19
+│      ││   0x100c2cfb      a1d8665610     mov eax, dword [0x105666d8] ; [0x105666d8:4]=0
+│      ││   0x100c2d00      83f8ff         cmp eax, 0xffffffff
+│     ┌───< 0x100c2d03      747a           je 0x100c2d7f
+│     │││   0x100c2d05      40             inc eax
+│    ┌────< 0x100c2d06      eb2a           jmp 0x100c2d32
+│    │││└─> 0x100c2d08      ff7508         push dword [arg_8h]
+│    │││    0x100c2d0b      ffd6           call esi
+│    │││    0x100c2d0d      f0ff0de866..   lock dec dword [0x105666e8] ; [0x105666e8:4]=0
+│    │││    0x100c2d14      83c404         add esp, 4
+│    │││┌─< 0x100c2d17      eb5f           jmp 0x100c2d78
+│    ││└──> 0x100c2d19      b101           mov cl, 1
+│    ││ │   0x100c2d1b      31c0           xor eax, eax
+│    ││ │   0x100c2d1d      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│    ││┌──< 0x100c2d25      756e           jne 0x100c2d95
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<0> @ 0x100c2db1(x)
+│   ┌─────> 0x100c2d27      891dd4665610   mov dword [0x105666d4], ebx ; [0x105666d4:4]=0
+│   ╎││││   0x100c2d2d      b801000000     mov eax, 1
+│   ╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<0> @ 0x100c2d06(x)
+│   ╎└────> 0x100c2d32      a3d8665610     mov dword [0x105666d8], eax ; [0x105666d8:4]=0
+│   ╎ │││   0x100c2d37      57             push edi
+│   ╎ │││   0x100c2d38      e8b35e0c00     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎ │││   0x100c2d3d      83c404         add esp, 4
+│   ╎ │││   0x100c2d40      8b4df0         mov ecx, dword [var_10h]
+│   ╎ │││   0x100c2d43      ff7508         push dword [arg_8h]
+│   ╎ │││   0x100c2d46      ffd6           call esi
+│   ╎ │││   0x100c2d48      e863700c00     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎ │││   0x100c2d4d      ff0dd8665610   dec dword [0x105666d8]      ; [0x105666d8:4]=0
+│   ╎ │││   0x100c2d53      89c6           mov esi, eax
+│   ╎┌────< 0x100c2d55      7518           jne 0x100c2d6f
+│   ╎││││   0x100c2d57      c705d46656..   mov dword [0x105666d4], 0   ; [0x105666d4:4]=0
+│   ╎││││   0x100c2d61      31c9           xor ecx, ecx
+│   ╎││││   0x100c2d63      b001           mov al, 1
+│   ╎││││   0x100c2d65      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│  ┌──────< 0x100c2d6d      7547           jne 0x100c2db6
+│  │╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<0> @ 0x100c2dc7(x)
+│ ┌──└────> 0x100c2d6f      56             push esi
+│ ╎│╎ │││   0x100c2d70      e87b5e0c00     call sym.libpsycho::os::windows::winapi::set_last_error
+│ ╎│╎ │││   0x100c2d75      83c408         add esp, 8
+│ ╎│╎ │││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<0> @ 0x100c2d17(x)
+│ ╎│╎ ││└─> 0x100c2d78      5e             pop esi
+│ ╎│╎ ││    0x100c2d79      5f             pop edi
+│ ╎│╎ ││    0x100c2d7a      5b             pop ebx
+│ ╎│╎ ││    0x100c2d7b      5d             pop ebp
+│ ╎│╎ ││    0x100c2d7c      c20400         ret 4
+│ ╎│╎ └───> 0x100c2d7f      6898004210     push 0x10420098
+│ ╎│╎  │    0x100c2d84      6a22           push 0x22                   ; '\"' ; 34
+│ ╎│╎  │    0x100c2d86      6810004210     push 0x10420010             ; '\x10' ; "ReentrantMutex lock count overflow/home/acidpointer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lock_api-0.4.14/src/remutex.rs"
+│ ╎│╎  │    0x100c2d8b      e8d0372c00     call sym.core::option::expect_failed
+│ ╎│╎  │    0x100c2d90      83c40c         add esp, 0xc
+│ ╎│╎  │    0x100c2d93      0f0b           ud2
+│ ╎│╎  └──> 0x100c2d95      83ec10         sub esp, 0x10
+│ ╎│╎       0x100c2d98      8d05dc665610   lea eax, [0x105666dc]
+│ ╎│╎       0x100c2d9e      c744240cff..   mov dword [var_ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│ ╎│╎       0x100c2da6      890424         mov dword [esp], eax
+│ ╎│╎       0x100c2da9      e882062400     call sym._parking_lot::raw_mutex::RawMutex_::lock_slow ; <parking_lot::raw_mutex::RawMutex>::lock_slow
+│ ╎│╎       0x100c2dae      83c410         add esp, 0x10
+│ ╎│└─────< 0x100c2db1      e971ffffff     jmp 0x100c2d27
+│ ╎└──────> 0x100c2db6      8d05dc665610   lea eax, [0x105666dc]
+│ ╎         0x100c2dbc      6a00           push 0
+│ ╎         0x100c2dbe      50             push eax
+│ ╎         0x100c2dbf      e83c032400     call sym._parking_lot::raw_mutex::RawMutex_::unlock_slow ; <parking_lot::raw_mutex::RawMutex>::unlock_slow
+│ ╎         0x100c2dc4      83c408         add esp, 8
+└ └───────< 0x100c2dc7      eba6           jmp 0x100c2d6f
+┌ 281: sym.psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::_1_ (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(2:sp[0x14..0x18])
+; psycho_engine_fixes::mods::perf::occlusion_planes::native_list::appe
+; nd::<1>
+│           0x100c2dd0      55             push ebp
+│           0x100c2dd1      89e5           mov ebp, esp
+│           0x100c2dd3      53             push ebx
+│           0x100c2dd4      57             push edi
+│           0x100c2dd5      56             push esi
+│           0x100c2dd6      50             push eax
+│           0x100c2dd7      8b35e4665610   mov esi, dword [0x105666e4] ; [0x105666e4:4]=0
+│           0x100c2ddd      f0ff05e866..   lock inc dword [0x105666e8] ; [0x105666e8:4]=0
+│           0x100c2de4      0fb605cf66..   movzx eax, byte [0x105666cf] ; [0x105666cf:1]=0
+│           0x100c2deb      84c0           test al, al
+│       ┌─< 0x100c2ded      7439           je 0x100c2e28
+│       │   0x100c2def      894df0         mov dword [var_10h], ecx
+│       │   0x100c2df2      f0ff0de866..   lock dec dword [0x105666e8] ; [0x105666e8:4]=0
+│       │   0x100c2df9      e8b26f0c00     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│       │   0x100c2dfe      89c7           mov edi, eax
+│       │   0x100c2e00      8d05dd665610   lea eax, [0x105666dd]
+│       │   0x100c2e06      50             push eax
+│       │   0x100c2e07      e8b4192400     call sym.__RNvXNtCs8zndHw5nrnV_11parking_lot7remutexNtB2_11RawThreadIdNtNtCs3fFlPYWpS9N_8lock_api7remutex11GetThreadId17nonzero_thread_i
+│       │   0x100c2e0c      83c404         add esp, 4
+│       │   0x100c2e0f      8b0dd4665610   mov ecx, dword [0x105666d4] ; [0x105666d4:4]=0
+│       │   0x100c2e15      89c3           mov ebx, eax
+│       │   0x100c2e17      39d9           cmp ecx, ebx
+│      ┌──< 0x100c2e19      751e           jne 0x100c2e39
+│      ││   0x100c2e1b      a1d8665610     mov eax, dword [0x105666d8] ; [0x105666d8:4]=0
+│      ││   0x100c2e20      83f8ff         cmp eax, 0xffffffff
+│     ┌───< 0x100c2e23      747a           je 0x100c2e9f
+│     │││   0x100c2e25      40             inc eax
+│    ┌────< 0x100c2e26      eb2a           jmp 0x100c2e52
+│    │││└─> 0x100c2e28      ff7508         push dword [arg_8h]
+│    │││    0x100c2e2b      ffd6           call esi
+│    │││    0x100c2e2d      f0ff0de866..   lock dec dword [0x105666e8] ; [0x105666e8:4]=0
+│    │││    0x100c2e34      83c404         add esp, 4
+│    │││┌─< 0x100c2e37      eb5f           jmp 0x100c2e98
+│    ││└──> 0x100c2e39      b101           mov cl, 1
+│    ││ │   0x100c2e3b      31c0           xor eax, eax
+│    ││ │   0x100c2e3d      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│    ││┌──< 0x100c2e45      756e           jne 0x100c2eb5
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<1> @ 0x100c2ed1(x)
+│   ┌─────> 0x100c2e47      891dd4665610   mov dword [0x105666d4], ebx ; [0x105666d4:4]=0
+│   ╎││││   0x100c2e4d      b801000000     mov eax, 1
+│   ╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<1> @ 0x100c2e26(x)
+│   ╎└────> 0x100c2e52      a3d8665610     mov dword [0x105666d8], eax ; [0x105666d8:4]=0
+│   ╎ │││   0x100c2e57      57             push edi
+│   ╎ │││   0x100c2e58      e8935d0c00     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎ │││   0x100c2e5d      83c404         add esp, 4
+│   ╎ │││   0x100c2e60      8b4df0         mov ecx, dword [var_10h]
+│   ╎ │││   0x100c2e63      ff7508         push dword [arg_8h]
+│   ╎ │││   0x100c2e66      ffd6           call esi
+│   ╎ │││   0x100c2e68      e8436f0c00     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎ │││   0x100c2e6d      ff0dd8665610   dec dword [0x105666d8]      ; [0x105666d8:4]=0
+│   ╎ │││   0x100c2e73      89c6           mov esi, eax
+│   ╎┌────< 0x100c2e75      7518           jne 0x100c2e8f
+│   ╎││││   0x100c2e77      c705d46656..   mov dword [0x105666d4], 0   ; [0x105666d4:4]=0
+│   ╎││││   0x100c2e81      31c9           xor ecx, ecx
+│   ╎││││   0x100c2e83      b001           mov al, 1
+│   ╎││││   0x100c2e85      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│  ┌──────< 0x100c2e8d      7547           jne 0x100c2ed6
+│  │╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<1> @ 0x100c2ee7(x)
+│ ┌──└────> 0x100c2e8f      56             push esi
+│ ╎│╎ │││   0x100c2e90      e85b5d0c00     call sym.libpsycho::os::windows::winapi::set_last_error
+│ ╎│╎ │││   0x100c2e95      83c408         add esp, 8
+│ ╎│╎ │││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::native_list::append::<1> @ 0x100c2e37(x)
+│ ╎│╎ ││└─> 0x100c2e98      5e             pop esi
+│ ╎│╎ ││    0x100c2e99      5f             pop edi
+│ ╎│╎ ││    0x100c2e9a      5b             pop ebx
+│ ╎│╎ ││    0x100c2e9b      5d             pop ebp
+│ ╎│╎ ││    0x100c2e9c      c20400         ret 4
+│ ╎│╎ └───> 0x100c2e9f      6898004210     push 0x10420098
+│ ╎│╎  │    0x100c2ea4      6a22           push 0x22                   ; '\"' ; 34
+│ ╎│╎  │    0x100c2ea6      6810004210     push 0x10420010             ; '\x10' ; "ReentrantMutex lock count overflow/home/acidpointer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lock_api-0.4.14/src/remutex.rs"
+│ ╎│╎  │    0x100c2eab      e8b0362c00     call sym.core::option::expect_failed
+│ ╎│╎  │    0x100c2eb0      83c40c         add esp, 0xc
+│ ╎│╎  │    0x100c2eb3      0f0b           ud2
+│ ╎│╎  └──> 0x100c2eb5      83ec10         sub esp, 0x10
+│ ╎│╎       0x100c2eb8      8d05dc665610   lea eax, [0x105666dc]
+│ ╎│╎       0x100c2ebe      c744240cff..   mov dword [var_ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│ ╎│╎       0x100c2ec6      890424         mov dword [esp], eax
+│ ╎│╎       0x100c2ec9      e862052400     call sym._parking_lot::raw_mutex::RawMutex_::lock_slow ; <parking_lot::raw_mutex::RawMutex>::lock_slow
+│ ╎│╎       0x100c2ece      83c410         add esp, 0x10
+│ ╎│└─────< 0x100c2ed1      e971ffffff     jmp 0x100c2e47
+│ ╎└──────> 0x100c2ed6      8d05dc665610   lea eax, [0x105666dc]
+│ ╎         0x100c2edc      6a00           push 0
+│ ╎         0x100c2ede      50             push eax
+│ ╎         0x100c2edf      e81c022400     call sym._parking_lot::raw_mutex::RawMutex_::unlock_slow ; <parking_lot::raw_mutex::RawMutex>::unlock_slow
+│ ╎         0x100c2ee4      83c408         add esp, 8
+└ └───────< 0x100c2ee7      eba6           jmp 0x100c2e8f
+┌ 657: sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection ();
+│ afv: vars(19:sp[0x10..0x74])
+; psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_i
+; njection
+│           0x1014d770      55             push ebp
+│           0x1014d771      89e5           mov ebp, esp
+│           0x1014d773      53             push ebx
+│           0x1014d774      57             push edi
+│           0x1014d775      56             push esi
+│           0x1014d776      83e4f8         and esp, 0xfffffff8
+│           0x1014d779      83ec68         sub esp, 0x68
+│           0x1014d77c      a1e8134010     mov eax, dword [0x104013e8] ; [0x104013e8:4]=0
+│           0x1014d781      85c0           test eax, eax
+│           0x1014d783      89442404       mov dword [var_4h], eax
+│       ┌─< 0x1014d787      0f8464020000   je 0x1014d9f1
+│       │   0x1014d78d      a118244010     mov eax, dword [0x10402418] ; [0x10402418:4]=0x10401e3c
+│       │   0x1014d792      6a00           push 0
+│       │   0x1014d794      50             push eax
+│       │   0x1014d795      e8b676ffff     call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellTyyEEKj8_E3getNvNvNvMNtN
+│       │   0x1014d79a      83c408         add esp, 8
+│       │   0x1014d79d      85c0           test eax, eax
+│      ┌──< 0x1014d79f      0f845a020000   je 0x1014d9ff
+│      ││   0x1014d7a5      f30f6f00       movdqu xmm0, xmmword [eax]
+│      ││   0x1014d7a9      8b4c2404       mov ecx, dword [var_4h]
+│      ││   0x1014d7ad      f20f100da8..   movsd xmm1, qword [0x10433ba8] ; [0x10433ba8:8]=0
+│      ││   0x1014d7b5      f20f1015a0..   movsd xmm2, qword [0x10433ba0] ; [0x10433ba0:8]=0x10433b90
+│      ││   0x1014d7bd      660f7ec6       movd esi, xmm0
+│      ││   0x1014d7c1      8d5108         lea edx, [ecx + 8]
+│      ││   0x1014d7c4      83c601         add esi, 1
+│      ││   0x1014d7c7      89542418       mov dword [var_18h], edx
+│      ││   0x1014d7cb      8930           mov dword [eax], esi
+│      ││   0x1014d7cd      83500400       adc dword [eax + 4], 0
+│      ││   0x1014d7d1      f20f114c2428   movsd qword [var_28h], xmm1
+│      ││   0x1014d7d7      f20f11542420   movsd qword [var_20h], xmm2
+│      ││   0x1014d7dd      f30f7f442430   movdqu xmmword [var_30h], xmm0
+│      ││   0x1014d7e3      8b02           mov eax, dword [edx]
+│      ││   0x1014d7e5      85c0           test eax, eax
+│     ┌───< 0x1014d7e7      7423           je 0x1014d80c
+│     │││   0x1014d7e9      8d742420       lea esi, [var_20h]
+│    ┌────< 0x1014d7ed      eb07           jmp 0x1014d7f6
+..
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d80a(x)
+│  ┌┌─────> 0x1014d7f0      85ff           test edi, edi
+│  ╎╎││││   0x1014d7f2      89f8           mov eax, edi
+│ ┌───────< 0x1014d7f4      7416           je 0x1014d80c
+│ │╎╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d7ed(x)
+│ │╎╎└────> 0x1014d7f6      8b38           mov edi, dword [eax]
+│ │╎╎ │││   0x1014d7f8      8b4808         mov ecx, dword [eax + 8]
+│ │╎╎ │││   0x1014d7fb      85c9           test ecx, ecx
+│ │└──────< 0x1014d7fd      74f1           je 0x1014d7f0
+│ │ ╎ │││   0x1014d7ff      50             push eax
+│ │ ╎ │││   0x1014d800      51             push ecx
+│ │ ╎ │││   0x1014d801      56             push esi
+│ │ ╎ │││   0x1014d802      e849d6f5ff     call sym.__RNvMs1_NtCs3qUfj5bFD5W_9hashbrown3mapINtB5_7HashMapjONtNtCs32tIC4fDiEl_4core3ffi6c_voidNtNtNtCs3U2idwLkfcg_3std4hash6random11
+│ │ ╎ │││   0x1014d807      83c40c         add esp, 0xc
+│ │ └─────< 0x1014d80a      ebe4           jmp 0x1014d7f0
+│ └───└───> 0x1014d80c      f20f104c2430   movsd xmm1, qword [var_30h]
+│      ││   0x1014d812      8b0de4134010   mov ecx, dword [0x104013e4] ; [0x104013e4:4]=0
+│      ││   0x1014d818      f30f7e442438   movq xmm0, qword [var_38h]
+│      ││   0x1014d81e      f30f7e542420   movq xmm2, qword [var_20h]
+│      ││   0x1014d824      c705e41340..   mov dword [0x104013e4], 0   ; [0x104013e4:4]=0
+│      ││   0x1014d82e      f20f114c2450   movsd qword [var_50h], xmm1
+│      ││   0x1014d834      f30f7e4c2428   movq xmm1, qword [var_28h]
+│      ││   0x1014d83a      85c9           test ecx, ecx
+│      ││   0x1014d83c      660fd6442458   movq qword [var_58h], xmm0
+│      ││   0x1014d842      660fd6542440   movq qword [var_40h], xmm2
+│      ││   0x1014d848      660fd64c2448   movq qword [var_48h], xmm1
+│     ┌───< 0x1014d84e      0f8461010000   je 0x1014d9b5
+│     │││   0x1014d854      8b35e0134010   mov esi, dword [0x104013e0] ; [0x104013e0:4]=8
+│     │││   0x1014d85a      89c8           mov eax, ecx
+│     │││   0x1014d85c      c1e004         shl eax, 4
+│     │││   0x1014d85f      01f0           add eax, esi
+│     │││   0x1014d861      8944241c       mov dword [var_1ch], eax
+│    ┌────< 0x1014d865      eb16           jmp 0x1014d87d
+..
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d9b0(x)
+│ ┌┌┌─────> 0x1014d870      83c610         add esi, 0x10               ; 16
+│ ╎╎╎││││   0x1014d873      3b74241c       cmp esi, dword [var_1ch]
+│ ────────< 0x1014d877      0f8438010000   je 0x1014d9b5
+│ ╎╎╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d865(x)
+│ ╎╎╎└────> 0x1014d87d      8b06           mov eax, dword [esi]
+│ ╎╎╎ │││   0x1014d87f      8b4e04         mov ecx, dword [esi + 4]
+│ ╎╎╎ │││   0x1014d882      8b7e08         mov edi, dword [esi + 8]
+│ ╎╎╎ │││   0x1014d885      837c244c00     cmp dword [var_4ch], 0
+│ ╎╎╎ │││   0x1014d88a      894c2424       mov dword [var_24h], ecx
+│ ╎╎╎ │││   0x1014d88e      89442420       mov dword [var_20h], eax
+│ ╎╎╎ │││   0x1014d892      897c2428       mov dword [var_28h], edi
+│ ╎╎╎┌────< 0x1014d896      0f84f1000000   je 0x1014d98d
+│ ╎╎╎││││   0x1014d89c      8d442428       lea eax, [var_28h]
+│ ╎╎╎││││   0x1014d8a0      50             push eax
+│ ╎╎╎││││   0x1014d8a1      8d442454       lea eax, [var_50h]
+│ ╎╎╎││││   0x1014d8a5      50             push eax
+│ ╎╎╎││││   0x1014d8a6      e85562f7ff     call sym.__RINvYNtNtNtCs3U2idwLkfcg_3std4hash6random11RandomStateNtNtCs32tIC4fDiEl_4core4hash11BuildHasher8hash_oneRjECscusTm9VrEdi_19ps
+│ ╎╎╎││││   0x1014d8ab      83c408         add esp, 8
+│ ╎╎╎││││   0x1014d8ae      660f6ec0       movd xmm0, eax
+│ ╎╎╎││││   0x1014d8b2      8b542444       mov edx, dword [var_44h]
+│ ╎╎╎││││   0x1014d8b6      8b4c2440       mov ecx, dword [var_40h]
+│ ╎╎╎││││   0x1014d8ba      31db           xor ebx, ebx
+│ ╎╎╎││││   0x1014d8bc      660f72d019     psrld xmm0, 0x19
+│ ╎╎╎││││   0x1014d8c1      660f60c0       punpcklbw xmm0, xmm0
+│ ╎╎╎││││   0x1014d8c5      f20f70c000     pshuflw xmm0, xmm0, 0
+│ ╎╎╎││││   0x1014d8ca      8954240c       mov dword [var_sp_ch], edx
+│ ╎╎╎││││   0x1014d8ce      21c2           and edx, eax
+│ ╎╎╎││││   0x1014d8d0      660f70c044     pshufd xmm0, xmm0, 0x44
+│ ╎╎╎││││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d94b(x)
+│ ────────> 0x1014d8d5      f30f6f0c11     movdqu xmm1, xmmword [ecx + edx]
+│ ╎╎╎││││   0x1014d8da      660f6fd1       movdqa xmm2, xmm1
+│ ╎╎╎││││   0x1014d8de      660f74d0       pcmpeqb xmm2, xmm0
+│ ╎╎╎││││   0x1014d8e2      660fd7c2       pmovmskb eax, xmm2
+│ ╎╎╎││││   0x1014d8e6      85c0           test eax, eax
+│ ────────< 0x1014d8e8      7446           je 0x1014d930
+│ ╎╎╎││││   0x1014d8ea      897c2408       mov dword [var_8h], edi
+│ ╎╎╎││││   0x1014d8ee      895c2414       mov dword [var_14h], ebx
+│ ╎╎╎││││   0x1014d8f2      89542410       mov dword [var_10h], edx
+│ ────────> 0x1014d8f6      f30fbcf8       tzcnt edi, eax
+│ ╎╎╎││││   0x1014d8fa      89c3           mov ebx, eax
+│ ╎╎╎││││   0x1014d8fc      89c8           mov eax, ecx
+│ ╎╎╎││││   0x1014d8fe      01d7           add edi, edx
+│ ╎╎╎││││   0x1014d900      237c240c       and edi, dword [var_sp_ch]
+│ ╎╎╎││││   0x1014d904      8d14fd0000..   lea edx, [edi*8]
+│ ╎╎╎││││   0x1014d90b      29d1           sub ecx, edx
+│ ╎╎╎││││   0x1014d90d      8b542408       mov edx, dword [var_8h]
+│ ╎╎╎││││   0x1014d911      3b51f8         cmp edx, dword [ecx - 8]
+│ ────────< 0x1014d914      743a           je 0x1014d950
+│ ╎╎╎││││   0x1014d916      8d4bff         lea ecx, [ebx - 1]
+│ ╎╎╎││││   0x1014d919      8b7c2408       mov edi, dword [var_8h]
+│ ╎╎╎││││   0x1014d91d      8b542410       mov edx, dword [var_10h]
+│ ╎╎╎││││   0x1014d921      6621d9         and cx, bx
+│ ╎╎╎││││   0x1014d924      89cb           mov ebx, ecx
+│ ╎╎╎││││   0x1014d926      89c1           mov ecx, eax
+│ ╎╎╎││││   0x1014d928      89d8           mov eax, ebx
+│ ╎╎╎││││   0x1014d92a      8b5c2414       mov ebx, dword [var_14h]
+│ ────────< 0x1014d92e      75c6           jne 0x1014d8f6
+│ ────────> 0x1014d930      660f76d2       pcmpeqd xmm2, xmm2
+│ ╎╎╎││││   0x1014d934      660f74ca       pcmpeqb xmm1, xmm2
+│ ╎╎╎││││   0x1014d938      660fd7c1       pmovmskb eax, xmm1
+│ ╎╎╎││││   0x1014d93c      85c0           test eax, eax
+│ ────────< 0x1014d93e      754d           jne 0x1014d98d
+│ ╎╎╎││││   0x1014d940      8d541a10       lea edx, [edx + ebx + 0x10]
+│ ╎╎╎││││   0x1014d944      83c310         add ebx, 0x10               ; 16
+│ ╎╎╎││││   0x1014d947      2354240c       and edx, dword [var_sp_ch]
+│ ────────< 0x1014d94b      eb88           jmp 0x1014d8d5
+..
+│ ────────> 0x1014d950      f7df           neg edi
+│ ╎╎╎││││   0x1014d952      8b44f8fc       mov eax, dword [eax + edi*8 - 4]
+│ ╎╎╎││││   0x1014d956      8b4804         mov ecx, dword [eax + 4]
+│ ╎╎╎││││   0x1014d959      8b10           mov edx, dword [eax]
+│ ╎╎╎││││   0x1014d95b      8b5c2418       mov ebx, dword [var_18h]
+│ ╎╎╎││││   0x1014d95f      85c9           test ecx, ecx
+│ ╎╎╎││││   0x1014d961      89cf           mov edi, ecx
+│ ╎╎╎││││   0x1014d963      0f44fb         cmove edi, ebx
+│ ╎╎╎││││   0x1014d966      85d2           test edx, edx
+│ ╎╎╎││││   0x1014d968      8917           mov dword [edi], edx
+│ ╎╎╎││││   0x1014d96a      0f44d3         cmove edx, ebx
+│ ╎╎╎││││   0x1014d96d      894a04         mov dword [edx + 4], ecx
+│ ╎╎╎││││   0x1014d970      8b542404       mov edx, dword [var_4h]
+│ ╎╎╎││││   0x1014d974      8b4a10         mov ecx, dword [edx + 0x10]
+│ ╎╎╎││││   0x1014d977      83f901         cmp ecx, 1                  ; 1
+│ ╎╎╎││││   0x1014d97a      83d1ff         adc ecx, 0xffffffff
+│ ╎╎╎││││   0x1014d97d      894a10         mov dword [edx + 0x10], ecx
+│ ╎╎╎││││   0x1014d980      89d9           mov ecx, ebx
+│ ╎╎╎││││   0x1014d982      50             push eax
+│ ╎╎╎││││   0x1014d983      ff1594134010   call dword [0x10401394]
+│ ╎╎╎││││   0x1014d989      8b7c2408       mov edi, dword [var_4h]
+│ ───└────> 0x1014d98d      f0ff4f04       lock dec dword [edi + 4]
+│ ────────< 0x1014d991      0f85d9feffff   jne 0x1014d870
+│ ╎╎╎ │││   0x1014d997      8b07           mov eax, dword [edi]
+│ ╎╎╎ │││   0x1014d999      85c0           test eax, eax
+│ └───────< 0x1014d99b      0f84cffeffff   je 0x1014d870
+│  ╎╎ │││   0x1014d9a1      8b4004         mov eax, dword [eax + 4]
+│  ╎╎ │││   0x1014d9a4      85c0           test eax, eax
+│  └──────< 0x1014d9a6      0f84c4feffff   je 0x1014d870
+│   ╎ │││   0x1014d9ac      89f9           mov ecx, edi
+│   ╎ │││   0x1014d9ae      ffd0           call eax
+│   └─────< 0x1014d9b0      e9bbfeffff     jmp 0x1014d870
+│ ────└───> 0x1014d9b5      8b442444       mov eax, dword [var_44h]
+│      ││   0x1014d9b9      c705e81340..   mov dword [0x104013e8], 0   ; [0x104013e8:4]=0
+│      ││   0x1014d9c3      85c0           test eax, eax
+│     ┌───< 0x1014d9c5      7423           je 0x1014d9ea
+│     │││   0x1014d9c7      8d0cc51700..   lea ecx, [eax*8 + 0x17]
+│     │││   0x1014d9ce      83e1f0         and ecx, 0xfffffff0         ; 4294967280
+│     │││   0x1014d9d1      01c8           add eax, ecx
+│     │││   0x1014d9d3      83c011         add eax, 0x11               ; 17
+│    ┌────< 0x1014d9d6      7412           je 0x1014d9ea
+│    ││││   0x1014d9d8      8b542440       mov edx, dword [var_40h]
+│    ││││   0x1014d9dc      29ca           sub edx, ecx
+│    ││││   0x1014d9de      6a10           push 0x10                   ; 16
+│    ││││   0x1014d9e0      50             push eax
+│    ││││   0x1014d9e1      52             push edx
+│    ││││   0x1014d9e2      e8794e0100     call sym.__rustc::__rust_dealloc
+│    ││││   0x1014d9e7      83c40c         add esp, 0xc
+│    └└───> 0x1014d9ea      b801000000     mov eax, 1
+│     ┌───< 0x1014d9ef      eb02           jmp 0x1014d9f3
+│     ││└─> 0x1014d9f1      31c0           xor eax, eax
+│     ││    ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection @ 0x1014d9ef(x)
+│     └───> 0x1014d9f3      8b542404       mov edx, dword [var_4h]
+│      │    0x1014d9f7      8d65f4         lea esp, [var_ch]
+│      │    0x1014d9fa      5e             pop esi
+│      │    0x1014d9fb      5f             pop edi
+│      │    0x1014d9fc      5b             pop ebx
+│      │    0x1014d9fd      5d             pop ebp
+│      │    0x1014d9fe      c3             ret
+│      └──> 0x1014d9ff      681c3b4210     push 0x10423b1c             ; '\x1c;B\x10'
+│           0x1014da04      e8d7231f00     call sym.std::thread::local::panic_access_error
+│           0x1014da09      83c404         add esp, 4
+└           0x1014da0c      0f0b           ud2
+┌ 4125: sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(62:sp[0x10..0x13c])
+│           0x1014ec80      55             push ebp                    ; psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject
+│           0x1014ec81      89e5           mov ebp, esp
+│           0x1014ec83      53             push ebx
+│           0x1014ec84      57             push edi
+│           0x1014ec85      56             push esi
+│           0x1014ec86      83e4f0         and esp, 0xfffffff0
+│           0x1014ec89      81ec20010000   sub esp, 0x120
+│           0x1014ec8f      8d05dd665610   lea eax, [0x105666dd]
+│           0x1014ec95      89542460       mov dword [var_60h], edx
+│           0x1014ec99      898c24d800..   mov dword [var_d8h], ecx
+│           0x1014eca0      50             push eax
+│           0x1014eca1      e81a5b1b00     call sym.__RNvXNtCs8zndHw5nrnV_11parking_lot7remutexNtB2_11RawThreadIdNtNtCs3fFlPYWpS9N_8lock_api7remutex11GetThreadId17nonzero_thread_i
+│           0x1014eca6      83c404         add esp, 4
+│           0x1014eca9      8b0dd4665610   mov ecx, dword [0x105666d4] ; [0x105666d4:4]=0
+│           0x1014ecaf      89c6           mov esi, eax
+│           0x1014ecb1      39f1           cmp ecx, esi
+│       ┌─< 0x1014ecb3      7511           jne 0x1014ecc6
+│       │   0x1014ecb5      a1d8665610     mov eax, dword [0x105666d8] ; [0x105666d8:4]=0
+│       │   0x1014ecba      83f8ff         cmp eax, 0xffffffff
+│      ┌──< 0x1014ecbd      0f84550f0000   je 0x1014fc18
+│      ││   0x1014ecc3      40             inc eax
+│     ┌───< 0x1014ecc4      eb1d           jmp 0x1014ece3
+│     ││└─> 0x1014ecc6      b101           mov cl, 1
+│     ││    0x1014ecc8      31c0           xor eax, eax
+│     ││    0x1014ecca      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│     ││┌─< 0x1014ecd2      0f85560f0000   jne 0x1014fc2e
+│     │││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fc4a(x)
+│    ┌────> 0x1014ecd8      8935d4665610   mov dword [0x105666d4], esi ; [0x105666d4:4]=0
+│    ╎│││   0x1014ecde      b801000000     mov eax, 1
+│    ╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014ecc4(x)
+│    ╎└───> 0x1014ece3      a3d8665610     mov dword [0x105666d8], eax ; [0x105666d8:4]=0
+│    ╎ ││   0x1014ece8      c744245c00..   mov dword [var_5ch], 0
+│    ╎ ││   0x1014ecf0      b101           mov cl, 1
+│    ╎ ││   0x1014ecf2      31c0           xor eax, eax
+│    ╎ ││   0x1014ecf4      f00fb00dd8..   lock cmpxchg byte [0x104013d8], cl
+│    ╎┌───< 0x1014ecfc      0f85f70e0000   jne 0x1014fbf9
+│    ╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fc13(x)
+│   ┌─────> 0x1014ed02      8b0de8134010   mov ecx, dword [0x104013e8] ; [0x104013e8:4]=0
+│   ╎╎│││   0x1014ed08      8b35e4134010   mov esi, dword [0x104013e4] ; [0x104013e4:4]=0
+│   ╎╎│││   0x1014ed0e      3b4c2460       cmp ecx, dword [var_60h]
+│   ╎╎│││   0x1014ed12      89742430       mov dword [var_30h], esi
+│  ┌──────< 0x1014ed16      7436           je 0x1014ed4e
+│  │╎╎│││   0x1014ed18      837d0c00       cmp dword [arg_ch], 0
+│ ┌───────< 0x1014ed1c      741d           je 0x1014ed3b
+│ ││╎╎│││   0x1014ed1e      8b742460       mov esi, dword [var_60h]
+│ ││╎╎│││   0x1014ed22      f0ff4604       lock inc dword [esi + 4]
+│ ││╎╎│││   0x1014ed26      e845eaffff     call sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection
+│ ││╎╎│││   0x1014ed2b      8944245c       mov dword [var_5ch], eax
+│ ││╎╎│││   0x1014ed2f      89542458       mov dword [var_58h], edx
+│ ││╎╎│││   0x1014ed33      8935e8134010   mov dword [0x104013e8], esi ; [0x104013e8:4]=0
+│ ────────< 0x1014ed39      eb1d           jmp 0x1014ed58
+│ └───────> 0x1014ed3b      e830eaffff     call sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::retire_injection
+│  │╎╎│││   0x1014ed40      8b0de8134010   mov ecx, dword [0x104013e8] ; [0x104013e8:4]=0
+│  │╎╎│││   0x1014ed46      8944245c       mov dword [var_5ch], eax
+│  │╎╎│││   0x1014ed4a      89542458       mov dword [var_58h], edx
+│  └──────> 0x1014ed4e      85c9           test ecx, ecx
+│  ┌──────< 0x1014ed50      0f84e2000000   je 0x1014ee38
+│  │╎╎│││   0x1014ed56      89ce           mov esi, ecx
+│  │╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014ed39(x)
+│ ────────> 0x1014ed58      a118244010     mov eax, dword [0x10402418] ; [0x10402418:4]=0x10401e3c
+│  │╎╎│││   0x1014ed5d      6a00           push 0
+│  │╎╎│││   0x1014ed5f      50             push eax
+│  │╎╎│││   0x1014ed60      e8eb60ffff     call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellTyyEEKj8_E3getNvNvNvMNtN
+│  │╎╎│││   0x1014ed65      83c408         add esp, 8
+│  │╎╎│││   0x1014ed68      85c0           test eax, eax
+│ ┌───────< 0x1014ed6a      0f84420f0000   je 0x1014fcb2
+│ ││╎╎│││   0x1014ed70      f30f6f00       movdqu xmm0, xmmword [eax]
+│ ││╎╎│││   0x1014ed74      f20f100da8..   movsd xmm1, qword [0x10433ba8] ; [0x10433ba8:8]=0
+│ ││╎╎│││   0x1014ed7c      f20f1015a0..   movsd xmm2, qword [0x10433ba0] ; [0x10433ba0:8]=0x10433b90
+│ ││╎╎│││   0x1014ed84      83c608         add esi, 8
+│ ││╎╎│││   0x1014ed87      8974246c       mov dword [var_6ch], esi
+│ ││╎╎│││   0x1014ed8b      660f7ec1       movd ecx, xmm0
+│ ││╎╎│││   0x1014ed8f      83c101         add ecx, 1
+│ ││╎╎│││   0x1014ed92      8908           mov dword [eax], ecx
+│ ││╎╎│││   0x1014ed94      83500400       adc dword [eax + 4], 0
+│ ││╎╎│││   0x1014ed98      f20f114c2478   movsd qword [var_78h], xmm1
+│ ││╎╎│││   0x1014ed9e      f20f11542470   movsd qword [var_70h], xmm2
+│ ││╎╎│││   0x1014eda4      f30f7f8424..   movdqu xmmword [var_80h], xmm0
+│ ││╎╎│││   0x1014edad      8b06           mov eax, dword [esi]
+│ ││╎╎│││   0x1014edaf      85c0           test eax, eax
+│ ────────< 0x1014edb1      7429           je 0x1014eddc
+│ ││╎╎│││   0x1014edb3      8d742470       lea esi, [var_70h]
+│ ────────< 0x1014edb7      eb0d           jmp 0x1014edc6
+..
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014edda(x)
+│ ────────> 0x1014edc0      85ff           test edi, edi
+│ ││╎╎│││   0x1014edc2      89f8           mov eax, edi
+│ ────────< 0x1014edc4      7416           je 0x1014eddc
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014edb7(x)
+│ ────────> 0x1014edc6      8b38           mov edi, dword [eax]
+│ ││╎╎│││   0x1014edc8      8b4808         mov ecx, dword [eax + 8]
+│ ││╎╎│││   0x1014edcb      85c9           test ecx, ecx
+│ ────────< 0x1014edcd      74f1           je 0x1014edc0
+│ ││╎╎│││   0x1014edcf      50             push eax
+│ ││╎╎│││   0x1014edd0      51             push ecx
+│ ││╎╎│││   0x1014edd1      56             push esi
+│ ││╎╎│││   0x1014edd2      e879c0f5ff     call sym.__RNvMs1_NtCs3qUfj5bFD5W_9hashbrown3mapINtB5_7HashMapjONtNtCs32tIC4fDiEl_4core3ffi6c_voidNtNtNtCs3U2idwLkfcg_3std4hash6random11
+│ ││╎╎│││   0x1014edd7      83c40c         add esp, 0xc
+│ ────────< 0x1014edda      ebe4           jmp 0x1014edc0
+│ ────────> 0x1014eddc      f20f108c24..   movsd xmm1, qword [var_80h]
+│ ││╎╎│││   0x1014ede5      f30f7e8424..   movq xmm0, qword [var_88h]
+│ ││╎╎│││   0x1014edee      f30f7e542470   movq xmm2, qword [var_70h]
+│ ││╎╎│││   0x1014edf4      8b742430       mov esi, dword [var_30h]
+│ ││╎╎│││   0x1014edf8      f20f118c24..   movsd qword [var_108h], xmm1
+│ ││╎╎│││   0x1014ee01      f30f7e4c2478   movq xmm1, qword [var_78h]
+│ ││╎╎│││   0x1014ee07      660fd68424..   movq qword [var_110h], xmm0
+│ ││╎╎│││   0x1014ee10      660fd69424..   movq qword [var_f8h], xmm2
+│ ││╎╎│││   0x1014ee19      660fd68c24..   movq qword [var_100h], xmm1
+│ ││╎╎│││   0x1014ee22      81fe55555505   cmp esi, 0x5555555
+│ ────────< 0x1014ee28      7672           jbe 0x1014ee9c
+│ ────────> 0x1014ee2a      31c0           xor eax, eax
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fcc6(x)
+│ ────────> 0x1014ee2c      56             push esi
+│ ││╎╎│││   0x1014ee2d      50             push eax
+│ ││╎╎│││   0x1014ee2e      e824b42200     call sym.alloc::raw_vec::handle_error
+│ ││╎╎│││   0x1014ee33      83c408         add esp, 8
+│ ││╎╎│││   0x1014ee36      0f0b           ud2
+│ │└──────> 0x1014ee38      a118244010     mov eax, dword [0x10402418] ; [0x10402418:4]=0x10401e3c
+│ │ ╎╎│││   0x1014ee3d      6a00           push 0
+│ │ ╎╎│││   0x1014ee3f      50             push eax
+│ │ ╎╎│││   0x1014ee40      e80b60ffff     call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellTyyEEKj8_E3getNvNvNvMNtN
+│ │ ╎╎│││   0x1014ee45      83c408         add esp, 8
+│ │ ╎╎│││   0x1014ee48      85c0           test eax, eax
+│ │┌──────< 0x1014ee4a      0f84620e0000   je 0x1014fcb2
+│ ││╎╎│││   0x1014ee50      f20f1005a8..   movsd xmm0, qword [0x10433ba8] ; [0x10433ba8:8]=0
+│ ││╎╎│││   0x1014ee58      c744246c00..   mov dword [var_6ch], 0
+│ ││╎╎│││   0x1014ee60      f20f118424..   movsd qword [var_100h], xmm0
+│ ││╎╎│││   0x1014ee69      f20f1005a0..   movsd xmm0, qword [0x10433ba0] ; [0x10433ba0:8]=0x10433b90
+│ ││╎╎│││   0x1014ee71      f20f118424..   movsd qword [var_f8h], xmm0
+│ ││╎╎│││   0x1014ee7a      f30f6f00       movdqu xmm0, xmmword [eax]
+│ ││╎╎│││   0x1014ee7e      660f7ec1       movd ecx, xmm0
+│ ││╎╎│││   0x1014ee82      83c101         add ecx, 1
+│ ││╎╎│││   0x1014ee85      83500400       adc dword [eax + 4], 0
+│ ││╎╎│││   0x1014ee89      8908           mov dword [eax], ecx
+│ ││╎╎│││   0x1014ee8b      f30f7f8424..   movdqu xmmword [var_108h], xmm0
+│ ││╎╎│││   0x1014ee94      81fe55555505   cmp esi, 0x5555555
+│ ────────< 0x1014ee9a      778e           ja 0x1014ee2a
+│ ────────> 0x1014ee9c      85f6           test esi, esi
+│ ────────< 0x1014ee9e      7428           je 0x1014eec8
+│ ││╎╎│││   0x1014eea0      8d04f50000..   lea eax, [esi*8]
+│ ││╎╎│││   0x1014eea7      8d3440         lea esi, [eax + eax*2]
+│ ││╎╎│││   0x1014eeaa      e8013a0100     call sym.__rustc::__rust_no_alloc_shim_is_unstable_v2
+│ ││╎╎│││   0x1014eeaf      6a08           push 8                      ; 8
+│ ││╎╎│││   0x1014eeb1      56             push esi
+│ ││╎╎│││   0x1014eeb2      e899390100     call sym.__rustc::__rust_alloc
+│ ││╎╎│││   0x1014eeb7      83c408         add esp, 8
+│ ││╎╎│││   0x1014eeba      85c0           test eax, eax
+│ ────────< 0x1014eebc      0f84ff0d0000   je 0x1014fcc1
+│ ││╎╎│││   0x1014eec2      8b742430       mov esi, dword [var_30h]
+│ ────────< 0x1014eec6      eb05           jmp 0x1014eecd
+│ ────────> 0x1014eec8      b808000000     mov eax, 8
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014eec6(x)
+│ ────────> 0x1014eecd      8b3de4134010   mov edi, dword [0x104013e4] ; [0x104013e4:4]=0
+│ ││╎╎│││   0x1014eed3      89742434       mov dword [var_34h], esi
+│ ││╎╎│││   0x1014eed7      89442438       mov dword [var_38h], eax
+│ ││╎╎│││   0x1014eedb      c744243c00..   mov dword [var_3ch], 0
+│ ││╎╎│││   0x1014eee3      c705e41340..   mov dword [0x104013e4], 0   ; [0x104013e4:4]=0
+│ ││╎╎│││   0x1014eeed      85ff           test edi, edi
+│ ────────< 0x1014eeef      0f84a7010000   je 0x1014f09c
+│ ││╎╎│││   0x1014eef5      8b1de0134010   mov ebx, dword [0x104013e0] ; [0x104013e0:4]=8
+│ ││╎╎│││   0x1014eefb      c1e704         shl edi, 4
+│ ││╎╎│││   0x1014eefe      01df           add edi, ebx
+│ ││╎╎│││   0x1014ef00      897c2410       mov dword [var_20h_2], edi
+│ ────────< 0x1014ef04      eb40           jmp 0x1014ef46
+..
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f091(x)
+│ ────────> 0x1014ef10      8b442438       mov eax, dword [var_38h]
+│ ││╎╎│││   0x1014ef14      8b542440       mov edx, dword [var_40h]
+│ ││╎╎│││   0x1014ef18      8d0c7f         lea ecx, [edi + edi*2]
+│ ││╎╎│││   0x1014ef1b      47             inc edi
+│ ││╎╎│││   0x1014ef1c      8954c804       mov dword [eax + ecx*8 + 4], edx
+│ ││╎╎│││   0x1014ef20      8b542404       mov edx, dword [var_4h]
+│ ││╎╎│││   0x1014ef24      8914c8         mov dword [eax + ecx*8], edx
+│ ││╎╎│││   0x1014ef27      8b542408       mov edx, dword [var_8h]
+│ ││╎╎│││   0x1014ef2b      8954c808       mov dword [eax + ecx*8 + 8], edx
+│ ││╎╎│││   0x1014ef2f      8974c810       mov dword [eax + ecx*8 + 0x10], esi
+│ ││╎╎│││   0x1014ef33      897c243c       mov dword [var_3ch], edi
+│ ││╎╎│││   0x1014ef37      8b7c2410       mov edi, dword [var_20h_2]
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f063(x)
+│ ────────> 0x1014ef3b      83c310         add ebx, 0x10               ; 16
+│ ││╎╎│││   0x1014ef3e      39fb           cmp ebx, edi
+│ ────────< 0x1014ef40      0f8450010000   je 0x1014f096
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014ef04(x)
+│ ────────> 0x1014ef46      8b4b04         mov ecx, dword [ebx + 4]
+│ ││╎╎│││   0x1014ef49      8b03           mov eax, dword [ebx]
+│ ││╎╎│││   0x1014ef4b      8b7308         mov esi, dword [ebx + 8]
+│ ││╎╎│││   0x1014ef4e      83bc240401..   cmp dword [var_104h], 0
+│ ││╎╎│││   0x1014ef56      894c2440       mov dword [var_40h], ecx
+│ ││╎╎│││   0x1014ef5a      894c2474       mov dword [var_74h], ecx
+│ ││╎╎│││   0x1014ef5e      89442470       mov dword [var_70h], eax
+│ ││╎╎│││   0x1014ef62      89742478       mov dword [var_78h], esi
+│ ────────< 0x1014ef66      0f84d4000000   je 0x1014f040
+│ ││╎╎│││   0x1014ef6c      89442404       mov dword [var_4h], eax
+│ ││╎╎│││   0x1014ef70      8d442478       lea eax, [var_78h]
+│ ││╎╎│││   0x1014ef74      50             push eax
+│ ││╎╎│││   0x1014ef75      8d84240c01..   lea eax, [var_108h]
+│ ││╎╎│││   0x1014ef7c      50             push eax
+│ ││╎╎│││   0x1014ef7d      e87e4bf7ff     call sym.__RINvYNtNtNtCs3U2idwLkfcg_3std4hash6random11RandomStateNtNtCs32tIC4fDiEl_4core4hash11BuildHasher8hash_oneRjECscusTm9VrEdi_19ps
+│ ││╎╎│││   0x1014ef82      83c408         add esp, 8
+│ ││╎╎│││   0x1014ef85      660f6ec0       movd xmm0, eax
+│ ││╎╎│││   0x1014ef89      8b9424fc00..   mov edx, dword [var_fch]
+│ ││╎╎│││   0x1014ef90      8b8c24f800..   mov ecx, dword [var_f8h]
+│ ││╎╎│││   0x1014ef97      c744240c00..   mov dword [var_ch_2], 0
+│ ││╎╎│││   0x1014ef9f      660f72d019     psrld xmm0, 0x19
+│ ││╎╎│││   0x1014efa4      660f60c0       punpcklbw xmm0, xmm0
+│ ││╎╎│││   0x1014efa8      f20f70c000     pshuflw xmm0, xmm0, 0
+│ ││╎╎│││   0x1014efad      891424         mov dword [esp], edx
+│ ││╎╎│││   0x1014efb0      21c2           and edx, eax
+│ ││╎╎│││   0x1014efb2      660f70c044     pshufd xmm0, xmm0, 0x44
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f032(x)
+│ ────────> 0x1014efb7      f30f6f0c11     movdqu xmm1, xmmword [ecx + edx]
+│ ││╎╎│││   0x1014efbc      660f6fd1       movdqa xmm2, xmm1
+│ ││╎╎│││   0x1014efc0      660f74d0       pcmpeqb xmm2, xmm0
+│ ││╎╎│││   0x1014efc4      660fd7c2       pmovmskb eax, xmm2
+│ ││╎╎│││   0x1014efc8      85c0           test eax, eax
+│ ────────< 0x1014efca      7444           je 0x1014f010
+│ ││╎╎│││   0x1014efcc      89742408       mov dword [var_8h], esi
+│ ││╎╎│││   0x1014efd0      89542464       mov dword [var_64h], edx
+│ ────────> 0x1014efd4      f30fbcf8       tzcnt edi, eax
+│ ││╎╎│││   0x1014efd8      89442414       mov dword [var_14h], eax
+│ ││╎╎│││   0x1014efdc      89f0           mov eax, esi
+│ ││╎╎│││   0x1014efde      89ce           mov esi, ecx
+│ ││╎╎│││   0x1014efe0      01d7           add edi, edx
+│ ││╎╎│││   0x1014efe2      233c24         and edi, dword [esp]
+│ ││╎╎│││   0x1014efe5      8d14fd0000..   lea edx, [edi*8]
+│ ││╎╎│││   0x1014efec      29d1           sub ecx, edx
+│ ││╎╎│││   0x1014efee      3b41f8         cmp eax, dword [ecx - 8]
+│ ────────< 0x1014eff1      747d           je 0x1014f070
+│ ││╎╎│││   0x1014eff3      8b442414       mov eax, dword [var_14h]
+│ ││╎╎│││   0x1014eff7      8b7c2410       mov edi, dword [var_20h_2]
+│ ││╎╎│││   0x1014effb      8b542464       mov edx, dword [var_64h]
+│ ││╎╎│││   0x1014efff      8d48ff         lea ecx, [eax - 1]
+│ ││╎╎│││   0x1014f002      6621c1         and cx, ax
+│ ││╎╎│││   0x1014f005      89c8           mov eax, ecx
+│ ││╎╎│││   0x1014f007      89f1           mov ecx, esi
+│ ││╎╎│││   0x1014f009      8b742408       mov esi, dword [var_8h]
+│ ────────< 0x1014f00d      75c5           jne 0x1014efd4
+│ ││╎╎│││   0x1014f00f      90             nop
+│ ────────> 0x1014f010      660f76d2       pcmpeqd xmm2, xmm2
+│ ││╎╎│││   0x1014f014      660f74ca       pcmpeqb xmm1, xmm2
+│ ││╎╎│││   0x1014f018      660fd7c1       pmovmskb eax, xmm1
+│ ││╎╎│││   0x1014f01c      85c0           test eax, eax
+│ ────────< 0x1014f01e      7520           jne 0x1014f040
+│ ││╎╎│││   0x1014f020      8b44240c       mov eax, dword [var_ch_2]
+│ ││╎╎│││   0x1014f024      8d540210       lea edx, [edx + eax + 0x10]
+│ ││╎╎│││   0x1014f028      83c010         add eax, 0x10               ; 16
+│ ││╎╎│││   0x1014f02b      231424         and edx, dword [esp]
+│ ││╎╎│││   0x1014f02e      8944240c       mov dword [var_ch_2], eax
+│ ────────< 0x1014f032      e980ffffff     jmp 0x1014efb7
+..
+│ ────────> 0x1014f040      f0ff4e04       lock dec dword [esi + 4]
+│ ────────< 0x1014f044      0f85f1feffff   jne 0x1014ef3b
+│ ││╎╎│││   0x1014f04a      8b06           mov eax, dword [esi]
+│ ││╎╎│││   0x1014f04c      85c0           test eax, eax
+│ ────────< 0x1014f04e      0f84e7feffff   je 0x1014ef3b
+│ ││╎╎│││   0x1014f054      8b4004         mov eax, dword [eax + 4]
+│ ││╎╎│││   0x1014f057      85c0           test eax, eax
+│ ────────< 0x1014f059      0f84dcfeffff   je 0x1014ef3b
+│ ││╎╎│││   0x1014f05f      89f1           mov ecx, esi
+│ ││╎╎│││   0x1014f061      ffd0           call eax
+│ ────────< 0x1014f063      e9d3feffff     jmp 0x1014ef3b
+..
+│ ────────> 0x1014f070      f7df           neg edi
+│ ││╎╎│││   0x1014f072      8b74fefc       mov esi, dword [esi + edi*8 - 4]
+│ ││╎╎│││   0x1014f076      8b7c243c       mov edi, dword [var_3ch]
+│ ││╎╎│││   0x1014f07a      3b7c2434       cmp edi, dword [var_34h]
+│ ────────< 0x1014f07e      0f858cfeffff   jne 0x1014ef10
+│ ││╎╎│││   0x1014f084      8d442434       lea eax, [var_34h]
+│ ││╎╎│││   0x1014f088      50             push eax
+│ ││╎╎│││   0x1014f089      e8628af1ff     call sym.__RNvMs3_NtCsiQYfQzk4lu_5alloc7raw_vecINtB5_6RawVecTNtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods4perf16occlusion_planes7r
+│ ││╎╎│││   0x1014f08e      83c404         add esp, 4
+│ ────────< 0x1014f091      e97afeffff     jmp 0x1014ef10
+│ ────────> 0x1014f096      8b74243c       mov esi, dword [var_3ch]
+│ ────────< 0x1014f09a      eb02           jmp 0x1014f09e
+│ ────────> 0x1014f09c      31f6           xor esi, esi
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f09a(x)
+│ ────────> 0x1014f09e      a118244010     mov eax, dword [0x10402418] ; [0x10402418:4]=0x10401e3c
+│ ││╎╎│││   0x1014f0a3      6a00           push 0
+│ ││╎╎│││   0x1014f0a5      50             push eax
+│ ││╎╎│││   0x1014f0a6      e8a55dffff     call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellTyyEEKj8_E3getNvNvNvMNtN
+│ ││╎╎│││   0x1014f0ab      83c408         add esp, 8
+│ ││╎╎│││   0x1014f0ae      85c0           test eax, eax
+│ ────────< 0x1014f0b0      0f84fc0b0000   je 0x1014fcb2
+│ ││╎╎│││   0x1014f0b6      f30f6f00       movdqu xmm0, xmmword [eax]
+│ ││╎╎│││   0x1014f0ba      ba18000000     mov edx, 0x18               ; 24
+│ ││╎╎│││   0x1014f0bf      660f7ec1       movd ecx, xmm0
+│ ││╎╎│││   0x1014f0c3      660f7f442440   movdqa xmmword [var_40h], xmm0
+│ ││╎╎│││   0x1014f0c9      83c101         add ecx, 1
+│ ││╎╎│││   0x1014f0cc      83500400       adc dword [eax + 4], 0
+│ ││╎╎│││   0x1014f0d0      8908           mov dword [eax], ecx
+│ ││╎╎│││   0x1014f0d2      8d4c2470       lea ecx, [var_70h]
+│ ││╎╎│││   0x1014f0d6      6a01           push 1                      ; 1
+│ ││╎╎│││   0x1014f0d8      56             push esi
+│ ││╎╎│││   0x1014f0d9      e8723ef5ff     call sym.__RINvMsa_NtCs3qUfj5bFD5W_9hashbrown3rawNtB6_13RawTableInner22fallible_with_capacityNtNtCsiQYfQzk4lu_5alloc5alloc6GlobalECscusT
+│ ││╎╎│││   0x1014f0de      83c408         add esp, 8
+│ ││╎╎│││   0x1014f0e1      f20f104c2478   movsd xmm1, qword [var_78h]
+│ ││╎╎│││   0x1014f0e7      8b44243c       mov eax, dword [var_3ch]
+│ ││╎╎│││   0x1014f0eb      f30f7e442470   movq xmm0, qword [var_70h]
+│ ││╎╎│││   0x1014f0f1      c744241401..   mov dword [var_14h], 1
+│ ││╎╎│││   0x1014f0f9      f20f118c24..   movsd qword [var_b0h], xmm1
+│ ││╎╎│││   0x1014f102      660f6f4c2440   movdqa xmm1, xmmword [var_40h]
+│ ││╎╎│││   0x1014f108      85c0           test eax, eax
+│ ││╎╎│││   0x1014f10a      660fd68424..   movq qword [var_a8h], xmm0
+│ ││╎╎│││   0x1014f113      f30f7f8c24..   movdqu xmmword [var_b8h], xmm1
+│ ────────< 0x1014f11c      0f8414060000   je 0x1014f736
+│ ││╎╎│││   0x1014f122      8b4c2438       mov ecx, dword [var_38h]
+│ ││╎╎│││   0x1014f126      8d0440         lea eax, [eax + eax*2]
+│ ││╎╎│││   0x1014f129      8d04c1         lea eax, [ecx + eax*8]
+│ ││╎╎│││   0x1014f12c      894c2440       mov dword [var_40h], ecx
+│ ││╎╎│││   0x1014f130      31c9           xor ecx, ecx
+│ ││╎╎│││   0x1014f132      89442464       mov dword [var_64h], eax
+│ ────────< 0x1014f136      eb34           jmp 0x1014f16c
+..
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f332(x)
+│ ────────> 0x1014f140      8d46f0         lea eax, [esi - 0x10]
+│ ││╎╎│││   0x1014f143      50             push eax
+│ ││╎╎│││   0x1014f144      e807d41800     call sym._alloc::raw_vec::RawVec_usize__::grow_one ; <alloc::raw_vec::RawVec<usize>>::grow_one
+│ ││╎╎│││   0x1014f149      83c404         add esp, 4
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f28f(x)
+│ ────────> 0x1014f14c      8b46f4         mov eax, dword [esi - 0xc]
+│ ││╎╎│││   0x1014f14f      8b4c240c       mov ecx, dword [var_ch_2]
+│ ││╎╎│││   0x1014f153      890cb8         mov dword [eax + edi*4], ecx
+│ ││╎╎│││   0x1014f156      8b4c2440       mov ecx, dword [var_40h]
+│ ││╎╎│││   0x1014f15a      47             inc edi
+│ ││╎╎│││   0x1014f15b      897ef8         mov dword [esi - 8], edi
+│ ││╎╎│││   0x1014f15e      3b4c2464       cmp ecx, dword [var_64h]
+│ ││╎╎│││   0x1014f162      8b4c2408       mov ecx, dword [var_8h]
+│ ────────< 0x1014f166      0f843b020000   je 0x1014f3a7
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f136(x)
+│ ────────> 0x1014f16c      8b442440       mov eax, dword [var_40h]
+│ ││╎╎│││   0x1014f170      894c240c       mov dword [var_ch_2], ecx
+│ ││╎╎│││   0x1014f174      8b30           mov esi, dword [eax]
+│ ││╎╎│││   0x1014f176      8b5004         mov edx, dword [eax + 4]
+│ ││╎╎│││   0x1014f179      83c018         add eax, 0x18               ; 24
+│ ││╎╎│││   0x1014f17c      89442440       mov dword [var_40h], eax
+│ ││╎╎│││   0x1014f180      8d4101         lea eax, [ecx + 1]
+│ ││╎╎│││   0x1014f183      89442408       mov dword [var_8h], eax
+│ ││╎╎│││   0x1014f187      8d442470       lea eax, [var_70h]
+│ ││╎╎│││   0x1014f18b      891424         mov dword [esp], edx
+│ ││╎╎│││   0x1014f18e      89542474       mov dword [var_74h], edx
+│ ││╎╎│││   0x1014f192      89742404       mov dword [var_4h], esi
+│ ││╎╎│││   0x1014f196      89742470       mov dword [var_70h], esi
+│ ││╎╎│││   0x1014f19a      50             push eax
+│ ││╎╎│││   0x1014f19b      8d8424bc00..   lea eax, [var_b8h]
+│ ││╎╎│││   0x1014f1a2      50             push eax
+│ ││╎╎│││   0x1014f1a3      e8e84bf7ff     call sym.__RINvYNtNtNtCs3U2idwLkfcg_3std4hash6random11RandomStateNtNtCs32tIC4fDiEl_4core4hash11BuildHasher8hash_oneRyECscusTm9VrEdi_19ps
+│ ││╎╎│││   0x1014f1a8      83c408         add esp, 8
+│ ││╎╎│││   0x1014f1ab      8b9c24ac00..   mov ebx, dword [var_ach]
+│ ││╎╎│││   0x1014f1b2      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014f1b4      8b9424a800..   mov edx, dword [var_a8h]
+│ ││╎╎│││   0x1014f1bb      898424ec00..   mov dword [var_ech], eax
+│ ││╎╎│││   0x1014f1c2      c1e919         shr ecx, 0x19
+│ ││╎╎│││   0x1014f1c5      660f6ec1       movd xmm0, ecx
+│ ││╎╎│││   0x1014f1c9      894c2410       mov dword [var_20h_2], ecx
+│ ││╎╎│││   0x1014f1cd      31c9           xor ecx, ecx
+│ ││╎╎│││   0x1014f1cf      660f60c0       punpcklbw xmm0, xmm0
+│ ││╎╎│││   0x1014f1d3      89de           mov esi, ebx
+│ ││╎╎│││   0x1014f1d5      f20f70c000     pshuflw xmm0, xmm0, 0
+│ ││╎╎│││   0x1014f1da      21c6           and esi, eax
+│ ││╎╎│││   0x1014f1dc      660f70c044     pshufd xmm0, xmm0, 0x44
+│ ││╎╎│││   0x1014f1e1      89f0           mov eax, esi
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f27b(x)
+│ ────────> 0x1014f1e3      f30f6f0c02     movdqu xmm1, xmmword [edx + eax]
+│ ││╎╎│││   0x1014f1e8      660f6fd1       movdqa xmm2, xmm1
+│ ││╎╎│││   0x1014f1ec      660f74d0       pcmpeqb xmm2, xmm0
+│ ││╎╎│││   0x1014f1f0      660fd7fa       pmovmskb edi, xmm2
+│ ││╎╎│││   0x1014f1f4      85ff           test edi, edi
+│ ────────< 0x1014f1f6      7468           je 0x1014f260
+│ ││╎╎│││   0x1014f1f8      89b424e800..   mov dword [var_e8h], esi
+│ ││╎╎│││   0x1014f1ff      898c24e400..   mov dword [var_e4h], ecx
+│ ││╎╎│││   0x1014f206      898424e000..   mov dword [var_e0h], eax
+│ ││╎╎│││   0x1014f20d      899c24dc00..   mov dword [var_dch], ebx
+│ ────────> 0x1014f214      89d9           mov ecx, ebx
+│ ││╎╎│││   0x1014f216      f30fbcdf       tzcnt ebx, edi
+│ ││╎╎│││   0x1014f21a      89fe           mov esi, edi
+│ ││╎╎│││   0x1014f21c      01c3           add ebx, eax
+│ ││╎╎│││   0x1014f21e      21cb           and ebx, ecx
+│ ││╎╎│││   0x1014f220      8b4c2404       mov ecx, dword [var_4h]
+│ ││╎╎│││   0x1014f224      f7db           neg ebx
+│ ││╎╎│││   0x1014f226      8d1c5b         lea ebx, [ebx + ebx*2]
+│ ││╎╎│││   0x1014f229      8b7cdaec       mov edi, dword [edx + ebx*8 - 0x14]
+│ ││╎╎│││   0x1014f22d      8b44dae8       mov eax, dword [edx + ebx*8 - 0x18]
+│ ││╎╎│││   0x1014f231      333c24         xor edi, dword [esp]
+│ ││╎╎│││   0x1014f234      31c8           xor eax, ecx
+│ ││╎╎│││   0x1014f236      09f8           or eax, edi
+│ ────────< 0x1014f238      7446           je 0x1014f280
+│ ││╎╎│││   0x1014f23a      8d46ff         lea eax, [esi - 1]
+│ ││╎╎│││   0x1014f23d      8b9c24dc00..   mov ebx, dword [var_dch]
+│ ││╎╎│││   0x1014f244      8b8c24e400..   mov ecx, dword [var_e4h]
+│ ││╎╎│││   0x1014f24b      6621f0         and ax, si
+│ ││╎╎│││   0x1014f24e      8bb424e800..   mov esi, dword [var_e8h]
+│ ││╎╎│││   0x1014f255      89c7           mov edi, eax
+│ ││╎╎│││   0x1014f257      8b8424e000..   mov eax, dword [var_e0h]
+│ ────────< 0x1014f25e      75b4           jne 0x1014f214
+│ ────────> 0x1014f260      660f76d2       pcmpeqd xmm2, xmm2
+│ ││╎╎│││   0x1014f264      89c7           mov edi, eax
+│ ││╎╎│││   0x1014f266      660f74ca       pcmpeqb xmm1, xmm2
+│ ││╎╎│││   0x1014f26a      660fd7c1       pmovmskb eax, xmm1
+│ ││╎╎│││   0x1014f26e      85c0           test eax, eax
+│ ────────< 0x1014f270      752e           jne 0x1014f2a0
+│ ││╎╎│││   0x1014f272      8d440f10       lea eax, [edi + ecx + 0x10]
+│ ││╎╎│││   0x1014f276      83c110         add ecx, 0x10               ; 16
+│ ││╎╎│││   0x1014f279      21d8           and eax, ebx
+│ ────────< 0x1014f27b      e963ffffff     jmp 0x1014f1e3
+│ ────────> 0x1014f280      8d34da         lea esi, [edx + ebx*8]
+│ ││╎╎│││   0x1014f283      8b7ef8         mov edi, dword [esi - 8]
+│ ││╎╎│││   0x1014f286      3b7ef0         cmp edi, dword [esi - 0x10]
+│ ────────< 0x1014f289      0f84b1feffff   je 0x1014f140
+│ ────────< 0x1014f28f      e9b8feffff     jmp 0x1014f14c
+..
+│ ────────> 0x1014f2a0      83bc24b000..   cmp dword [var_b0h], 0
+│ ────────< 0x1014f2a8      0f84ac000000   je 0x1014f35a
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f38d(x)
+│ ────────> 0x1014f2ae      f30f6f0432     movdqu xmm0, xmmword [edx + esi]
+│ ││╎╎│││   0x1014f2b3      89f1           mov ecx, esi
+│ ││╎╎│││   0x1014f2b5      660fd7c0       pmovmskb eax, xmm0
+│ ││╎╎│││   0x1014f2b9      85c0           test eax, eax
+│ ────────< 0x1014f2bb      747a           je 0x1014f337
+│ ────────> 0x1014f2bd      f30fbcc0       tzcnt eax, eax
+│ ││╎╎│││   0x1014f2c1      01c8           add eax, ecx
+│ ││╎╎│││   0x1014f2c3      89d1           mov ecx, edx
+│ ││╎╎│││   0x1014f2c5      21d8           and eax, ebx
+│ ││╎╎│││   0x1014f2c7      0fb61402       movzx edx, byte [edx + eax]
+│ ││╎╎│││   0x1014f2cb      84d2           test dl, dl
+│ ────────< 0x1014f2cd      0f89bf000000   jns 0x1014f392
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f3a2(x)
+│ ────────> 0x1014f2d3      8d70f0         lea esi, [eax - 0x10]
+│ ││╎╎│││   0x1014f2d6      8b3c24         mov edi, dword [esp]
+│ ││╎╎│││   0x1014f2d9      80e201         and dl, 1
+│ ││╎╎│││   0x1014f2dc      21de           and esi, ebx
+│ ││╎╎│││   0x1014f2de      8b5c2410       mov ebx, dword [var_20h_2]
+│ ││╎╎│││   0x1014f2e2      0fb6d2         movzx edx, dl
+│ ││╎╎│││   0x1014f2e5      881c01         mov byte [ecx + eax], bl
+│ ││╎╎│││   0x1014f2e8      885c3110       mov byte [ecx + esi + 0x10], bl
+│ ││╎╎│││   0x1014f2ec      8b742404       mov esi, dword [var_4h]
+│ ││╎╎│││   0x1014f2f0      f7d8           neg eax
+│ ││╎╎│││   0x1014f2f2      299424b000..   sub dword [var_b0h], edx
+│ ││╎╎│││   0x1014f2f9      8d0440         lea eax, [eax + eax*2]
+│ ││╎╎│││   0x1014f2fc      897cc1ec       mov dword [ecx + eax*8 - 0x14], edi
+│ ││╎╎│││   0x1014f300      8974c1e8       mov dword [ecx + eax*8 - 0x18], esi
+│ ││╎╎│││   0x1014f304      c744c1f000..   mov dword [ecx + eax*8 - 0x10], 0
+│ ││╎╎│││   0x1014f30c      c744c1f404..   mov dword [ecx + eax*8 - 0xc], 4
+│ ││╎╎│││   0x1014f314      c744c1f800..   mov dword [ecx + eax*8 - 8], 0
+│ ││╎╎│││   0x1014f31c      ff8424b400..   inc dword [var_b4h]
+│ ││╎╎│││   0x1014f323      8d34c1         lea esi, [ecx + eax*8]
+│ ││╎╎│││   0x1014f326      8b7ef8         mov edi, dword [esi - 8]
+│ ││╎╎│││   0x1014f329      3b7ef0         cmp edi, dword [esi - 0x10]
+│ ────────< 0x1014f32c      0f851afeffff   jne 0x1014f14c
+│ ────────< 0x1014f332      e909feffff     jmp 0x1014f140
+│ ────────> 0x1014f337      be10000000     mov esi, 0x10               ; 16
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f358(x)
+│ ────────> 0x1014f33c      89c8           mov eax, ecx
+│ ││╎╎│││   0x1014f33e      01f0           add eax, esi
+│ ││╎╎│││   0x1014f340      83c610         add esi, 0x10               ; 16
+│ ││╎╎│││   0x1014f343      21d8           and eax, ebx
+│ ││╎╎│││   0x1014f345      f30f6f0402     movdqu xmm0, xmmword [edx + eax]
+│ ││╎╎│││   0x1014f34a      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014f34c      660fd7c0       pmovmskb eax, xmm0
+│ ││╎╎│││   0x1014f350      85c0           test eax, eax
+│ ────────< 0x1014f352      0f8565ffffff   jne 0x1014f2bd
+│ ────────< 0x1014f358      ebe2           jmp 0x1014f33c
+│ ────────> 0x1014f35a      6a01           push 1                      ; 1
+│ ││╎╎│││   0x1014f35c      8d8424bc00..   lea eax, [var_b8h]
+│ ││╎╎│││   0x1014f363      50             push eax
+│ ││╎╎│││   0x1014f364      6a01           push 1                      ; 1
+│ ││╎╎│││   0x1014f366      8d8424b400..   lea eax, [var_a8h]
+│ ││╎╎│││   0x1014f36d      50             push eax
+│ ││╎╎│││   0x1014f36e      8bb424fc00..   mov esi, dword [var_ech]
+│ ││╎╎│││   0x1014f375      e83632f5ff     call sym.__RINvMs6_NtCs3qUfj5bFD5W_9hashbrown3rawINtB6_8RawTableTyINtNtCsiQYfQzk4lu_5alloc3vec3VecjEEE14reserve_rehashNCINvNtB8_3map11ma
+│ ││╎╎│││   0x1014f37a      83c410         add esp, 0x10
+│ ││╎╎│││   0x1014f37d      8b9c24ac00..   mov ebx, dword [var_ach]
+│ ││╎╎│││   0x1014f384      8b9424a800..   mov edx, dword [var_a8h]
+│ ││╎╎│││   0x1014f38b      21de           and esi, ebx
+│ ────────< 0x1014f38d      e91cffffff     jmp 0x1014f2ae
+│ ────────> 0x1014f392      660f6f01       movdqa xmm0, xmmword [ecx]
+│ ││╎╎│││   0x1014f396      660fd7c0       pmovmskb eax, xmm0
+│ ││╎╎│││   0x1014f39a      f30fbcc0       tzcnt eax, eax
+│ ││╎╎│││   0x1014f39e      0fb61401       movzx edx, byte [ecx + eax]
+│ ────────< 0x1014f3a2      e92cffffff     jmp 0x1014f2d3
+│ ────────> 0x1014f3a7      8b74243c       mov esi, dword [var_3ch]
+│ ││╎╎│││   0x1014f3ab      85f6           test esi, esi
+│ ────────< 0x1014f3ad      0f8483030000   je 0x1014f736
+│ ││╎╎│││   0x1014f3b3      e8f8340100     call sym.__rustc::__rust_no_alloc_shim_is_unstable_v2
+│ ││╎╎│││   0x1014f3b8      6a01           push 1                      ; 1
+│ ││╎╎│││   0x1014f3ba      8974240c       mov dword [var_8h], esi
+│ ││╎╎│││   0x1014f3be      56             push esi
+│ ││╎╎│││   0x1014f3bf      e8dc340100     call sym.__rustc::__rust_alloc_zeroed
+│ ││╎╎│││   0x1014f3c4      83c408         add esp, 8
+│ ││╎╎│││   0x1014f3c7      85c0           test eax, eax
+│ ││╎╎│││   0x1014f3c9      89442414       mov dword [var_14h], eax
+│ ────────< 0x1014f3cd      0f8412090000   je 0x1014fce5
+│ ││╎╎│││   0x1014f3d3      8b7d0c         mov edi, dword [arg_ch]
+│ ││╎╎│││   0x1014f3d6      85ff           test edi, edi
+│ ────────< 0x1014f3d8      0f846b030000   je 0x1014f749
+│ ────────> 0x1014f3de      89fe           mov esi, edi
+│ ││╎╎│││   0x1014f3e0      c1e604         shl esi, 4
+│ ││╎╎│││   0x1014f3e3      e8c8340100     call sym.__rustc::__rust_no_alloc_shim_is_unstable_v2
+│ ││╎╎│││   0x1014f3e8      6a08           push 8                      ; 8
+│ ││╎╎│││   0x1014f3ea      56             push esi
+│ ││╎╎│││   0x1014f3eb      e860340100     call sym.__rustc::__rust_alloc
+│ ││╎╎│││   0x1014f3f0      83c408         add esp, 8
+│ ││╎╎│││   0x1014f3f3      85c0           test eax, eax
+│ ────────< 0x1014f3f5      0f84d0080000   je 0x1014fccb
+│ ││╎╎│││   0x1014f3fb      89f9           mov ecx, edi
+│ ││╎╎│││   0x1014f3fd      897c2418       mov dword [var_18h], edi
+│ ││╎╎│││   0x1014f401      8944241c       mov dword [var_1ch], eax
+│ ││╎╎│││   0x1014f405      c744242000..   mov dword [var_20h], 0
+│ ││╎╎│││   0x1014f40d      c1e106         shl ecx, 6
+│ ││╎╎│││   0x1014f410      8d1cb9         lea ebx, [ecx + edi*4]
+│ ││╎╎│││   0x1014f413      e898340100     call sym.__rustc::__rust_no_alloc_shim_is_unstable_v2
+│ ││╎╎│││   0x1014f418      6a04           push 4                      ; 4
+│ ││╎╎│││   0x1014f41a      53             push ebx
+│ ││╎╎│││   0x1014f41b      e830340100     call sym.__rustc::__rust_alloc
+│ ││╎╎│││   0x1014f420      83c408         add esp, 8
+│ ││╎╎│││   0x1014f423      85c0           test eax, eax
+│ ────────< 0x1014f425      0f84ad080000   je 0x1014fcd8
+│ ││╎╎│││   0x1014f42b      8b4d08         mov ecx, dword [arg_8h]
+│ ││╎╎│││   0x1014f42e      897c2424       mov dword [var_24h], edi
+│ ││╎╎│││   0x1014f432      89442428       mov dword [var_28h], eax
+│ ││╎╎│││   0x1014f436      31f6           xor esi, esi
+│ ││╎╎│││   0x1014f438      c744242c00..   mov dword [var_2ch], 0
+│ ││╎╎│││   0x1014f440      01cb           add ebx, ecx
+│ ││╎╎│││   0x1014f442      89c8           mov eax, ecx
+│ ││╎╎│││   0x1014f444      895c240c       mov dword [var_ch_2], ebx
+│ ────────< 0x1014f448      eb15           jmp 0x1014f45f
+..
+│ ────────> 0x1014f450      8b442440       mov eax, dword [var_40h]
+│ ││╎╎│││   0x1014f454      83c044         add eax, 0x44               ; 68
+│ ││╎╎│││   0x1014f457      39d8           cmp eax, ebx
+│ ────────< 0x1014f459      0f84c7020000   je 0x1014f726
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f448(x)
+│ ────────> 0x1014f45f      89442440       mov dword [var_40h], eax
+│ ││╎╎│││   0x1014f463      50             push eax
+│ ││╎╎│││   0x1014f464      e8c70a0000     call sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::plane_key
+│ ││╎╎│││   0x1014f469      83c404         add esp, 4
+│ ││╎╎│││   0x1014f46c      83bc24b400..   cmp dword [var_b4h], 0
+│ ││╎╎│││   0x1014f474      89442404       mov dword [var_4h], eax
+│ ││╎╎│││   0x1014f478      898424c800..   mov dword [var_c8h], eax
+│ ││╎╎│││   0x1014f47f      c78424cc00..   mov dword [var_cch], 0
+│ ────────< 0x1014f48a      0f8490010000   je 0x1014f620
+│ ││╎╎│││   0x1014f490      8d8424c800..   lea eax, [var_c8h]
+│ ││╎╎│││   0x1014f497      50             push eax
+│ ││╎╎│││   0x1014f498      8d8424bc00..   lea eax, [var_b8h]
+│ ││╎╎│││   0x1014f49f      50             push eax
+│ ││╎╎│││   0x1014f4a0      e8eb48f7ff     call sym.__RINvYNtNtNtCs3U2idwLkfcg_3std4hash6random11RandomStateNtNtCs32tIC4fDiEl_4core4hash11BuildHasher8hash_oneRyECscusTm9VrEdi_19ps
+│ ││╎╎│││   0x1014f4a5      83c408         add esp, 8
+│ ││╎╎│││   0x1014f4a8      8b9424ac00..   mov edx, dword [var_ach]
+│ ││╎╎│││   0x1014f4af      660f6ec0       movd xmm0, eax
+│ ││╎╎│││   0x1014f4b3      8b8c24a800..   mov ecx, dword [var_a8h]
+│ ││╎╎│││   0x1014f4ba      c744241000..   mov dword [var_20h_2], 0
+│ ││╎╎│││   0x1014f4c2      660f72d019     psrld xmm0, 0x19
+│ ││╎╎│││   0x1014f4c7      660f60c0       punpcklbw xmm0, xmm0
+│ ││╎╎│││   0x1014f4cb      f20f70c000     pshuflw xmm0, xmm0, 0
+│ ││╎╎│││   0x1014f4d0      89d7           mov edi, edx
+│ ││╎╎│││   0x1014f4d2      660f70c044     pshufd xmm0, xmm0, 0x44
+│ ││╎╎│││   0x1014f4d7      21c7           and edi, eax
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f545(x)
+│ ────────> 0x1014f4d9      f30f6f0c39     movdqu xmm1, xmmword [ecx + edi]
+│ ││╎╎│││   0x1014f4de      660f6fd1       movdqa xmm2, xmm1
+│ ││╎╎│││   0x1014f4e2      660f74d0       pcmpeqb xmm2, xmm0
+│ ││╎╎│││   0x1014f4e6      660fd7c2       pmovmskb eax, xmm2
+│ ││╎╎│││   0x1014f4ea      85c0           test eax, eax
+│ ────────< 0x1014f4ec      7432           je 0x1014f520
+│ ││╎╎│││   0x1014f4ee      893424         mov dword [esp], esi
+│ ────────> 0x1014f4f1      f30fbcd8       tzcnt ebx, eax
+│ ││╎╎│││   0x1014f4f5      01fb           add ebx, edi
+│ ││╎╎│││   0x1014f4f7      21d3           and ebx, edx
+│ ││╎╎│││   0x1014f4f9      f7db           neg ebx
+│ ││╎╎│││   0x1014f4fb      8d1c5b         lea ebx, [ebx + ebx*2]
+│ ││╎╎│││   0x1014f4fe      8b74d9e8       mov esi, dword [ecx + ebx*8 - 0x18]
+│ ││╎╎│││   0x1014f502      33742404       xor esi, dword [var_4h]
+│ ││╎╎│││   0x1014f506      0b74d9ec       or esi, dword [ecx + ebx*8 - 0x14]
+│ ────────< 0x1014f50a      7444           je 0x1014f550
+│ ││╎╎│││   0x1014f50c      8d70ff         lea esi, [eax - 1]
+│ ││╎╎│││   0x1014f50f      8b5c240c       mov ebx, dword [var_ch_2]
+│ ││╎╎│││   0x1014f513      6621c6         and si, ax
+│ ││╎╎│││   0x1014f516      89f0           mov eax, esi
+│ ││╎╎│││   0x1014f518      8b3424         mov esi, dword [esp]
+│ ────────< 0x1014f51b      75d4           jne 0x1014f4f1
+│ ││╎╎│││   0x1014f51d      0f1f00         nop dword [eax]
+│ ────────> 0x1014f520      660f76d2       pcmpeqd xmm2, xmm2
+│ ││╎╎│││   0x1014f524      660f74ca       pcmpeqb xmm1, xmm2
+│ ││╎╎│││   0x1014f528      660fd7c1       pmovmskb eax, xmm1
+│ ││╎╎│││   0x1014f52c      85c0           test eax, eax
+│ ────────< 0x1014f52e      0f85ec000000   jne 0x1014f620
+│ ││╎╎│││   0x1014f534      8b442410       mov eax, dword [var_20h_2]
+│ ││╎╎│││   0x1014f538      8d7c0710       lea edi, [edi + eax + 0x10]
+│ ││╎╎│││   0x1014f53c      83c010         add eax, 0x10               ; 16
+│ ││╎╎│││   0x1014f53f      89442410       mov dword [var_20h_2], eax
+│ ││╎╎│││   0x1014f543      21d7           and edi, edx
+│ ────────< 0x1014f545      eb92           jmp 0x1014f4d9
+..
+│ ────────> 0x1014f550      8d04d9         lea eax, [ecx + ebx*8]
+│ ││╎╎│││   0x1014f553      8b3424         mov esi, dword [esp]
+│ ││╎╎│││   0x1014f556      8b5c240c       mov ebx, dword [var_ch_2]
+│ ││╎╎│││   0x1014f55a      8b48f8         mov ecx, dword [eax - 8]
+│ ││╎╎│││   0x1014f55d      85c9           test ecx, ecx
+│ ────────< 0x1014f55f      0f84bb000000   je 0x1014f620
+│ ││╎╎│││   0x1014f565      8d51ff         lea edx, [ecx - 1]
+│ ││╎╎│││   0x1014f568      8950f8         mov dword [eax - 8], edx
+│ ││╎╎│││   0x1014f56b      8b40f4         mov eax, dword [eax - 0xc]
+│ ││╎╎│││   0x1014f56e      8b4488fc       mov eax, dword [eax + ecx*4 - 4]
+│ ││╎╎│││   0x1014f572      8b4c2408       mov ecx, dword [var_8h]
+│ ││╎╎│││   0x1014f576      39c8           cmp eax, ecx
+│ ────────< 0x1014f578      0f831c070000   jae 0x1014fc9a
+│ ││╎╎│││   0x1014f57e      8b4c2414       mov ecx, dword [var_14h]
+│ ││╎╎│││   0x1014f582      c6040101       mov byte [ecx + eax], 1
+│ ││╎╎│││   0x1014f586      8b4c243c       mov ecx, dword [var_3ch]
+│ ││╎╎│││   0x1014f58a      39c8           cmp eax, ecx
+│ ────────< 0x1014f58c      0f830f070000   jae 0x1014fca1
+│ ││╎╎│││   0x1014f592      8b742420       mov esi, dword [var_20h]
+│ ││╎╎│││   0x1014f596      8b4c2438       mov ecx, dword [var_38h]
+│ ││╎╎│││   0x1014f59a      8d0440         lea eax, [eax + eax*2]
+│ ││╎╎│││   0x1014f59d      8b14c1         mov edx, dword [ecx + eax*8]
+│ ││╎╎│││   0x1014f5a0      8b7cc104       mov edi, dword [ecx + eax*8 + 4]
+│ ││╎╎│││   0x1014f5a4      8b5cc108       mov ebx, dword [ecx + eax*8 + 8]
+│ ││╎╎│││   0x1014f5a8      3b742418       cmp esi, dword [var_18h]
+│ ────────< 0x1014f5ac      7515           jne 0x1014f5c3
+│ ││╎╎│││   0x1014f5ae      8d442418       lea eax, [var_18h]
+│ ││╎╎│││   0x1014f5b2      50             push eax
+│ ││╎╎│││   0x1014f5b3      89542408       mov dword [var_4h], edx
+│ ││╎╎│││   0x1014f5b7      e8b483f1ff     call sym.__RNvMs3_NtCsiQYfQzk4lu_5alloc7raw_vecINtB5_6RawVecNtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes3lod16task_o
+│ ││╎╎│││   0x1014f5bc      8b542408       mov edx, dword [var_4h]
+│ ││╎╎│││   0x1014f5c0      83c404         add esp, 4
+│ ────────> 0x1014f5c3      8b4c241c       mov ecx, dword [var_1ch]
+│ ││╎╎│││   0x1014f5c7      89f0           mov eax, esi
+│ ││╎╎│││   0x1014f5c9      46             inc esi
+│ ││╎╎│││   0x1014f5ca      c1e004         shl eax, 4
+│ ││╎╎│││   0x1014f5cd      897c0104       mov dword [ecx + eax + 4], edi
+│ ││╎╎│││   0x1014f5d1      891401         mov dword [ecx + eax], edx
+│ ││╎╎│││   0x1014f5d4      895c0108       mov dword [ecx + eax + 8], ebx
+│ ││╎╎│││   0x1014f5d8      89742420       mov dword [var_20h], esi
+│ ││╎╎│││   0x1014f5dc      8b5c242c       mov ebx, dword [var_2ch]
+│ ││╎╎│││   0x1014f5e0      3b5c2424       cmp ebx, dword [var_24h]
+│ ────────< 0x1014f5e4      750d           jne 0x1014f5f3
+│ ││╎╎│││   0x1014f5e6      8d442424       lea eax, [var_24h]
+│ ││╎╎│││   0x1014f5ea      50             push eax
+│ ││╎╎│││   0x1014f5eb      e84084f1ff     call sym.__RNvMs3_NtCsiQYfQzk4lu_5alloc7raw_vecINtB5_6RawVecNtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods4perf16occlusion_planes4da
+│ ││╎╎│││   0x1014f5f0      83c404         add esp, 4
+│ ────────> 0x1014f5f3      89d8           mov eax, ebx
+│ ││╎╎│││   0x1014f5f5      b911000000     mov ecx, 0x11               ; 17
+│ ││╎╎│││   0x1014f5fa      c1e006         shl eax, 6
+│ ││╎╎│││   0x1014f5fd      8d3c98         lea edi, [eax + ebx*4]
+│ ││╎╎│││   0x1014f600      8b442440       mov eax, dword [var_40h]
+│ ││╎╎│││   0x1014f604      43             inc ebx
+│ ││╎╎│││   0x1014f605      037c2428       add edi, dword [var_28h]
+│ ││╎╎│││   0x1014f609      89c6           mov esi, eax
+│ ││╎╎│││   0x1014f60b      f3a5           rep movsd dword es:[edi], dword [esi]
+│ ││╎╎│││   0x1014f60d      895c242c       mov dword [var_2ch], ebx
+│ ││╎╎│││   0x1014f611      8b3424         mov esi, dword [esp]
+│ ────────< 0x1014f614      e9fe000000     jmp 0x1014f717
+..
+│ ────────> 0x1014f620      68fc000000     push 0xfc                   ; 252
+│ ││╎╎│││   0x1014f625      ff157c134010   call dword [0x1040137c]
+│ ││╎╎│││   0x1014f62b      83c404         add esp, 4
+│ ││╎╎│││   0x1014f62e      85c0           test eax, eax
+│ ────────< 0x1014f630      0f841afeffff   je 0x1014f450
+│ ││╎╎│││   0x1014f636      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014f638      ff1580134010   call dword [0x10401380]
+│ ││╎╎│││   0x1014f63e      85c0           test eax, eax
+│ ────────< 0x1014f640      0f840afeffff   je 0x1014f450
+│ ││╎╎│││   0x1014f646      f0ff4004       lock inc dword [eax + 4]
+│ ││╎╎│││   0x1014f64a      89c7           mov edi, eax
+│ ││╎╎│││   0x1014f64c      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014f64e      8d442470       lea eax, [var_70h]
+│ ││╎╎│││   0x1014f652      8b5c2440       mov ebx, dword [var_40h]
+│ ││╎╎│││   0x1014f656      f20f1003       movsd xmm0, qword [ebx]
+│ ││╎╎│││   0x1014f65a      0f5905003b..   mulps xmm0, xmmword [0x10433b00]
+│ ││╎╎│││   0x1014f661      0f13442470     movlps qword [var_70h], xmm0
+│ ││╎╎│││   0x1014f666      50             push eax
+│ ││╎╎│││   0x1014f667      ff1584134010   call dword [0x10401384]
+│ ││╎╎│││   0x1014f66d      8d4308         lea eax, [ebx + 8]
+│ ││╎╎│││   0x1014f670      89f9           mov ecx, edi
+│ ││╎╎│││   0x1014f672      50             push eax
+│ ││╎╎│││   0x1014f673      ff1588134010   call dword [0x10401388]
+│ ││╎╎│││   0x1014f679      8d4314         lea eax, [ebx + 0x14]
+│ ││╎╎│││   0x1014f67c      89f9           mov ecx, edi
+│ ││╎╎│││   0x1014f67e      50             push eax
+│ ││╎╎│││   0x1014f67f      ff158c134010   call dword [0x1040138c]
+│ ││╎╎│││   0x1014f685      f30f10433c     movss xmm0, dword [ebx + 0x3c]
+│ ││╎╎│││   0x1014f68a      0f2e05103b..   ucomiss xmm0, dword [0x10433b10]
+│ ││╎╎│││   0x1014f691      0f9387ea00..   setae byte [edi + 0xea]
+│ ││╎╎│││   0x1014f698      8b4c2460       mov ecx, dword [var_60h_2]
+│ ││╎╎│││   0x1014f69c      57             push edi
+│ ││╎╎│││   0x1014f69d      ff1590134010   call dword [0x10401390]
+│ ││╎╎│││   0x1014f6a3      8b5c2420       mov ebx, dword [var_20h_2]
+│ ││╎╎│││   0x1014f6a7      3b5c2418       cmp ebx, dword [var_8h]
+│ ────────< 0x1014f6ab      750d           jne 0x1014f6ba
+│ ││╎╎│││   0x1014f6ad      8d442418       lea eax, [var_8h]
+│ ││╎╎│││   0x1014f6b1      50             push eax
+│ ││╎╎│││   0x1014f6b2      e8b982f1ff     call sym.__RNvMs3_NtCsiQYfQzk4lu_5alloc7raw_vecINtB5_6RawVecNtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes3lod16task_o
+│ ││╎╎│││   0x1014f6b7      83c404         add esp, 4
+│ ────────> 0x1014f6ba      8b44241c       mov eax, dword [var_ch_2]
+│ ││╎╎│││   0x1014f6be      8b542404       mov edx, dword [var_4h_2]
+│ ││╎╎│││   0x1014f6c2      89d9           mov ecx, ebx
+│ ││╎╎│││   0x1014f6c4      43             inc ebx
+│ ││╎╎│││   0x1014f6c5      893424         mov dword [esp], esi
+│ ││╎╎│││   0x1014f6c8      c1e104         shl ecx, 4
+│ ││╎╎│││   0x1014f6cb      891408         mov dword [eax + ecx], edx
+│ ││╎╎│││   0x1014f6ce      c744080400..   mov dword [eax + ecx + 4], 0
+│ ││╎╎│││   0x1014f6d6      897c0808       mov dword [eax + ecx + 8], edi
+│ ││╎╎│││   0x1014f6da      895c2420       mov dword [var_20h_2], ebx
+│ ││╎╎│││   0x1014f6de      8b5c242c       mov ebx, dword [var_1ch]
+│ ││╎╎│││   0x1014f6e2      3b5c2424       cmp ebx, dword [var_14h]
+│ ────────< 0x1014f6e6      750d           jne 0x1014f6f5
+│ ││╎╎│││   0x1014f6e8      8d442424       lea eax, [var_14h]
+│ ││╎╎│││   0x1014f6ec      50             push eax
+│ ││╎╎│││   0x1014f6ed      e83e83f1ff     call sym.__RNvMs3_NtCsiQYfQzk4lu_5alloc7raw_vecINtB5_6RawVecNtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods4perf16occlusion_planes4da
+│ ││╎╎│││   0x1014f6f2      83c404         add esp, 4
+│ ────────> 0x1014f6f5      89d8           mov eax, ebx
+│ ││╎╎│││   0x1014f6f7      b911000000     mov ecx, 0x11               ; 17
+│ ││╎╎│││   0x1014f6fc      c1e006         shl eax, 6
+│ ││╎╎│││   0x1014f6ff      8d3c98         lea edi, [eax + ebx*4]
+│ ││╎╎│││   0x1014f702      8b442440       mov eax, dword [var_30h]
+│ ││╎╎│││   0x1014f706      43             inc ebx
+│ ││╎╎│││   0x1014f707      037c2428       add edi, dword [var_18h]
+│ ││╎╎│││   0x1014f70b      89c6           mov esi, eax
+│ ││╎╎│││   0x1014f70d      f3a5           rep movsd dword es:[edi], dword [esi]
+│ ││╎╎│││   0x1014f70f      895c242c       mov dword [var_1ch], ebx
+│ ││╎╎│││   0x1014f713      8b3424         mov esi, dword [esp]
+│ ││╎╎│││   0x1014f716      46             inc esi
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f614(x)
+│ ────────> 0x1014f717      8b5c240c       mov ebx, dword [var_ch]
+│ ││╎╎│││   0x1014f71b      83c044         add eax, 0x44               ; 68
+│ ││╎╎│││   0x1014f71e      39d8           cmp eax, ebx
+│ ────────< 0x1014f720      0f8539fdffff   jne 0x1014f45f
+│ ────────> 0x1014f726      8b44243c       mov eax, dword [var_3ch]
+│ ││╎╎│││   0x1014f72a      893424         mov dword [esp], esi
+│ ││╎╎│││   0x1014f72d      85c0           test eax, eax
+│ ────────< 0x1014f72f      7559           jne 0x1014f78a
+│ ────────< 0x1014f731      e9e7000000     jmp 0x1014f81d
+│ ────────> 0x1014f736      c744240800..   mov dword [var_8h], 0
+│ ││╎╎│││   0x1014f73e      8b7d0c         mov edi, dword [arg_ch]
+│ ││╎╎│││   0x1014f741      85ff           test edi, edi
+│ ────────< 0x1014f743      0f8595fcffff   jne 0x1014f3de
+│ ────────> 0x1014f749      31f6           xor esi, esi
+│ ││╎╎│││   0x1014f74b      c744241800..   mov dword [var_18h], 0
+│ ││╎╎│││   0x1014f753      c744241c08..   mov dword [var_1ch], 8
+│ ││╎╎│││   0x1014f75b      c744242400..   mov dword [var_24h], 0
+│ ││╎╎│││   0x1014f763      c744242804..   mov dword [var_28h], 4
+│ ││╎╎│││   0x1014f76b      c744242000..   mov dword [var_20h], 0
+│ ││╎╎│││   0x1014f773      c744242c00..   mov dword [var_2ch], 0
+│ ││╎╎│││   0x1014f77b      8b44243c       mov eax, dword [var_3ch]
+│ ││╎╎│││   0x1014f77f      893424         mov dword [esp], esi
+│ ││╎╎│││   0x1014f782      85c0           test eax, eax
+│ ────────< 0x1014f784      0f8493000000   je 0x1014f81d
+│ ────────> 0x1014f78a      8b742438       mov esi, dword [var_38h]
+│ ││╎╎│││   0x1014f78e      c1e003         shl eax, 3
+│ ││╎╎│││   0x1014f791      31db           xor ebx, ebx
+│ ││╎╎│││   0x1014f793      8d3c40         lea edi, [eax + eax*2]
+│ ││╎╎│││   0x1014f796      83c610         add esi, 0x10               ; 16
+│ ────────< 0x1014f799      eb0e           jmp 0x1014f7a9
+..
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f81b(x)
+│ ────────> 0x1014f7a0      83c618         add esi, 0x18               ; 24
+│ ││╎╎│││   0x1014f7a3      43             inc ebx
+│ ││╎╎│││   0x1014f7a4      83c7e8         add edi, 0xffffffe8
+│ ────────< 0x1014f7a7      7474           je 0x1014f81d
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f799(x)
+│ ────────> 0x1014f7a9      395c2408       cmp dword [var_8h], ebx
+│ ────────< 0x1014f7ad      0f84d2040000   je 0x1014fc85
+│ ││╎╎│││   0x1014f7b3      8b442414       mov eax, dword [var_14h]
+│ ││╎╎│││   0x1014f7b7      803c1800       cmp byte [eax + ebx], 0
+│ ────────< 0x1014f7bb      75e3           jne 0x1014f7a0
+│ ││╎╎│││   0x1014f7bd      8b06           mov eax, dword [esi]
+│ ││╎╎│││   0x1014f7bf      85c0           test eax, eax
+│ ────────< 0x1014f7c1      7440           je 0x1014f803
+│ ││╎╎│││   0x1014f7c3      8b4804         mov ecx, dword [eax + 4]
+│ ││╎╎│││   0x1014f7c6      894c2440       mov dword [var_40h], ecx
+│ ││╎╎│││   0x1014f7ca      85c9           test ecx, ecx
+│ ││╎╎│││   0x1014f7cc      8b10           mov edx, dword [eax]
+│ ││╎╎│││   0x1014f7ce      89442404       mov dword [var_4h], eax
+│ ││╎╎│││   0x1014f7d2      8b4c2440       mov ecx, dword [var_40h]
+│ ││╎╎│││   0x1014f7d6      8b44246c       mov eax, dword [var_6ch]
+│ ││╎╎│││   0x1014f7da      0f44c8         cmove ecx, eax
+│ ││╎╎│││   0x1014f7dd      85d2           test edx, edx
+│ ││╎╎│││   0x1014f7df      8911           mov dword [ecx], edx
+│ ││╎╎│││   0x1014f7e1      0f44d0         cmove edx, eax
+│ ││╎╎│││   0x1014f7e4      8b4c2440       mov ecx, dword [var_40h]
+│ ││╎╎│││   0x1014f7e8      894a04         mov dword [edx + 4], ecx
+│ ││╎╎│││   0x1014f7eb      8b4808         mov ecx, dword [eax + 8]
+│ ││╎╎│││   0x1014f7ee      83f901         cmp ecx, 1                  ; 1
+│ ││╎╎│││   0x1014f7f1      83d1ff         adc ecx, 0xffffffff
+│ ││╎╎│││   0x1014f7f4      894808         mov dword [eax + 8], ecx
+│ ││╎╎│││   0x1014f7f7      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014f7f9      ff742404       push dword [var_4h]
+│ ││╎╎│││   0x1014f7fd      ff1594134010   call dword [0x10401394]
+│ ────────> 0x1014f803      8b4ef8         mov ecx, dword [esi - 8]
+│ ││╎╎│││   0x1014f806      f0ff4904       lock dec dword [ecx + 4]
+│ ────────< 0x1014f80a      7594           jne 0x1014f7a0
+│ ││╎╎│││   0x1014f80c      8b01           mov eax, dword [ecx]
+│ ││╎╎│││   0x1014f80e      85c0           test eax, eax
+│ ────────< 0x1014f810      748e           je 0x1014f7a0
+│ ││╎╎│││   0x1014f812      8b4004         mov eax, dword [eax + 4]
+│ ││╎╎│││   0x1014f815      85c0           test eax, eax
+│ ────────< 0x1014f817      7487           je 0x1014f7a0
+│ ││╎╎│││   0x1014f819      ffd0           call eax
+│ ────────< 0x1014f81b      eb83           jmp 0x1014f7a0
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f731(x)
+│ ────────> 0x1014f81d      8b5c242c       mov ebx, dword [var_2ch]
+│ ││╎╎│││   0x1014f821      8b4d0c         mov ecx, dword [arg_ch]
+│ ││╎╎│││   0x1014f824      8b7c2420       mov edi, dword [var_20h]
+│ ││╎╎│││   0x1014f828      39cb           cmp ebx, ecx
+│ ────────< 0x1014f82a      0f84e8000000   je 0x1014f918
+│ ││╎╎│││   0x1014f830      a14c1d4010     mov eax, dword [0x10401d4c] ; [0x10401d4c:4]=0x105728f4
+│ ││╎╎│││   0x1014f835      8b00           mov eax, dword [eax]
+│ ││╎╎│││   0x1014f837      83f801         cmp eax, 1                  ; 1
+│ ────────< 0x1014f83a      0f86d8000000   jbe 0x1014f918
+│ ││╎╎│││   0x1014f840      8d8424f000..   lea eax, [var_f0h]
+│ ││╎╎│││   0x1014f847      898c24f400..   mov dword [var_f4h], ecx
+│ ││╎╎│││   0x1014f84e      8d4c2470       lea ecx, [var_70h]
+│ ││╎╎│││   0x1014f852      c744247001..   mov dword [var_70h], 1
+│ ││╎╎│││   0x1014f85a      c74424745e..   mov dword [var_74h], 0x55e  ; [0x55e:4]=-1 ; 1374
+│ ││╎╎│││   0x1014f862      c744247800..   mov dword [var_78h], 0
+│ ││╎╎│││   0x1014f86a      c744247c81..   mov dword [var_7ch], str.psycho_engine_fixes::mods::perf::occlusion_planes::runtime_OCCLUSION_PLANES__cache_save_failed: ; [0x10435281:4]=0x63797370 ; "psycho_engine_fixes::mods::perf::occlusion_planes::runtime&[OCCLUSION_PLANES] cache save failed:"
+│ ││╎╎│││   0x1014f872      c784248000..   mov dword [var_80h], 0x3a   ; ':'
+│ ││╎╎│││                                                              ; [0x3a:4]=-1 ; 58
+│ ││╎╎│││   0x1014f87d      c784248400..   mov dword [var_84h], 0
+│ ││╎╎│││   0x1014f888      c784248800..   mov dword [var_88h], str.psycho_engine_fixes_src_mods_perf_occlusion_planes_runtime.rs ; [0x10435243:4]=0x63797370 ; "psycho-engine-fixes/src/mods/perf/occlusion_planes/runtime.rs"
+│ ││╎╎│││   0x1014f893      c784248c00..   mov dword [var_8ch], 0x3d   ; '='
+│ ││╎╎│││                                                              ; [0x3d:4]=-1 ; 61
+│ ││╎╎│││   0x1014f89e      c784249000..   mov dword [var_90h], 2
+│ ││╎╎│││   0x1014f8a9      c784249400..   mov dword [var_94h], str.psycho_engine_fixes::mods::perf::occlusion_planes::runtime_OCCLUSION_PLANES__cache_save_failed: ; [0x10435281:4]=0x63797370 ; "psycho_engine_fixes::mods::perf::occlusion_planes::runtime&[OCCLUSION_PLANES] cache save failed:"
+│ ││╎╎│││   0x1014f8b4      c784249800..   mov dword [var_98h], 0x3a   ; ':'
+│ ││╎╎│││                                                              ; [0x3a:4]=-1 ; 58
+│ ││╎╎│││   0x1014f8bf      899c24f000..   mov dword [var_f0h], ebx
+│ ││╎╎│││   0x1014f8c6      c784249c00..   mov dword [var_9ch], 0x10435404 ; [0x10435404:4]=0x434f5b1c
+│ ││╎╎│││   0x1014f8d1      898424c800..   mov dword [var_c8h], eax
+│ ││╎╎│││   0x1014f8d8      8d8424f400..   lea eax, [var_f4h]
+│ ││╎╎│││   0x1014f8df      c78424cc00..   mov dword [var_cch], sym._u32_as_core::fmt::Display_::fmt__3 ; [0x103974a0:4]=0x56e58955 ; "U\x89\xe5V\x83\xec\f\x8bE\b\x8bu\f\x8dU\xf2\x8b\bj\n\xe8\a\xdd\xfe\xff\x83\xc4\x04\xb9\n"
+│ ││╎╎│││   0x1014f8ea      898424d000..   mov dword [var_d0h], eax
+│ ││╎╎│││   0x1014f8f1      8d8424c800..   lea eax, [var_c8h]
+│ ││╎╎│││   0x1014f8f8      c78424d400..   mov dword [var_d4h], sym._u32_as_core::fmt::Display_::fmt__3 ; [0x103974a0:4]=0x56e58955 ; "U\x89\xe5V\x83\xec\f\x8bE\b\x8bu\f\x8dU\xf2\x8b\bj\n\xe8\a\xdd\xfe\xff\x83\xc4\x04\xb9\n"
+│ ││╎╎│││   0x1014f903      898424a000..   mov dword [var_a0h], eax
+│ ││╎╎│││   0x1014f90a      8d44246b       lea eax, [var_6bh]
+│ ││╎╎│││   0x1014f90e      51             push ecx
+│ ││╎╎│││   0x1014f90f      50             push eax
+│ ││╎╎│││   0x1014f910      e8bbb01800     call sym._log::__private_api::GlobalLogger_as_log::Log_::log ; <log::__private_api::GlobalLogger as log::Log>::log
+│ ││╎╎│││   0x1014f915      83c408         add esp, 8
+│ ────────> 0x1014f918      8b442420       mov eax, dword [var_20h]
+│ ││╎╎│││   0x1014f91c      f20f10442418   movsd xmm0, qword [var_18h]
+│ ││╎╎│││   0x1014f922      89442478       mov dword [var_78h], eax
+│ ││╎╎│││   0x1014f926      a1dc134010     mov eax, dword [0x104013dc] ; [0x104013dc:4]=0
+│ ││╎╎│││   0x1014f92b      f20f11442470   movsd qword [var_70h], xmm0
+│ ││╎╎│││   0x1014f931      85c0           test eax, eax
+│ ────────< 0x1014f933      7414           je 0x1014f949
+│ ││╎╎│││   0x1014f935      c1e004         shl eax, 4
+│ ││╎╎│││   0x1014f938      6a08           push 8                      ; 8
+│ ││╎╎│││   0x1014f93a      50             push eax
+│ ││╎╎│││   0x1014f93b      ff35e0134010   push dword [0x104013e0]
+│ ││╎╎│││   0x1014f941      e81a2f0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014f946      83c40c         add esp, 0xc
+│ ────────> 0x1014f949      8b442478       mov eax, dword [var_78h]
+│ ││╎╎│││   0x1014f94d      f20f10442470   movsd xmm0, qword [var_70h]
+│ ││╎╎│││   0x1014f953      8b3424         mov esi, dword [esp]
+│ ││╎╎│││   0x1014f956      895c2440       mov dword [var_40h], ebx
+│ ││╎╎│││   0x1014f95a      85c0           test eax, eax
+│ ││╎╎│││   0x1014f95c      a3e4134010     mov dword [0x104013e4], eax ; [0x104013e4:4]=0
+│ ││╎╎│││   0x1014f961      f20f1105dc..   movsd qword [0x104013dc], xmm0 ; [0x104013dc:8]=0x800000000
+│ ────────< 0x1014f969      7408           je 0x1014f973
+│ ────────> 0x1014f96b      b101           mov cl, 1
+│ ││╎╎│││   0x1014f96d      894c2404       mov dword [var_4h], ecx
+│ ────────< 0x1014f971      eb20           jmp 0x1014f993
+│ ────────> 0x1014f973      8b0de8134010   mov ecx, dword [0x104013e8] ; [0x104013e8:4]=0
+│ ││╎╎│││   0x1014f979      85c9           test ecx, ecx
+│ ────────< 0x1014f97b      74ee           je 0x1014f96b
+│ ││╎╎│││   0x1014f97d      894c240c       mov dword [var_ch_2], ecx
+│ ││╎╎│││   0x1014f981      c705e81340..   mov dword [0x104013e8], 0   ; [0x104013e8:4]=0
+│ ││╎╎│││   0x1014f98b      c744240400..   mov dword [var_4h], 0
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014f971(x)
+│ ────────> 0x1014f993      8b542430       mov edx, dword [var_30h]
+│ ││╎╎│││   0x1014f997      31c9           xor ecx, ecx
+│ ││╎╎│││   0x1014f999      29f7           sub edi, esi
+│ ││╎╎│││   0x1014f99b      660f6ec6       movd xmm0, esi
+│ ││╎╎│││   0x1014f99f      a33c0e5710     mov dword [0x10570e3c], eax ; [0x10570e3c:4]=0
+│ ││╎╎│││   0x1014f9a4      0f42f9         cmovb edi, ecx
+│ ││╎╎│││   0x1014f9a7      660fd60590..   movq qword [0x10570e90], xmm0 ; [0x10570e90:8]=0
+│ ││╎╎│││   0x1014f9af      29fa           sub edx, edi
+│ ││╎╎│││   0x1014f9b1      0f42d1         cmovb edx, ecx
+│ ││╎╎│││   0x1014f9b4      660f6ec2       movd xmm0, edx
+│ ││╎╎│││   0x1014f9b8      89542430       mov dword [var_30h], edx
+│ ││╎╎│││   0x1014f9bc      660fd60598..   movq qword [0x10570e98], xmm0 ; [0x10570e98:8]=0
+│ ││╎╎│││   0x1014f9c4      8b151c0e5710   mov edx, dword [0x10570e1c] ; [0x10570e1c:4]=0
+│ ││╎╎│││   0x1014f9ca      a1180e5710     mov eax, dword [0x10570e18] ; [0x10570e18:4]=0
+│ ││╎╎│││   0x1014f9cf      90             nop
+│ ────────> 0x1014f9d0      89c3           mov ebx, eax
+│ ││╎╎│││   0x1014f9d2      89d1           mov ecx, edx
+│ ││╎╎│││   0x1014f9d4      01f3           add ebx, esi
+│ ││╎╎│││   0x1014f9d6      83d100         adc ecx, 0
+│ ││╎╎│││   0x1014f9d9      f00fc70d18..   lock cmpxchg8b qword [0x10570e18]
+│ ────────< 0x1014f9e1      75ed           jne 0x1014f9d0
+│ ││╎╎│││   0x1014f9e3      8b15240e5710   mov edx, dword [0x10570e24] ; [0x10570e24:4]=0
+│ ││╎╎│││   0x1014f9e9      a1200e5710     mov eax, dword [0x10570e20] ; [0x10570e20:4]=0
+│ ││╎╎│││   0x1014f9ee      8b742430       mov esi, dword [var_30h]
+│ ││╎╎│││   0x1014f9f2      662e0f1f84..   nop word cs:[eax + eax]
+│ ││╎╎│││   0x1014f9fc      0f1f4000       nop dword [eax]
+│ ────────> 0x1014fa00      89c3           mov ebx, eax
+│ ││╎╎│││   0x1014fa02      89d1           mov ecx, edx
+│ ││╎╎│││   0x1014fa04      01f3           add ebx, esi
+│ ││╎╎│││   0x1014fa06      83d100         adc ecx, 0
+│ ││╎╎│││   0x1014fa09      f00fc70d20..   lock cmpxchg8b qword [0x10570e20]
+│ ────────< 0x1014fa11      75ed           jne 0x1014fa00
+│ ││╎╎│││   0x1014fa13      8b442440       mov eax, dword [var_40h]
+│ ││╎╎│││   0x1014fa17      8b0c24         mov ecx, dword [esp]
+│ ││╎╎│││   0x1014fa1a      3b450c         cmp eax, dword [arg_ch]
+│ ││╎╎│││   0x1014fa1d      8b8424d800..   mov eax, dword [var_d8h]
+│ ││╎╎│││   0x1014fa24      8908           mov dword [eax], ecx
+│ ││╎╎│││   0x1014fa26      897804         mov dword [eax + 4], edi
+│ ││╎╎│││   0x1014fa29      897008         mov dword [eax + 8], esi
+│ ││╎╎│││   0x1014fa2c      0f94400c       sete byte [eax + 0xc]
+│ ││╎╎│││   0x1014fa30      8b442424       mov eax, dword [var_24h]
+│ ││╎╎│││   0x1014fa34      85c0           test eax, eax
+│ ────────< 0x1014fa36      7417           je 0x1014fa4f
+│ ││╎╎│││   0x1014fa38      89c1           mov ecx, eax
+│ ││╎╎│││   0x1014fa3a      c1e106         shl ecx, 6
+│ ││╎╎│││   0x1014fa3d      8d0481         lea eax, [ecx + eax*4]
+│ ││╎╎│││   0x1014fa40      6a04           push 4                      ; 4
+│ ││╎╎│││   0x1014fa42      50             push eax
+│ ││╎╎│││   0x1014fa43      ff742430       push dword [var_28h]
+│ ││╎╎│││   0x1014fa47      e8142e0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014fa4c      83c40c         add esp, 0xc
+│ ────────> 0x1014fa4f      8b442408       mov eax, dword [var_8h]
+│ ││╎╎│││   0x1014fa53      85c0           test eax, eax
+│ ────────< 0x1014fa55      740f           je 0x1014fa66
+│ ││╎╎│││   0x1014fa57      6a01           push 1                      ; 1
+│ ││╎╎│││   0x1014fa59      50             push eax
+│ ││╎╎│││   0x1014fa5a      ff74241c       push dword [var_14h]
+│ ││╎╎│││   0x1014fa5e      e8fd2d0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014fa63      83c40c         add esp, 0xc
+│ ────────> 0x1014fa66      8b8424ac00..   mov eax, dword [var_ach]
+│ ││╎╎│││   0x1014fa6d      85c0           test eax, eax
+│ ────────< 0x1014fa6f      0f84af000000   je 0x1014fb24
+│ ││╎╎│││   0x1014fa75      8b9424b400..   mov edx, dword [var_b4h]
+│ ││╎╎│││   0x1014fa7c      890424         mov dword [esp], eax
+│ ││╎╎│││   0x1014fa7f      85d2           test edx, edx
+│ ────────< 0x1014fa81      7475           je 0x1014faf8
+│ ││╎╎│││   0x1014fa83      8b9c24a800..   mov ebx, dword [var_a8h]
+│ ││╎╎│││   0x1014fa8a      660f6f03       movdqa xmm0, xmmword [ebx]
+│ ││╎╎│││   0x1014fa8e      8d7310         lea esi, [ebx + 0x10]
+│ ││╎╎│││   0x1014fa91      660fd7f8       pmovmskb edi, xmm0
+│ ││╎╎│││   0x1014fa95      f7d7           not edi
+│ ────────< 0x1014fa97      eb11           jmp 0x1014faaa
+..
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014faf6(x)
+│ ────────> 0x1014faa0      8d47ff         lea eax, [edi - 1]
+│ ││╎╎│││   0x1014faa3      21f8           and eax, edi
+│ ││╎╎│││   0x1014faa5      4a             dec edx
+│ ││╎╎│││   0x1014faa6      89c7           mov edi, eax
+│ ────────< 0x1014faa8      744e           je 0x1014faf8
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fa97(x)
+│ ────────> 0x1014faaa      6685ff         test di, di
+│ ────────< 0x1014faad      751a           jne 0x1014fac9
+│ ││╎╎│││   0x1014faaf      90             nop
+│ ────────> 0x1014fab0      660f6f06       movdqa xmm0, xmmword [esi]
+│ ││╎╎│││   0x1014fab4      81c380feffff   add ebx, 0xfffffe80         ; 4294966912
+│ ││╎╎│││   0x1014faba      83c610         add esi, 0x10               ; 16
+│ ││╎╎│││   0x1014fabd      660fd7f8       pmovmskb edi, xmm0
+│ ││╎╎│││   0x1014fac1      81f7ffff0000   xor edi, 0xffff
+│ ────────< 0x1014fac7      74e7           je 0x1014fab0
+│ ────────> 0x1014fac9      f30fbcc7       tzcnt eax, edi
+│ ││╎╎│││   0x1014facd      f7d8           neg eax
+│ ││╎╎│││   0x1014facf      8d0c40         lea ecx, [eax + eax*2]
+│ ││╎╎│││   0x1014fad2      8b44cbf0       mov eax, dword [ebx + ecx*8 - 0x10]
+│ ││╎╎│││   0x1014fad6      85c0           test eax, eax
+│ ────────< 0x1014fad8      74c6           je 0x1014faa0
+│ ││╎╎│││   0x1014fada      8d0ccb         lea ecx, [ebx + ecx*8]
+│ ││╎╎│││   0x1014fadd      c1e002         shl eax, 2
+│ ││╎╎│││   0x1014fae0      6a04           push 4                      ; 4
+│ ││╎╎│││   0x1014fae2      50             push eax
+│ ││╎╎│││   0x1014fae3      ff71f4         push dword [ecx - 0xc]
+│ ││╎╎│││   0x1014fae6      8954244c       mov dword [var_40h], edx
+│ ││╎╎│││   0x1014faea      e8712d0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014faef      8b54244c       mov edx, dword [var_40h]
+│ ││╎╎│││   0x1014faf3      83c40c         add esp, 0xc
+│ ────────< 0x1014faf6      eba8           jmp 0x1014faa0
+│ ────────> 0x1014faf8      8b1424         mov edx, dword [esp]
+│ ││╎╎│││   0x1014fafb      8d0452         lea eax, [edx + edx*2]
+│ ││╎╎│││   0x1014fafe      8d04c52700..   lea eax, [eax*8 + 0x27]
+│ ││╎╎│││   0x1014fb05      83e0f0         and eax, 0xfffffff0         ; 4294967280
+│ ││╎╎│││   0x1014fb08      01c2           add edx, eax
+│ ││╎╎│││   0x1014fb0a      83c211         add edx, 0x11               ; 17
+│ ────────< 0x1014fb0d      7415           je 0x1014fb24
+│ ││╎╎│││   0x1014fb0f      8b8c24a800..   mov ecx, dword [var_a8h]
+│ ││╎╎│││   0x1014fb16      29c1           sub ecx, eax
+│ ││╎╎│││   0x1014fb18      6a10           push 0x10                   ; 16
+│ ││╎╎│││   0x1014fb1a      52             push edx
+│ ││╎╎│││   0x1014fb1b      51             push ecx
+│ ││╎╎│││   0x1014fb1c      e83f2d0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014fb21      83c40c         add esp, 0xc
+│ ────────> 0x1014fb24      8b442434       mov eax, dword [var_34h]
+│ ││╎╎│││   0x1014fb28      85c0           test eax, eax
+│ ────────< 0x1014fb2a      7415           je 0x1014fb41
+│ ││╎╎│││   0x1014fb2c      c1e003         shl eax, 3
+│ ││╎╎│││   0x1014fb2f      8d0440         lea eax, [eax + eax*2]
+│ ││╎╎│││   0x1014fb32      6a08           push 8                      ; 8
+│ ││╎╎│││   0x1014fb34      50             push eax
+│ ││╎╎│││   0x1014fb35      ff742440       push dword [var_38h]
+│ ││╎╎│││   0x1014fb39      e8222d0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014fb3e      83c40c         add esp, 0xc
+│ ────────> 0x1014fb41      8b8424fc00..   mov eax, dword [var_fch]
+│ ││╎╎│││   0x1014fb48      8b5c2404       mov ebx, dword [var_4h]
+│ ││╎╎│││   0x1014fb4c      85c0           test eax, eax
+│ ────────< 0x1014fb4e      7426           je 0x1014fb76
+│ ││╎╎│││   0x1014fb50      8d0cc51700..   lea ecx, [eax*8 + 0x17]
+│ ││╎╎│││   0x1014fb57      83e1f0         and ecx, 0xfffffff0         ; 4294967280
+│ ││╎╎│││   0x1014fb5a      01c8           add eax, ecx
+│ ││╎╎│││   0x1014fb5c      83c011         add eax, 0x11               ; 17
+│ ────────< 0x1014fb5f      7415           je 0x1014fb76
+│ ││╎╎│││   0x1014fb61      8b9424f800..   mov edx, dword [var_f8h]
+│ ││╎╎│││   0x1014fb68      29ca           sub edx, ecx
+│ ││╎╎│││   0x1014fb6a      6a10           push 0x10                   ; 16
+│ ││╎╎│││   0x1014fb6c      50             push eax
+│ ││╎╎│││   0x1014fb6d      52             push edx
+│ ││╎╎│││   0x1014fb6e      e8ed2c0100     call sym.__rustc::__rust_dealloc
+│ ││╎╎│││   0x1014fb73      83c40c         add esp, 0xc
+│ ────────> 0x1014fb76      31c9           xor ecx, ecx
+│ ││╎╎│││   0x1014fb78      b001           mov al, 1
+│ ││╎╎│││   0x1014fb7a      f00fb00dd8..   lock cmpxchg byte [0x104013d8], cl
+│ ────────< 0x1014fb82      0f85c7000000   jne 0x1014fc4f
+│ ││╎╎│││   0x1014fb88      ff0dd8665610   dec dword [0x105666d8]      ; [0x105666d8:4]=0
+│ ────────< 0x1014fb8e      751c           jne 0x1014fbac
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fc6a(x)
+│ ────────> 0x1014fb90      c705d46656..   mov dword [0x105666d4], 0   ; [0x105666d4:4]=0
+│ ││╎╎│││   0x1014fb9a      31c9           xor ecx, ecx
+│ ││╎╎│││   0x1014fb9c      b001           mov al, 1
+│ ││╎╎│││   0x1014fb9e      f00fb00ddc..   lock cmpxchg byte [0x105666dc], cl
+│ ────────< 0x1014fba6      0f85c3000000   jne 0x1014fc6f
+│ ││╎╎│││   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fc80(x)
+│ ────────> 0x1014fbac      8b4c240c       mov ecx, dword [var_ch_2]
+│ ││╎╎│││   0x1014fbb0      84db           test bl, bl
+│ ────────< 0x1014fbb2      7515           jne 0x1014fbc9
+│ ││╎╎│││   0x1014fbb4      f0ff4904       lock dec dword [ecx + 4]
+│ ────────< 0x1014fbb8      750f           jne 0x1014fbc9
+│ ││╎╎│││   0x1014fbba      8b01           mov eax, dword [ecx]
+│ ││╎╎│││   0x1014fbbc      85c0           test eax, eax
+│ ────────< 0x1014fbbe      7409           je 0x1014fbc9
+│ ││╎╎│││   0x1014fbc0      8b4004         mov eax, dword [eax + 4]
+│ ││╎╎│││   0x1014fbc3      85c0           test eax, eax
+│ ────────< 0x1014fbc5      7402           je 0x1014fbc9
+│ ││╎╎│││   0x1014fbc7      ffd0           call eax
+│ ────────> 0x1014fbc9      837c245c00     cmp dword [var_5ch], 0
+│ ────────< 0x1014fbce      7421           je 0x1014fbf1
+│ ││╎╎│││   0x1014fbd0      8b442458       mov eax, dword [var_58h]
+│ ││╎╎│││   0x1014fbd4      f0ff4804       lock dec dword [eax + 4]
+│ ────────< 0x1014fbd8      7517           jne 0x1014fbf1
+│ ││╎╎│││   0x1014fbda      8b442458       mov eax, dword [var_58h]
+│ ││╎╎│││   0x1014fbde      8b00           mov eax, dword [eax]
+│ ││╎╎│││   0x1014fbe0      85c0           test eax, eax
+│ ────────< 0x1014fbe2      740d           je 0x1014fbf1
+│ ││╎╎│││   0x1014fbe4      8b4004         mov eax, dword [eax + 4]
+│ ││╎╎│││   0x1014fbe7      85c0           test eax, eax
+│ ────────< 0x1014fbe9      7406           je 0x1014fbf1
+│ ││╎╎│││   0x1014fbeb      8b4c2458       mov ecx, dword [var_58h]
+│ ││╎╎│││   0x1014fbef      ffd0           call eax
+│ ────────> 0x1014fbf1      8d65f4         lea esp, [var_bp_ch]
+│ ││╎╎│││   0x1014fbf4      5e             pop esi
+│ ││╎╎│││   0x1014fbf5      5f             pop edi
+│ ││╎╎│││   0x1014fbf6      5b             pop ebx
+│ ││╎╎│││   0x1014fbf7      5d             pop ebp
+│ ││╎╎│││   0x1014fbf8      c3             ret
+│ ││╎╎└───> 0x1014fbf9      83ec10         sub esp, 0x10
+│ ││╎╎ ││   0x1014fbfc      c744240cff..   mov dword [var_ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│ ││╎╎ ││   0x1014fc04      c70424d813..   mov dword [esp], 0x104013d8 ; [0x104013d8:4]=0
+│ ││╎╎ ││   0x1014fc0b      e820381b00     call sym._parking_lot::raw_mutex::RawMutex_::lock_slow ; <parking_lot::raw_mutex::RawMutex>::lock_slow
+│ ││╎╎ ││   0x1014fc10      83c410         add esp, 0x10
+│ ││└─────< 0x1014fc13      e9eaf0ffff     jmp 0x1014ed02
+│ ││ ╎ └──> 0x1014fc18      6898004210     push 0x10420098
+│ ││ ╎  │   0x1014fc1d      6a22           push 0x22                   ; '\"' ; 34
+│ ││ ╎  │   0x1014fc1f      6810004210     push 0x10420010             ; '\x10' ; "ReentrantMutex lock count overflow/home/acidpointer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lock_api-0.4.14/src/remutex.rs"
+│ ││ ╎  │   0x1014fc24      e837692300     call sym.core::option::expect_failed
+│ ││ ╎  │   0x1014fc29      83c40c         add esp, 0xc
+│ ││ ╎  │   0x1014fc2c      0f0b           ud2
+│ ││ ╎  └─> 0x1014fc2e      83ec10         sub esp, 0x10
+│ ││ ╎      0x1014fc31      8d05dc665610   lea eax, [0x105666dc]
+│ ││ ╎      0x1014fc37      c744240cff..   mov dword [var_ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│ ││ ╎      0x1014fc3f      890424         mov dword [esp], eax
+│ ││ ╎      0x1014fc42      e8e9371b00     call sym._parking_lot::raw_mutex::RawMutex_::lock_slow ; <parking_lot::raw_mutex::RawMutex>::lock_slow
+│ ││ ╎      0x1014fc47      83c410         add esp, 0x10
+│ ││ └────< 0x1014fc4a      e989f0ffff     jmp 0x1014ecd8
+│ ────────> 0x1014fc4f      6a00           push 0
+│ ││        0x1014fc51      68d8134010     push 0x104013d8
+│ ││        0x1014fc56      e8a5341b00     call sym._parking_lot::raw_mutex::RawMutex_::unlock_slow ; <parking_lot::raw_mutex::RawMutex>::unlock_slow
+│ ││        0x1014fc5b      83c408         add esp, 8
+│ ││        0x1014fc5e      ff0dd8665610   dec dword [0x105666d8]      ; [0x105666d8:4]=0
+│ ────────< 0x1014fc64      0f8542ffffff   jne 0x1014fbac
+│ ────────< 0x1014fc6a      e921ffffff     jmp 0x1014fb90
+│ ────────> 0x1014fc6f      8d05dc665610   lea eax, [0x105666dc]
+│ ││        0x1014fc75      6a00           push 0
+│ ││        0x1014fc77      50             push eax
+│ ││        0x1014fc78      e883341b00     call sym._parking_lot::raw_mutex::RawMutex_::unlock_slow ; <parking_lot::raw_mutex::RawMutex>::unlock_slow
+│ ││        0x1014fc7d      83c408         add esp, 8
+│ ────────< 0x1014fc80      e927ffffff     jmp 0x1014fbac
+│ ────────> 0x1014fc85      6838544310     push 0x10435438             ; '8TC\x10'
+│ ││        0x1014fc8a      8b44240c       mov eax, dword [var_8h]
+│ ││        0x1014fc8e      50             push eax
+│ ││        0x1014fc8f      50             push eax
+│ ││        0x1014fc90      e8f7692300     call sym.core::panicking::panic_bounds_check
+│ ││        0x1014fc95      83c40c         add esp, 0xc
+│ ││        0x1014fc98      0f0b           ud2
+│ ────────> 0x1014fc9a      68e4534310     push 0x104353e4
+│ ││    ┌─< 0x1014fc9f      eb05           jmp 0x1014fca6
+│ ────────> 0x1014fca1      68f4534310     push 0x104353f4
+│ ││    │   ; CODE XREF from psycho_engine_fixes::mods::perf::occlusion_planes::runtime::inject @ 0x1014fc9f(x)
+│ ││    └─> 0x1014fca6      51             push ecx
+│ ││        0x1014fca7      50             push eax
+│ ││        0x1014fca8      e8df692300     call sym.core::panicking::panic_bounds_check
+│ ││        0x1014fcad      83c40c         add esp, 0xc
+│ ││        0x1014fcb0      0f0b           ud2
+│ └└──────> 0x1014fcb2      681c3b4210     push 0x10423b1c             ; '\x1c;B\x10'
+│           0x1014fcb7      e824011f00     call sym.std::thread::local::panic_access_error
+│           0x1014fcbc      83c404         add esp, 4
+│           0x1014fcbf      0f0b           ud2
+│ ────────> 0x1014fcc1      b808000000     mov eax, 8
+│ ────────< 0x1014fcc6      e961f1ffff     jmp 0x1014ee2c
+│ ────────> 0x1014fccb      56             push esi
+│           0x1014fccc      6a08           push 8                      ; 8
+│           0x1014fcce      e884a52200     call sym.alloc::raw_vec::handle_error
+│           0x1014fcd3      83c408         add esp, 8
+│           0x1014fcd6      0f0b           ud2
+│ ────────> 0x1014fcd8      53             push ebx
+│           0x1014fcd9      6a04           push 4                      ; 4
+│           0x1014fcdb      e877a52200     call sym.alloc::raw_vec::handle_error
+│           0x1014fce0      83c408         add esp, 8
+│           0x1014fce3      0f0b           ud2
+│ ────────> 0x1014fce5      ff742408       push dword [var_8h]
+│           0x1014fce9      6a01           push 1                      ; 1
+│           0x1014fceb      e867a52200     call sym.alloc::raw_vec::handle_error
+│           0x1014fcf0      83c408         add esp, 8
+└           0x1014fcf3      0f0b           ud2
+┌ 32: sym.__RNvXs1_NtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods4perf16occlusion_planes7runtimeNtB5_12RetiredGraphNtNtNtCs32tIC4fDiEl_ (int32_t arg_8h);
+│ `- args(sp[0x4..0x4])
+│           0x10155170      55             push ebp
+│           0x10155171      89e5           mov ebp, esp
+│           0x10155173      8b4508         mov eax, dword [arg_8h]
+│           0x10155176      8b08           mov ecx, dword [eax]
+│           0x10155178      f0ff4904       lock dec dword [ecx + 4]
+│       ┌─< 0x1015517c      7510           jne 0x1015518e
+│       │   0x1015517e      8b01           mov eax, dword [ecx]
+│       │   0x10155180      85c0           test eax, eax
+│      ┌──< 0x10155182      740a           je 0x1015518e
+│      ││   0x10155184      8b4004         mov eax, dword [eax + 4]
+│      ││   0x10155187      85c0           test eax, eax
+│     ┌───< 0x10155189      7403           je 0x1015518e
+│     │││   0x1015518b      5d             pop ebp
+│     │││   0x1015518c      ffe0           jmp eax
+│     └└└─> 0x1015518e      5d             pop ebp
+└           0x1015518f      c3             ret
+┌ 222: sym.psycho_engine_fixes.dll_PsychoEngineFixes_NotifyEvent (int32_t arg_8h, int32_t arg_14h);
+│ `- args(sp[0x4..0x10]) vars(14:sp[0xd..0x44])
+│           0x100c0670      0fb60df8e8..   movzx ecx, byte [0x1056e8f8] ; [0x1056e8f8:1]=0
+│           0x100c0677      31c0           xor eax, eax
+│           0x100c0679      80f902         cmp cl, 2                   ; 2
+│       ┌─< 0x100c067c      0f85c9000000   jne 0x100c074b
+│       │   0x100c0682      55             push ebp
+│       │   0x100c0683      89e5           mov ebp, esp
+│       │   0x100c0685      57             push edi
+│       │   0x100c0686      56             push esi
+│       │   0x100c0687      83ec38         sub esp, 0x38
+│       │   0x100c068a      8b7508         mov esi, dword [arg_8h]
+│       │   0x100c068d      8b7d14         mov edi, dword [arg_14h]
+│       │   0x100c0690      56             push esi
+│       │   0x100c0691      e88a31fbff     call sym.psycho_engine_fixes::mods::engine_fixes::observe_event
+│       │   0x100c0696      83c404         add esp, 4
+│       │   0x100c0699      56             push esi
+│       │   0x100c069a      e821d00600     call sym.psycho_engine_fixes::mods::perf::radio::observe_event
+│       │   0x100c069f      83c404         add esp, 4
+│       │   0x100c06a2      56             push esi
+│       │   0x100c06a3      e8e80a0500     call sym.psycho_engine_fixes::mods::perf::light_property_scores::observe_event
+│       │   0x100c06a8      83c404         add esp, 4
+│       │   0x100c06ab      56             push esi
+│       │   0x100c06ac      e8cfec0400     call sym.psycho_engine_fixes::mods::perf::scene_light_scan::observe_event
+│       │   0x100c06b1      83c404         add esp, 4
+│       │   0x100c06b4      57             push edi
+│       │   0x100c06b5      56             push esi
+│       │   0x100c06b6      e835b50800     call sym.psycho_engine_fixes::mods::perf::occlusion_planes::runtime::observe_event
+│       │   0x100c06bb      83c408         add esp, 8
+│       │   0x100c06be      b801000000     mov eax, 1
+│       │   0x100c06c3      83fe01         cmp esi, 1                  ; 1
+│      ┌──< 0x100c06c6      757d           jne 0x100c0745
+│      ││   0x100c06c8      8b0d4c1d4010   mov ecx, dword [0x10401d4c] ; [0x10401d4c:4]=0x105728f4
+│      ││   0x100c06ce      8b09           mov ecx, dword [ecx]
+│      ││   0x100c06d0      83f903         cmp ecx, 3                  ; 3
+│     ┌───< 0x100c06d3      7270           jb 0x100c0745
+│     │││   0x100c06d5      8d45c0         lea eax, [var_40h]
+│     │││   0x100c06d8      c745c00100..   mov dword [var_40h], 1
+│     │││   0x100c06df      c745c41a00..   mov dword [var_3ch], 0x1a   ; 26
+│     │││   0x100c06e6      c745c80000..   mov dword [var_38h], 0
+│     │││   0x100c06ed      c745ccf0ff..   mov dword [var_34h], str.psycho_engine_fixes::host_eventsReentrantMutex_lock_count_overflow_home_acidpointer_.cargo_registry_src_index.crates.io_1949cf8c6b5b557f_lock_api_0.4.14_src_remutex.rs ; 0x1041fff0 ; "psycho_engine_fixes::host_eventsReentrantMutex lock count overflow/home/acidpointer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lock_api-0.4.14/src/remutex.rs"
+│     │││   0x100c06f4      c745d02000..   mov dword [var_30h], 0x20   ; 32
+│     │││   0x100c06fb      c745d40000..   mov dword [var_2ch], 0
+│     │││   0x100c0702      c745d8c9ff..   mov dword [var_28h], 0x1041ffc9 ; "psycho-engine-fixes/src/host_events.rs"
+│     │││   0x100c0709      c745dc2600..   mov dword [var_24h], 0x26   ; '&' ; 38
+│     │││   0x100c0710      c745e00300..   mov dword [var_20h], 3
+│     │││   0x100c0717      c745e4f0ff..   mov dword [var_1ch], str.psycho_engine_fixes::host_eventsReentrantMutex_lock_count_overflow_home_acidpointer_.cargo_registry_src_index.crates.io_1949cf8c6b5b557f_lock_api_0.4.14_src_remutex.rs ; 0x1041fff0 ; "psycho_engine_fixes::host_eventsReentrantMutex lock count overflow/home/acidpointer/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/lock_api-0.4.14/src/remutex.rs"
+│     │││   0x100c071e      c745e82000..   mov dword [var_18h], 0x20   ; 32
+│     │││   0x100c0725      c745ecb0ff..   mov dword [var_14h], str._EVENT__Game_engine_readypsycho_engine_fixes_src_host_events.rs ; 0x1041ffb0 ; "[EVENT] Game engine readypsycho-engine-fixes/src/host_events.rs"
+│     │││   0x100c072c      c745f03300..   mov dword [var_10h], 0x33   ; '3' ; 51
+│     │││   0x100c0733      8d4df7         lea ecx, [var_9h]
+│     │││   0x100c0736      50             push eax
+│     │││   0x100c0737      51             push ecx
+│     │││   0x100c0738      e893a22100     call sym._log::__private_api::GlobalLogger_as_log::Log_::log ; <log::__private_api::GlobalLogger as log::Log>::log
+│     │││   0x100c073d      b801000000     mov eax, 1
+│     │││   0x100c0742      83c408         add esp, 8
+│     └└──> 0x100c0745      83c438         add esp, 0x38
+│       │   0x100c0748      5e             pop esi
+│       │   0x100c0749      5f             pop edi
+│       │   0x100c074a      5d             pop ebp
+└       └─> 0x100c074b      c21000         ret 0x10
+
+STDERR:

@@ -1,0 +1,95 @@
+Whitespace: trailing spaces normalized; original capture: .reports/20261104-occlusion-stability/raw-radare2/occlusion_stability_0x00559A70_20261104.txt
+Psycho radare2 evidence
+UTC: 2026-11-04T14:09:54+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00559A70 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00559A70 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00559a70
+name: fcn.00559a70
+size: 88
+is-pure: true
+realsz: 88
+stackframe: 8
+callconv: cdecl
+cyclic-cost: 36
+cyclomatic-complexity: 2
+bits: 32
+type: fcn [NEW]
+num-bbs: 4
+num-instrs: 32
+edges: 4
+minaddr: 0x00559a70
+maxaddr: 0x00559ac8
+is-lineal: true
+end-bbs: 1
+maxbbins: 13
+midbbins: 8.00
+ratbbins: 1.62
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 0
+locals: 1
+args: 1
+
+┌ 88: fcn.00559a70 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+│           0x00559a70      55             push ebp
+│           0x00559a71      8bec           mov ebp, esp
+│           0x00559a73      51             push ecx
+│           0x00559a74      894dfc         mov dword [var_4h], ecx
+│           0x00559a77      8b4508         mov eax, dword [arg_8h]
+│           0x00559a7a      c70000000000   mov dword [eax], 0
+│           0x00559a80      8b4d08         mov ecx, dword [arg_8h]
+│           0x00559a83      8b55fc         mov edx, dword [var_4h]
+│           0x00559a86      8b4204         mov eax, dword [edx + 4]
+│           0x00559a89      894104         mov dword [ecx + 4], eax
+│           0x00559a8c      8b4dfc         mov ecx, dword [var_4h]
+│           0x00559a8f      83790400       cmp dword [ecx + 4], 0
+│       ┌─< 0x00559a93      740d           je 0x559aa2
+│       │   0x00559a95      8b55fc         mov edx, dword [var_4h]
+│       │   0x00559a98      8b4204         mov eax, dword [edx + 4]
+│       │   0x00559a9b      8b4d08         mov ecx, dword [arg_8h]
+│       │   0x00559a9e      8908           mov dword [eax], ecx
+│      ┌──< 0x00559aa0      eb08           jmp 0x559aaa
+│      │└─> 0x00559aa2      8b55fc         mov edx, dword [var_4h]
+│      │    0x00559aa5      8b4508         mov eax, dword [arg_8h]
+│      │    0x00559aa8      8902           mov dword [edx], eax
+│      │    ; CODE XREF from fcn.00559a70 @ 0x559aa0(x)
+│      └──> 0x00559aaa      8b4dfc         mov ecx, dword [var_4h]
+│           0x00559aad      8b5508         mov edx, dword [arg_8h]
+│           0x00559ab0      895104         mov dword [ecx + 4], edx
+│           0x00559ab3      8b45fc         mov eax, dword [var_4h]
+│           0x00559ab6      8b4808         mov ecx, dword [eax + 8]
+│           0x00559ab9      83c101         add ecx, 1
+│           0x00559abc      8b55fc         mov edx, dword [var_4h]
+│           0x00559abf      894a08         mov dword [edx + 8], ecx
+│           0x00559ac2      8be5           mov esp, ebp
+│           0x00559ac4      5d             pop ebp
+└           0x00559ac5      c20400         ret 4
+
+void __cdecl fcn.00559a70(int32_t arg_8h)
+
+{
+    int32_t *in_ECX;
+    int32_t var_4h;
+
+    *arg_8h = 0;
+    *(arg_8h + 4) = in_ECX[1];
+    if (in_ECX[1] == 0) {
+        *in_ECX = arg_8h;
+    }
+    else {
+        *in_ECX[1] = arg_8h;
+    }
+    in_ECX[1] = arg_8h;
+    in_ECX[2] = in_ECX[2] + 1;
+    return;
+}

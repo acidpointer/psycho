@@ -1,0 +1,67 @@
+Whitespace: trailing spaces normalized; original capture: .reports/20261104-occlusion-stability/raw-radare2/occlusion_stability_0x004A49E0_20261104.txt
+Psycho radare2 evidence
+UTC: 2026-11-04T14:09:54+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x004A49E0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x004A49E0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x004a49e0
+name: fcn.004a49e0
+size: 38
+is-pure: false
+realsz: 38
+stackframe: 12
+callconv: cdecl
+cyclic-cost: 18
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 14
+edges: 0
+minaddr: 0x004a49e0
+maxaddr: 0x004a4a06
+is-lineal: true
+end-bbs: 1
+maxbbins: 14
+midbbins: 14.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 1
+locals: 1
+args: 1
+
+┌ 38: fcn.004a49e0 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+│           0x004a49e0      55             push ebp
+│           0x004a49e1      8bec           mov ebp, esp
+│           0x004a49e3      51             push ecx
+│           0x004a49e4      894dfc         mov dword [var_4h], ecx
+│           0x004a49e7      8b4508         mov eax, dword [arg_8h]
+│           0x004a49ea      c740080000..   mov dword [eax + 8], 0
+│           0x004a49f1      8b4d08         mov ecx, dword [arg_8h]
+│           0x004a49f4      51             push ecx
+│           0x004a49f5      8b4dfc         mov ecx, dword [var_4h]
+│           0x004a49f8      83c108         add ecx, 8
+│           0x004a49fb      e8e084fbff     call fcn.0045cee0
+│           0x004a4a00      8be5           mov esp, ebp
+│           0x004a4a02      5d             pop ebp
+└           0x004a4a03      c20400         ret 4
+
+void __cdecl fcn.004a49e0(int32_t arg_8h)
+
+{
+    int32_t var_4h;
+
+    *(arg_8h + 8) = 0;
+    fcn.0045cee0(arg_8h);
+    return;
+}

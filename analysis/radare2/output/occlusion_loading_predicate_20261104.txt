@@ -1,0 +1,62 @@
+Psycho radare2 evidence
+UTC: 2026-11-04T15:05:55+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x007023A0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x007023A0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x007023a0
+name: fcn.007023a0
+size: 25
+is-pure: true
+realsz: 25
+stackframe: 8
+callconv: cdecl
+cyclic-cost: 14
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 12
+edges: 0
+minaddr: 0x007023a0
+maxaddr: 0x007023b9
+is-lineal: true
+end-bbs: 1
+maxbbins: 12
+midbbins: 12.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 0
+locals: 1
+args: 0
+
+┌ 25: fcn.007023a0 ();
+│ afv: vars(1:sp[0x8..0x8])
+│           0x007023a0      55             push ebp
+│           0x007023a1      8bec           mov ebp, esp
+│           0x007023a3      51             push ecx
+│           0x007023a4      894dfc         mov dword [var_4h], ecx
+│           0x007023a7      8b45fc         mov eax, dword [var_4h]
+│           0x007023aa      33c9           xor ecx, ecx
+│           0x007023ac      83780c01       cmp dword [eax + 0xc], 1
+│           0x007023b0      0f95c1         setne cl
+│           0x007023b3      8ac1           mov al, cl
+│           0x007023b5      8be5           mov esp, ebp
+│           0x007023b7      5d             pop ebp
+└           0x007023b8      c3             ret
+
+bool __fastcall fcn.007023a0(int param_1)
+
+{
+    int32_t var_4h;
+
+    return *(param_1 + 0xc) != 1;
+}

@@ -54,6 +54,10 @@ use super::contract::{
 use super::data::PlaneRecord;
 use super::raw::{read_f32_at, read_ptr, read_ptr_at, read_u8_at, read_u16_at, read_u32_at};
 
+#[cfg(test)]
+#[path = "surface_tests.rs"]
+mod surface_tests;
+
 const MAX_REFS: usize = 2000;
 const MAX_VISITED_NODES: usize = 512;
 const MAX_VERTICES_PER_MESH: usize = 4096;
@@ -268,7 +272,6 @@ const GENERATION_SLICE_BUDGET_MS: u128 = 1;
 /// therefore skip or repeat a reference, which only wastes a duplicate that the
 /// shared dedup already handles.
 pub(super) struct Generation {
-    cell: usize,
     max_planes: usize,
     observer: Option<[f32; 3]>,
     cursor: usize,
@@ -289,9 +292,8 @@ pub(super) struct Generation {
 }
 
 impl Generation {
-    pub(super) fn new(cell: *mut c_void, max_planes: usize, observer: Option<[f32; 3]>) -> Self {
+    pub(super) fn new(max_planes: usize, observer: Option<[f32; 3]>) -> Self {
         Self {
-            cell: cell as usize,
             max_planes,
             observer,
             cursor: 0,
@@ -312,11 +314,6 @@ impl Generation {
         }
     }
 
-    /// The cell this generation was started for.
-    pub(super) fn cell(&self) -> *mut c_void {
-        self.cell as *mut c_void
-    }
-
     /// Advance the walk by at most one frame's work budget.
     ///
     /// Returns `true` when the walk is finished. The per-reference budget is
@@ -327,13 +324,15 @@ impl Generation {
     /// # Safety
     ///
     /// The caller runs on the xNVSE event thread while the cell is loaded; the
-    /// reference list, node transforms and mesh arrays are read-only here.
-    pub(super) unsafe fn advance(&mut self) -> bool {
+    /// reference list, node transforms and mesh arrays are read-only here. The
+    /// caller owns CellRefLock for this slice. The cell is supplied afresh for
+    /// each call; the work item never dereferences a saved engine pointer.
+    pub(super) unsafe fn advance(&mut self, cell: *mut c_void) -> bool {
         if self.done {
             return true;
         }
         let started = std::time::Instant::now();
-        let done = unsafe { self.advance_slice() };
+        let done = unsafe { self.advance_slice(cell) };
         self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
         done
     }
@@ -343,14 +342,13 @@ impl Generation {
     /// # Safety
     ///
     /// Same contract as [`Generation::advance`].
-    unsafe fn advance_slice(&mut self) -> bool {
+    unsafe fn advance_slice(&mut self, cell: *mut c_void) -> bool {
         let mut triangle_slice = GENERATION_TRIANGLES_PER_FRAME;
         let mut refs_left = GENERATION_REFS_PER_FRAME;
         let slice_started = std::time::Instant::now();
         // Safety: see the function contract. Every pointer is read from the
         // cell's own list and null-checked before it is dereferenced.
         unsafe {
-            let cell = self.cell as *mut c_void;
             let list = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
             let mut node = list;
             let mut index = 0usize;
@@ -1311,6 +1309,8 @@ fn near_face_triangles_into(
     out: &mut Vec<[u16; 3]>,
 ) -> bool {
     out.clear();
+    let tangent_a = (axis + 1) % 3;
+    let tangent_b = (axis + 2) % 3;
     let near = |index: u16| -> bool {
         let vertex = vertices[index as usize];
         (vertex[axis] - face_coord).abs() <= tolerance
@@ -1325,6 +1325,17 @@ fn near_face_triangles_into(
             return false;
         }
         if near(a) && near(b) && near(c) {
+            let project = |index: u16| {
+                let vertex = vertices[index as usize];
+                [vertex[tangent_a], vertex[tangent_b]]
+            };
+            let area = triangle_area_2d(project(a), project(b), project(c));
+            // Strip connectors and edge-on triangles have no projected
+            // surface. Including them also corrupts the boundary-edge counts.
+            // Use exact zero, so valid thin triangles retain their coverage.
+            if !area.is_finite() || area == 0.0 {
+                continue;
+            }
             out.push(*triangle);
         }
     }
@@ -1679,9 +1690,19 @@ fn point_in_triangle_subset(
     false
 }
 
-/// 2D point-in-triangle test. A point on an edge counts as inside, so a sample
-/// on a shared internal triangle edge does not read as an opening.
+/// Signed doubled projected area. Exact zero excludes strip connectors without
+/// applying an arbitrary minimum area to genuine thin surface triangles.
+fn triangle_area_2d(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+/// A genuine triangle includes its edges, so shared internal edges do not read
+/// as openings. Zero-area projections supply no coverage at any point.
 fn point_in_triangle_2d(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> bool {
+    let area = triangle_area_2d(a, b, c);
+    if !area.is_finite() || area == 0.0 {
+        return false;
+    }
     let cross = |p: [f32; 2], a: [f32; 2], b: [f32; 2]| {
         (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
     };

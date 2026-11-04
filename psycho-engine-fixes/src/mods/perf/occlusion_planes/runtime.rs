@@ -7,19 +7,19 @@
 //! two-sided window (`+0xEA = 1`), matching the engine's authored
 //! `BSOcclusionPlane`; an irregular, thin-panel or partly open face stays
 //! one-sided so `0x00C358A0` activates it only while the camera is on its
-//! outward side. All work runs on the xNVSE
-//! event thread. The per-frame path compares two atomics and returns
-//! immediately on an unchanged cell; allocation, list scans, generation and
-//! logging happen only on a transition.
+//! outward side. Engine work runs only during normal presentation on the
+//! DeferredInit main thread. A steady frame checks identity and countdowns;
+//! collection is sliced and native list maintenance is periodic or transitional.
 //!
 //! The runtime collector derives a cell's planes from live cell geometry. A
 //! new cell identity must persist for a few frames before it replaces the
 //! current set, so cell-seam alternation cannot make the occluders flicker.
 //! The module never clears the whole list and never touches an authored plane.
-//! A replacement scene graph means the old nodes were already retired by the
-//! engine, so the module releases its references without dereferencing the old
-//! list. A load/new/exit event defers cleanup to the next frame so the module
-//! never scans a list that may be under teardown.
+//! One strong graph reference keeps its list alive until our nodes are unlinked
+//! and its planes released. Graph selection is never used as a retirement
+//! signal. Loading/unknown presentations and load/new/exit events invalidate
+//! generation without touching engine memory. The next normal main-thread
+//! presentation retires the owned injection even when there is no player/cell.
 //!
 //! # Frame budget
 //!
@@ -38,19 +38,22 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize
 use std::time::Instant;
 
 use libpsycho::ffi::fnptr::FnPtr;
+use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::Mutex;
 
 use super::cache::{self, CachedPlane, PlaneCache};
 use super::contract::{
     ALLOC, APPEND, CELL_EXTERIOR_COORDS, CELL_FORM_ID, CELL_INTERIOR_FLAG, CELL_INTERIOR_MASK,
-    CELL_WORLDSPACE, CONSTRUCT, COORDS_X, COORDS_Y, FREE_NODE, GRID_CELLS, GRID_SIZE, GRID_WORLD_X,
-    GRID_WORLD_Y, LIST_COUNT, LIST_HEAD, LIST_OFFSET, LIST_TAIL, NODE_NEXT, NODE_PLANE, NODE_PREV,
-    OWNER_POSITION, OWNER_SCENE_GRAPH, PLANE_ACTIVE_OFFSET, PLANE_SIDE_FLAG, PLANE_SIZE,
-    PLAYER_PTR, REFCOUNT_OFFSET, SET_POSITION, SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON,
-    TES_GRID_CELL_ARRAY, TES_SINGLETON, TESFORM_REF_ID, VTABLE_DELETE_THIS,
+    CELL_LOCK_ENTER, CELL_LOCK_LEAVE, CELL_WORLDSPACE, CONSTRUCT, COORDS_X, COORDS_Y, FREE_NODE,
+    GRID_CELLS, GRID_SIZE, GRID_WORLD_X, GRID_WORLD_Y, LIST_COUNT, LIST_HEAD, LIST_OFFSET,
+    LIST_TAIL, NODE_NEXT, NODE_PLANE, NODE_PREV, OWNER_POSITION, OWNER_SCENE_GRAPH,
+    PLANE_ACTIVE_OFFSET, PLANE_SIDE_FLAG, PLANE_SIZE, PLAYER_PTR, REFCOUNT_OFFSET, SET_POSITION,
+    SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON, TES_GRID_CELL_ARRAY, TES_SINGLETON,
+    TESFORM_REF_ID, VTABLE_DELETE_THIS,
 };
 use super::contract::{
-    AllocFn, AppendFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn, SetTripleFn, SingletonFn,
+    AllocFn, AppendFn, CellLockFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn, SetTripleFn,
+    SingletonFn,
 };
 use super::data::{CellKey, PlaneRecord};
 use super::raw::{
@@ -86,6 +89,8 @@ struct EngineFns {
     append: AppendFn,
     free_node: FreeNodeFn,
     singleton: SingletonFn,
+    cell_lock: CellLockFn,
+    cell_unlock: CellLockFn,
 }
 
 impl EngineFns {
@@ -103,8 +108,33 @@ impl EngineFns {
                 append: FnPtr::from_address_unchecked(APPEND).as_fn(),
                 free_node: FnPtr::from_address_unchecked(FREE_NODE).as_fn(),
                 singleton: FnPtr::from_address_unchecked(SINGLETON).as_fn(),
+                cell_lock: FnPtr::from_address_unchecked(CELL_LOCK_ENTER).as_fn(),
+                cell_unlock: FnPtr::from_address_unchecked(CELL_LOCK_LEAVE).as_fn(),
             }
         }
+    }
+}
+
+/// Cell lifetime is supplied by the current normal main-frame owner. The native
+/// recursion level excludes reference-list relinking/removal during one slice;
+/// it does not claim to synchronize arbitrary scene-graph mutation.
+struct CellRefLock<'a> {
+    cell: *mut c_void,
+    fns: &'a EngineFns,
+}
+
+impl<'a> CellRefLock<'a> {
+    unsafe fn acquire(cell: *mut c_void, fns: &'a EngineFns) -> Self {
+        unsafe { (fns.cell_lock)(cell) };
+        Self { cell, fns }
+    }
+}
+
+impl Drop for CellRefLock<'_> {
+    fn drop(&mut self) {
+        // SAFETY: acquire owns one recursion level and the main-frame cell
+        // remains live until this slice returns.
+        unsafe { (self.fns.cell_unlock)(self.cell) };
     }
 }
 
@@ -114,6 +144,10 @@ impl EngineFns {
 /// and several performance mods replace that function in place with an inlined
 /// `lock xadd` form. Managing the documented field directly keeps the feature
 /// independent of whichever equivalent form is installed.
+///
+/// # Safety
+/// The pointer is an aligned live NiRefObject (plane or BSPortalGraph), held by
+/// an existing owner through this acquisition. Its count is initialized at +4.
 pub(super) unsafe fn retain_plane(plane: *mut c_void) {
     let counter = unsafe { &*((plane as *const u8).add(REFCOUNT_OFFSET) as *const AtomicI32) };
     counter.fetch_add(1, Ordering::AcqRel);
@@ -124,6 +158,10 @@ pub(super) unsafe fn retain_plane(plane: *mut c_void) {
 /// Mirrors the engine's `0x00401970`: decrement `+4`, and on the transition to
 /// zero call the object's `DeleteThis` virtual (`vtable+4`), which runs the
 /// scalar deleting destructor. This avoids the commonly patched release entry.
+///
+/// # Safety
+/// The caller transfers exactly one owned reference. The pointer and vtable
+/// remain live until this decrement; no borrowed list membership may outlive it.
 pub(super) unsafe fn release_plane(plane: *mut c_void) {
     let counter = unsafe { &*((plane as *const u8).add(REFCOUNT_OFFSET) as *const AtomicI32) };
     if counter.fetch_sub(1, Ordering::AcqRel) == 1 {
@@ -166,12 +204,37 @@ struct TrackedPlane {
     key: u64,
 }
 
+/// Own the graph as well as its injected planes. Active selection may change
+/// while a cell still owns the old graph. This reference keeps its list live
+/// until our nodes are unlinked, after which planes and graph can be released.
+struct Injection {
+    graph: usize,
+    planes: Vec<TrackedPlane>,
+}
+
+/// A moved strong graph reference. Declare it outside the publication lock's
+/// scope so graph destruction (which releases other scene owners) cannot run
+/// while a native publisher waits holding its own engine locks.
+struct RetiredGraph(usize);
+
+impl Drop for RetiredGraph {
+    fn drop(&mut self) {
+        // SAFETY: retirement moved exactly one retained NiRefObject reference
+        // here after ending every injector-owned list membership.
+        unsafe { release_plane(self.0 as *mut c_void) };
+    }
+}
+
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static READY: AtomicBool = AtomicBool::new(false);
 static MAX_PER_CELL: AtomicUsize = AtomicUsize::new(1);
 static RESET_PENDING: AtomicBool = AtomicBool::new(false);
 static FNS: OnceLock<EngineFns> = OnceLock::new();
-static TRACKED: Mutex<Vec<TrackedPlane>> = Mutex::new(Vec::new());
+static TRACKED: Mutex<Injection> = Mutex::new(Injection {
+    graph: 0,
+    planes: Vec::new(),
+});
+static MAIN_THREAD: AtomicU32 = AtomicU32::new(0);
 /// Number of tracked planes, so the per-frame presence path can skip the lock
 /// and the engine list walk entirely when there is nothing to maintain.
 static TRACKED_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -185,8 +248,8 @@ const FRAME_COST_WARN_US: u64 = 2_000;
 /// Frames between module-cost warnings (about 5 seconds at 60 fps).
 const FRAME_COST_COOLDOWN_FRAMES: usize = 300;
 static CURRENT_SCENE_GRAPH: AtomicUsize = AtomicUsize::new(0);
-/// Cell pointer for the common case. The identity hash is only recomputed when
-/// the pointer changes, so the frame path never hashes in steady state.
+/// Current cell address alongside its freshly checked identity. The address
+/// alone cannot distinguish a live cell from reused engine storage.
 static CURRENT_CELL_PTR: AtomicUsize = AtomicUsize::new(0);
 static CURRENT_CELL_KEY: AtomicU64 = AtomicU64::new(0);
 static LAST_SIGNATURE: AtomicU64 = AtomicU64::new(0);
@@ -248,11 +311,24 @@ static NEIGHBOR_VALIDATE_COUNTDOWN: AtomicUsize = AtomicUsize::new(NEIGHBOR_VALI
 /// fixed slice per frame instead of blocking the frame thread. `GENERATION_ACTIVE`
 /// lets the frame path advance it every frame rather than only on the settle
 /// interval.
-static GENERATION: Mutex<Option<Generation>> = Mutex::new(None);
+static GENERATION: Mutex<Option<GenerationJob>> = Mutex::new(None);
 static GENERATION_ACTIVE: AtomicBool = AtomicBool::new(false);
-/// Cell pointer a pending generation was started for, so the frame path can
-/// advance it while `CURRENT_CELL_KEY` still names the previous cell.
-static GENERATION_CELL: AtomicUsize = AtomicUsize::new(0);
+static WORLD_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Addresses are identity tokens only; collection gets the current cell afresh
+/// each slice. A load, graph switch or reused cell address cannot resume old work.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct GenerationTarget {
+    epoch: u64,
+    cell: usize,
+    key: CellKey,
+    graph: usize,
+}
+
+struct GenerationJob {
+    target: GenerationTarget,
+    work: Generation,
+}
 
 // ---------------------------------------------------------------------------
 // Dashboard counters.
@@ -420,7 +496,7 @@ pub(super) fn configure(
 }
 
 /// Route one core event id to the occlusion-plane lifecycle.
-pub(super) fn observe_event(kind: u32) {
+pub(super) fn observe_event(kind: u32, frame_phase: i32) {
     if kind == crate::events::DEFERRED_INIT {
         activate();
         return;
@@ -429,23 +505,40 @@ pub(super) fn observe_event(kind: u32) {
         return;
     }
     match kind {
-        crate::events::ON_FRAME_PRESENT => frame_tick(),
+        crate::events::ON_FRAME_PRESENT if frame_phase == 0 => frame_tick(),
+        crate::events::ON_FRAME_PRESENT => {
+            invalidate_world();
+        }
         crate::events::PRE_LOAD_GAME
         | crate::events::NEW_GAME
         | crate::events::EXIT_TO_MAIN_MENU => {
-            RESET_PENDING.store(true, Ordering::Release);
+            invalidate_world();
             save_cache();
         }
         _ => {}
     }
 }
 
+/// Invalidates only Rust work identities. Loading/unknown callbacks never
+/// dereference cells, traverse lists or release a native object.
+fn invalidate_world() {
+    WORLD_EPOCH.fetch_add(1, Ordering::AcqRel);
+    RESET_PENDING.store(true, Ordering::Release);
+}
+
 fn activate() {
     if !ENABLED.load(Ordering::Acquire) || READY.load(Ordering::Acquire) {
         return;
     }
+    if !super::native_list::ready() {
+        return;
+    }
     if let Err(error) = verify_contracts() {
         log::error!("[OCCLUSION_PLANES] Native contract unavailable; feature disabled: {error:#}");
+        return;
+    }
+    if let Err(error) = super::native_list::publish() {
+        log::error!("[OCCLUSION_PLANES] Native publication ownership unavailable: {error:#}");
         return;
     }
     let _ = FNS.set(EngineFns::resolve());
@@ -465,6 +558,9 @@ fn activate() {
     let cached_cells = cache.cell_count();
     let _ = CACHE.set(Mutex::new(cache));
     DASH_CACHED_CELLS.store(cached_cells, Ordering::Relaxed);
+    // xNVSE DeferredInit and normal presentation are main-thread callbacks.
+    // A mismatched host invocation cannot enter any native list/mesh operation.
+    MAIN_THREAD.store(get_current_thread_id(), Ordering::Release);
     READY.store(true, Ordering::Release);
     log::info!(
         "[OCCLUSION_PLANES] Active; planes are generated at runtime, grid radius={}, \
@@ -487,7 +583,7 @@ fn verify_contracts() -> anyhow::Result<()> {
     }
 }
 
-/// Measure the per-frame module cost. A steady frame only compares atomics; the
+/// Measure the per-frame module cost. A steady frame checks identity; the
 /// warning exists so a future regression cannot hide behind the feature.
 fn frame_tick() {
     let started = Instant::now();
@@ -510,47 +606,51 @@ fn log_frame_cost(elapsed_us: u64) {
 }
 
 fn frame_tick_inner() {
+    if get_current_thread_id() != MAIN_THREAD.load(Ordering::Acquire) {
+        invalidate_world();
+        return;
+    }
+    if !super::native_list::publishers_quiescent() {
+        return;
+    }
     let pending = RESET_PENDING.swap(false, Ordering::AcqRel);
     let Some(fns) = FNS.get() else {
         restore_pending(pending);
         return;
     };
+    if pending {
+        reset_world(fns);
+    }
     // Safety: every read is a volatile pointer/word read on the event thread;
     // null is checked before the next dereference. The engine state is read-only
     // here and the module only writes its own planes and list nodes.
     unsafe {
         let player = read_ptr(PLAYER_PTR);
         if player.is_null() {
-            restore_pending(pending);
             return;
         }
         let cell = read_ptr_at(player, super::contract::REFR_PARENT_CELL);
         if cell.is_null() {
-            restore_pending(pending);
             return;
         }
         let owner = (fns.singleton)(0);
         if owner.is_null() {
-            restore_pending(pending);
             return;
         }
         let scene_graph = read_ptr_at(owner, OWNER_SCENE_GRAPH);
         if scene_graph.is_null() {
-            restore_pending(pending);
             return;
         }
         let scene = scene_graph as usize;
         let cell_ptr = cell as usize;
-        if pending {
-            clear_pending_target();
-            // A load/new/exit can retire the scene the neighborhood was built
-            // from. Drop its per-cell records and let this frame rebuild them.
-            NEIGHBORHOOD.lock().take();
-            // A resumable generation walks engine memory; a load/new/exit can
-            // unload the cell under it, so abandon it.
-            *GENERATION.lock() = None;
-            GENERATION_ACTIVE.store(false, Ordering::Release);
-        }
+        let key = cell_key(cell);
+        let candidate_key = cell_key_signature(&key);
+        let generation_target = GenerationTarget {
+            epoch: WORLD_EPOCH.load(Ordering::Acquire),
+            cell: cell_ptr,
+            key,
+            graph: scene,
+        };
         // A resumable cell generation is in flight: advance it every frame (not
         // only on the settle interval) so the plane set appears as soon as
         // possible while each frame pays only the fixed work budget. The target
@@ -558,7 +658,11 @@ fn frame_tick_inner() {
         // previous cell until the walk completes and the set is installed; a
         // `same_target` check would otherwise restart the walk every few frames.
         if !pending && GENERATION_ACTIVE.load(Ordering::Acquire) {
-            if GENERATION_CELL.load(Ordering::Acquire) == cell_ptr {
+            if GENERATION
+                .lock()
+                .as_ref()
+                .is_some_and(|job| job.target == generation_target)
+            {
                 let observer = read_observer(owner);
                 let _ = reconcile(fns, scene_graph, cell, observer, false);
                 tick_cache_save();
@@ -568,17 +672,11 @@ fn frame_tick_inner() {
             *GENERATION.lock() = None;
             GENERATION_ACTIVE.store(false, Ordering::Release);
         }
-        // Fast path: the scene and cell pointers are unchanged, so no hashing
-        // or key read happens on a normal frame. Only a pointer change pays for
-        // the identity hash, which also catches a reused cell pointer that now
-        // names a different cell.
+        // Check identity even when the address is unchanged: the engine may
+        // reuse cell storage after retirement without changing its address.
         let fast_same = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
-            && CURRENT_CELL_PTR.load(Ordering::Acquire) == cell_ptr;
-        let candidate_key = if fast_same {
-            CURRENT_CELL_KEY.load(Ordering::Acquire)
-        } else {
-            cell_key_signature(&cell_key(cell))
-        };
+            && CURRENT_CELL_PTR.load(Ordering::Acquire) == cell_ptr
+            && CURRENT_CELL_KEY.load(Ordering::Acquire) == candidate_key;
         let same_target = fast_same
             || (CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
                 && CURRENT_CELL_KEY.load(Ordering::Acquire) == candidate_key);
@@ -726,12 +824,16 @@ fn presence_due() -> bool {
 /// the cost is linear in the list length instead of one full list walk per
 /// tracked plane (the previous quadratic shape grew with the injected cap).
 unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
+    let _publication = super::native_list::lock();
     let tracked = TRACKED.lock();
-    let total = tracked.len();
+    let total = tracked.planes.len();
+    if tracked.graph != scene_graph as usize {
+        return (total, 0, 0);
+    }
     if total == 0 {
         return (0, 0, 0);
     }
-    let wanted: HashSet<usize> = tracked.iter().map(|item| item.pointer).collect();
+    let wanted: HashSet<usize> = tracked.planes.iter().map(|item| item.pointer).collect();
     let list = unsafe { (scene_graph as *mut u8).add(LIST_OFFSET) as *mut c_void };
     let mut linked: HashMap<usize, bool> = HashMap::with_capacity(wanted.len());
     let mut node = unsafe { read_ptr_at(list, LIST_HEAD) };
@@ -745,10 +847,12 @@ unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
         node = next;
     }
     let present = tracked
+        .planes
         .iter()
         .filter(|item| linked.contains_key(&item.pointer))
         .count();
     let active = tracked
+        .planes
         .iter()
         .filter(|item| linked.get(&item.pointer) == Some(&true))
         .count();
@@ -1195,29 +1299,35 @@ unsafe fn inject(
     scene_graph: *mut c_void,
     planes: &[PlaneRecord],
 ) -> InjectResult {
+    let mut _retired_graph = None;
+    let mut _empty_graph = None;
+    let _publication = super::native_list::lock();
     let mut tracked = TRACKED.lock();
-    let previous_scene = CURRENT_SCENE_GRAPH.load(Ordering::Acquire);
-    let same_scene = previous_scene != 0 && previous_scene == scene_graph as usize;
-    let list = if same_scene {
-        unsafe { (previous_scene as *mut u8).add(LIST_OFFSET) as *mut c_void }
-    } else {
+    let previous_count = tracked.planes.len();
+    if tracked.graph != scene_graph as usize {
+        if !planes.is_empty() {
+            // Acquire incoming ownership before releasing an outgoing graph.
+            unsafe { retain_plane(scene_graph) };
+        }
+        // Selection is not destruction. Our graph reference makes the old
+        // list safe to unlink even after its cell released its own reference.
+        _retired_graph = unsafe { retire_injection(fns, &mut tracked) };
+        if !planes.is_empty() {
+            tracked.graph = scene_graph as usize;
+        }
+    }
+    let list = if tracked.graph == 0 {
         core::ptr::null_mut()
-    };
-    // One list walk maps each linked plane to its node, so the diff does not
-    // walk the list once per tracked plane and again per removed plane (that
-    // shape grew with the injected cap). A missing node means the engine
-    // cleared the list without changing the scene identity, so our retained
-    // reference is released and the diff below recreates that plane. A replaced
-    // scene graph means the old list is gone; release every retained reference
-    // without dereferencing retired nodes.
-    let linked = if same_scene {
-        unsafe { linked_nodes(list) }
     } else {
-        HashMap::new()
+        unsafe { (tracked.graph as *mut u8).add(LIST_OFFSET).cast::<c_void>() }
     };
-    let previous_count = tracked.len();
+    let linked = if list.is_null() {
+        HashMap::new()
+    } else {
+        unsafe { linked_nodes(list) }
+    };
     let mut old: Vec<(TrackedPlane, *mut c_void)> = Vec::with_capacity(previous_count);
-    for item in tracked.drain(..) {
+    for item in tracked.planes.drain(..) {
         if let Some(&node) = linked.get(&item.pointer) {
             old.push((item, node));
         } else {
@@ -1267,9 +1377,14 @@ unsafe fn inject(
             planes.len()
         );
     }
-    *tracked = next;
-    TRACKED_COUNT.store(tracked.len(), Ordering::Release);
-    DASH_PRESENT.store(tracked.len(), Ordering::Relaxed);
+    tracked.planes = next;
+    if tracked.planes.is_empty() && tracked.graph != 0 {
+        let graph = core::mem::replace(&mut tracked.graph, 0);
+        // Release the graph after the publication guard has dropped.
+        _empty_graph = Some(RetiredGraph(graph));
+    }
+    TRACKED_COUNT.store(tracked.planes.len(), Ordering::Release);
+    DASH_PRESENT.store(tracked.planes.len(), Ordering::Relaxed);
     DASH_LAST_CREATED.store(created as u64, Ordering::Relaxed);
     DASH_LAST_REMOVED.store(removed as u64, Ordering::Relaxed);
     DASH_CREATED.fetch_add(created as u64, Ordering::Relaxed);
@@ -1282,6 +1397,58 @@ unsafe fn inject(
     }
 }
 
+/// End every borrowed list membership before releasing its strong plane owner,
+/// then release the graph last. Main presentation excludes native readers;
+/// the publication lock excludes both native append callers. No unowned old
+/// graph address is dereferenced.
+unsafe fn retire_injection(fns: &EngineFns, injection: &mut Injection) -> Option<RetiredGraph> {
+    if injection.graph == 0 {
+        return None;
+    }
+    let graph = injection.graph as *mut c_void;
+    let list = unsafe { graph.cast::<u8>().add(LIST_OFFSET).cast::<c_void>() };
+    let linked = unsafe { linked_nodes(list) };
+    for item in injection.planes.drain(..) {
+        if let Some(&node) = linked.get(&item.pointer) {
+            unsafe { unlink(fns, list, node) };
+        }
+        unsafe { release_plane(item.pointer as *mut c_void) };
+    }
+    injection.graph = 0;
+    Some(RetiredGraph(graph as usize))
+}
+
+/// Cancel world-local work and end the old graph's injection before any player
+/// or cell lookup. Normal menu presentation can have no player/cell at all.
+fn reset_world(fns: &EngineFns) {
+    clear_pending_target();
+    NEIGHBORHOOD.lock().take();
+    *GENERATION.lock() = None;
+    GENERATION_ACTIVE.store(false, Ordering::Release);
+    let retired_graph = {
+        let _publication = super::native_list::lock();
+        let mut tracked = TRACKED.lock();
+        let removed = tracked.planes.len();
+        // SAFETY: only a normal main-thread presentation calls reset_world.
+        // The tracked graph is strongly owned until retirement returns.
+        let graph = unsafe { retire_injection(fns, &mut tracked) };
+        DASH_REMOVED.fetch_add(removed as u64, Ordering::Relaxed);
+        graph
+    };
+    drop(retired_graph);
+    TRACKED_COUNT.store(0, Ordering::Release);
+    DASH_PRESENT.store(0, Ordering::Relaxed);
+    DASH_ACTIVE.store(0, Ordering::Relaxed);
+    CURRENT_SCENE_GRAPH.store(0, Ordering::Release);
+    CURRENT_CELL_PTR.store(0, Ordering::Release);
+    CURRENT_CELL_KEY.store(0, Ordering::Release);
+    LAST_SIGNATURE.store(0, Ordering::Release);
+    STABLE_PASSES.store(0, Ordering::Release);
+    SETTLE_RETRIES_LEFT.store(0, Ordering::Release);
+    SETTLE_COUNTDOWN.store(0, Ordering::Release);
+    INCOMPLETE.store(false, Ordering::Release);
+}
+
 /// Returns `true` when the freshly generated set should run a settle window.
 /// A cache hit is a complete set and needs none.
 unsafe fn reconcile(
@@ -1292,6 +1459,12 @@ unsafe fn reconcile(
     force: bool,
 ) -> bool {
     let key = unsafe { cell_key(cell) };
+    let target = GenerationTarget {
+        epoch: WORLD_EPOCH.load(Ordering::Acquire),
+        cell: cell as usize,
+        key,
+        graph: scene_graph as usize,
+    };
     store_cell_counters(&key);
     let key_signature = cell_key_signature(&key);
     let max = MAX_PER_CELL.load(Ordering::Acquire);
@@ -1337,16 +1510,26 @@ unsafe fn reconcile(
         // been walked, so no frame pays the full cell cost.
         let outcome = {
             let mut guard = GENERATION.lock();
-            let restart = force
-                || guard
-                    .as_ref()
-                    .is_none_or(|generation| generation.cell() != cell);
+            let restart = force || guard.as_ref().is_none_or(|job| job.target != target);
             if restart {
-                *guard = Some(Generation::new(cell, max, observer));
-                GENERATION_CELL.store(cell as usize, Ordering::Release);
+                *guard = Some(GenerationJob {
+                    target,
+                    work: Generation::new(max, observer),
+                });
             }
             let generation = guard.as_mut().expect("generation was just inserted");
-            if unsafe { generation.advance() } {
+            // SAFETY: current main-frame cell, not the saved identity token.
+            // Keep one native CellRefLock level through the complete slice.
+            let done = {
+                let _cell_lock = unsafe { CellRefLock::acquire(cell, fns) };
+                unsafe { generation.work.advance(cell) }
+            };
+            if target.epoch != WORLD_EPOCH.load(Ordering::Acquire) {
+                *guard = None;
+                GENERATION_ACTIVE.store(false, Ordering::Release);
+                return true;
+            }
+            if done {
                 Some(guard.take().expect("generation is present"))
             } else {
                 None
@@ -1359,7 +1542,7 @@ unsafe fn reconcile(
             return true;
         };
         GENERATION_ACTIVE.store(false, Ordering::Release);
-        let (generated_planes, generated_raw, ready, generation_ms) = finished.finish();
+        let (generated_planes, generated_raw, ready, generation_ms) = finished.work.finish();
         generate_ms = generation_ms;
         DASH_REBUILDS.fetch_add(1, Ordering::Relaxed);
         DASH_LAST_GEN_MS.store(generation_ms.round() as u64, Ordering::Relaxed);

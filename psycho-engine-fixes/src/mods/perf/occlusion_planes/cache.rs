@@ -31,7 +31,7 @@ const MAGIC: [u8; 4] = *b"PSOC";
 /// Cache schema and generator semantics version. Bump it whenever the
 /// generated plane set would change for the same meshes, so an updated DLL
 /// never reuses planes produced by older extraction logic.
-const FORMAT_VERSION: u32 = 9;
+const FORMAT_VERSION: u32 = 10;
 /// magic + version + signature; the entry count is read by `Reader`.
 const HEADER_LEN: usize = 4 + 4 + 8;
 /// position(12) + size(8) + rotation(36) + priority(1) + source(4) + coverage(4)
@@ -354,6 +354,13 @@ fn mix(mut hash: u64, value: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actual_pre_surface_correction_cache_is_rejected() {
+        let bytes = include_bytes!("fixtures/pre_surface_correction.cache");
+        let signature = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        assert!(PlaneCache::deserialize(bytes, signature).is_none());
+    }
 
     fn plane(x: f32) -> CachedPlane {
         CachedPlane {

@@ -6,8 +6,9 @@
 //! verified once, lazily, before the feature becomes active; a mismatch keeps
 //! the native path untouched.
 //!
-//! No native code is patched. The module calls only these verified functions at
-//! cell/scene-graph changes on the game's main thread.
+//! Native-list publication bridges own their separate caller contracts. These
+//! verified functions run only in admitted normal main-thread presentation;
+//! loading callbacks never dereference their scene/cell arguments.
 
 use core::ffi::c_void;
 
@@ -29,6 +30,9 @@ pub(super) const APPEND: usize = 0x00C5_AE70;
 pub(super) const FREE_NODE: usize = 0x004A_49E0;
 /// Engine singleton table getter (`[index]`, index 0 is the scene-graph owner).
 pub(super) const SINGLETON: usize = 0x0045_0B80;
+/// CellRefLock wrappers, thiscall(cell), no stack arguments.
+pub(super) const CELL_LOCK_ENTER: usize = 0x0054_1AC0;
+pub(super) const CELL_LOCK_LEAVE: usize = 0x0054_1AE0;
 /// `NiRefObject` reference count offset inside the object.
 pub(super) const REFCOUNT_OFFSET: usize = 0x04;
 /// `NiRefObject::DeleteThis` vtable slot (scalar deleting destructor).
@@ -215,6 +219,8 @@ pub(super) const GRID_CELLS: usize = 0x10;
 
 /// Game allocator.
 pub(super) type AllocFn = unsafe extern "cdecl" fn(usize) -> *mut c_void;
+/// Own/release one native cell reference-list recursion level.
+pub(super) type CellLockFn = unsafe extern "thiscall" fn(*mut c_void);
 /// Default plane constructor.
 pub(super) type ConstructFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 /// Two-float setter (size).
@@ -235,6 +241,22 @@ pub(super) type SingletonFn = unsafe extern "cdecl" fn(usize) -> *mut c_void;
 /// A supported executable matches all of them. Any mismatch disables the
 /// feature before it touches the occluder list.
 pub(super) static SIGNATURES: &[CodeSignature] = &[
+    CodeSignature::new(
+        "occlusion cell reference lock enter",
+        CELL_LOCK_ENTER,
+        &[
+            0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x68, 0xEC, 0xEA, 0x02, 0x01, 0x8B, 0x4D,
+            0xFC, 0x81, 0xC1, 0x80, 0, 0, 0, 0xE8, 0x16, 0xE1, 0xEC, 0xFF, 0x8B, 0xE5, 0x5D, 0xC3,
+        ],
+    ),
+    CodeSignature::new(
+        "occlusion cell reference lock leave",
+        CELL_LOCK_LEAVE,
+        &[
+            0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x8B, 0x4D, 0xFC, 0x81, 0xC1, 0x80, 0, 0, 0,
+            0xE8, 0xAB, 0xE0, 0xEC, 0xFF, 0x8B, 0xE5, 0x5D, 0xC3,
+        ],
+    ),
     CodeSignature::new(
         "occlusion plane allocator",
         ALLOC,

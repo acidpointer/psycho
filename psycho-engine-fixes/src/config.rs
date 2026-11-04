@@ -897,6 +897,19 @@ mod tests {
     use super::PsychoConfig;
 
     #[test]
+    fn occlusion_defaults_on_and_preserves_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("empty configuration");
+        assert!(default.performance.occlusion_planes);
+        let shipped: PsychoConfig =
+            toml::from_str(include_str!("../config/psycho_engine_fixes.toml"))
+                .expect("shipped configuration");
+        assert!(shipped.performance.occlusion_planes);
+        let disabled: PsychoConfig = toml::from_str("[performance]\nocclusion_planes = false\n")
+            .expect("explicitly disabled configuration");
+        assert!(!disabled.performance.occlusion_planes);
+    }
+
+    #[test]
     fn resolution_fixes_default_on_and_preserve_explicit_disable() {
         let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
         let disabled: PsychoConfig = toml::from_str("[engine_fixes]\nresolution_fixes = false\n")
