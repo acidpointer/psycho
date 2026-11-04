@@ -291,10 +291,10 @@ occlusion_planes = true
 occlusion_planes_max_per_cell = 128
 
 # 0 = player cell only. 1 or 2 = also reuse cached occluders from nearby loaded
-# cells. Neighbors are cached, not regenerated every frame.
+# cells after bounded live source validation; no neighbor rectangle generation.
 occlusion_planes_grid_radius = 0
 
-# Generated-plane cache, relative to the game folder or absolute.
+# Content-keyed local mesh analysis cache, relative to the game folder or absolute.
 occlusion_planes_cache_path = "syringe/psycho_occlusion_planes.cache"
 
 # Verbose occlusion-plane diagnostics. Off for normal play; requires debug_log.

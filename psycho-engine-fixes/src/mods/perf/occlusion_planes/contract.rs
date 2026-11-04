@@ -171,20 +171,6 @@ pub(super) const FORM_TYPE_STATIC_COLLECTION: u8 = 0x21;
 /// `NiObject::IsNode`/`IsGeometry`: returns `this` or null.
 pub(super) type IsKindFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 
-/// `DataHandler` singleton pointer global (`DataHandler::Get()` returns
-/// `*(DataHandler**)0x011C3F2C`).
-pub(super) const DATA_HANDLER_PTR: usize = 0x011C_3F2C;
-/// `DataHandler::modList` (`ModList`; `tList<ModInfo>` head at `+0`).
-pub(super) const DATA_HANDLER_MOD_LIST: usize = 0x210;
-/// `ModInfo::name` (char[0x104]) and the embedded `WIN32_FIND_DATA` file size
-/// (`fileData` at `+0x29C`; size low at `+0x20`, high at `+0x1C` inside it).
-pub(super) const MOD_INFO_NAME: usize = 0x20;
-pub(super) const MOD_INFO_NAME_CAPACITY: usize = 0x104;
-pub(super) const MOD_INFO_FILE_SIZE_LOW: usize = 0x2BC;
-pub(super) const MOD_INFO_FILE_SIZE_HIGH: usize = 0x2B8;
-/// Upper bound on loaded mods (mod index space is 0x00..0xFF).
-pub(super) const MOD_INFO_MAX: usize = 0xFF;
-
 // Player, cell and worldspace anchors.
 pub(super) const PLAYER_PTR: usize = 0x011D_EA3C;
 pub(super) const CELL_FORM_ID: usize = 0x0C;

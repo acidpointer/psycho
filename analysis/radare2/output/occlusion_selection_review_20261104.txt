@@ -1,0 +1,144 @@
+Selection review, 2026-11-04. No native ordering change implemented.
+Executable: fnv_reverse/FalloutNV.exe
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: scr.color=0; asm.lines=false; af/pdf at C47150 and B5BBE0.
+B5BC55 follows the list forward; B5BC88/B5BC8A exits when C47150 returns false.
+C47239 writes rejection state 2 and C47240 returns false after an occlusion hit.
+This proves an early-exit opportunity, not a scoring oracle or a measured gain.
+
+252: fcn.00c47150 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h, int32_t arg_18h);
+`- args(sp[0x4..0x14]) vars(10:sp[0x8..0x9c])
+0x00c47150      55             push ebp
+0x00c47151      8bec           mov ebp, esp
+0x00c47153      81ec98000000   sub esp, 0x98
+0x00c47159      898d6cffffff   mov dword [var_94h], ecx
+0x00c4715f      8b4514         mov eax, dword [arg_14h]
+0x00c47162      8945fc         mov dword [var_4h], eax
+0x00c47165      8b4dfc         mov ecx, dword [var_4h]
+0x00c47168      8b9190000000   mov edx, dword [ecx + 0x90]
+0x00c4716e      89558c         mov dword [var_74h], edx
+0x00c47171      837d8c03       cmp dword [var_74h], 3
+0x00c47175      7412           je 0xc47189
+0x00c47177      8b45fc         mov eax, dword [var_4h]
+0x00c4717a      8b8890000000   mov ecx, dword [eax + 0x90]
+0x00c47180      894d88         mov dword [var_78h], ecx
+0x00c47183      837d8801       cmp dword [var_78h], 1
+0x00c47187      7507           jne 0xc47190
+0x00c47189      b001           mov al, 1
+0x00c4718b      e9b6000000     jmp 0xc47246
+0x00c47190      837d1800       cmp dword [arg_18h], 0
+0x00c47194      0f84aa000000   je 0xc47244
+0x00c4719a      8d4d90         lea ecx, [var_70h]
+0x00c4719d      e87e5481ff     call 0x45c620
+0x00c471a2      8d5590         lea edx, [var_70h]
+0x00c471a5      52             push edx
+0x00c471a6      83ec0c         sub esp, 0xc
+0x00c471a9      8bc4           mov eax, esp
+0x00c471ab      8b4d08         mov ecx, dword [arg_8h]
+0x00c471ae      8908           mov dword [eax], ecx
+0x00c471b0      8b550c         mov edx, dword [arg_ch]
+0x00c471b3      895004         mov dword [eax + 4], edx
+0x00c471b6      8b4d10         mov ecx, dword [arg_10h]
+0x00c471b9      894808         mov dword [eax + 8], ecx
+0x00c471bc      8b4d18         mov ecx, dword [arg_18h]
+0x00c471bf      e8acc6feff     call 0xc33870
+0x00c471c4      8b956cffffff   mov edx, dword [var_94h]
+0x00c471ca      8b82ac000000   mov eax, dword [edx + 0xac]
+0x00c471d0      89857cffffff   mov dword [var_84h], eax
+0x00c471d6      8b8d7cffffff   mov ecx, dword [var_84h]
+0x00c471dc      8b510c         mov edx, dword [ecx + 0xc]
+0x00c471df      899578ffffff   mov dword [var_88h], edx
+0x00c471e5      8b8578ffffff   mov eax, dword [var_88h]
+0x00c471eb      898568ffffff   mov dword [var_98h], eax
+0x00c471f1      8d4d90         lea ecx, [var_70h]
+0x00c471f4      51             push ecx
+0x00c471f5      8b9568ffffff   mov edx, dword [var_98h]
+0x00c471fb      8b02           mov eax, dword [edx]
+0x00c471fd      8b8d68ffffff   mov ecx, dword [var_98h]
+0x00c47203      8b90a0000000   mov edx, dword [eax + 0xa0]
+0x00c47209      ffd2           call edx
+0x00c4720b      0fb6c0         movzx eax, al
+0x00c4720e      85c0           test eax, eax
+0x00c47210      7432           je 0xc47244
+0x00c47212      8b8d6cffffff   mov ecx, dword [var_94h]
+0x00c47218      8b91ac000000   mov edx, dword [ecx + 0xac]
+0x00c4721e      899574ffffff   mov dword [var_8ch], edx
+0x00c47224      8b8574ffffff   mov eax, dword [var_8ch]
+0x00c4722a      8b480c         mov ecx, dword [eax + 0xc]
+0x00c4722d      898d70ffffff   mov dword [var_90h], ecx
+0x00c47233      8b9570ffffff   mov edx, dword [var_90h]
+0x00c47239      c742080200..   mov dword [edx + 8], 2
+0x00c47240      32c0           xor al, al
+0x00c47242      eb02           jmp 0xc47246
+0x00c47244      b001           mov al, 1
+; CODE XREFS from fcn.00c47150 @ 0xc4718b(x), 0xc47242(x)
+0x00c47246      8be5           mov esp, ebp
+0x00c47248      5d             pop ebp
+0x00c47249      c21400         ret 0x14
+182: fcn.00b5bbe0 (int32_t arg_10h, int32_t arg_18h_2, int32_t arg_30h, int32_t arg_18h);
+`- args(sp[0x4..0x14])
+0x00b5bbe0      53             push ebx
+0x00b5bbe1      8b5c2418       mov ebx, dword [arg_18h]
+0x00b5bbe5      56             push esi
+0x00b5bbe6      57             push edi
+0x00b5bbe7      8b7c2410       mov edi, dword [arg_10h]
+0x00b5bbeb      8b87ac000000   mov eax, dword [edi + 0xac]
+0x00b5bbf1      8bf1           mov esi, ecx
+0x00b5bbf3      8b480c         mov ecx, dword [eax + 0xc]
+0x00b5bbf6      8b8390000000   mov eax, dword [ebx + 0x90]
+0x00b5bbfc      8b5108         mov edx, dword [ecx + 8]
+0x00b5bbff      83f801         cmp eax, 1                              ; 1
+0x00b5bc02      0f8488000000   je 0xb5bc90
+0x00b5bc08      83f803         cmp eax, 3                              ; 3
+0x00b5bc0b      0f847f000000   je 0xb5bc90
+0x00b5bc11      85d2           test edx, edx
+0x00b5bc13      757b           jne 0xb5bc90
+0x00b5bc15      663997a800..   cmp word [edi + 0xa8], dx
+0x00b5bc1c      7672           jbe 0xb5bc90
+0x00b5bc1e      8b11           mov edx, dword [ecx]
+0x00b5bc20      8b929c000000   mov edx, dword [edx + 0x9c]
+0x00b5bc26      8d432c         lea eax, [ebx + 0x2c]
+0x00b5bc29      50             push eax
+0x00b5bc2a      ffd2           call edx
+0x00b5bc2c      8b97ac000000   mov edx, dword [edi + 0xac]
+0x00b5bc32      8b520c         mov edx, dword [edx + 0xc]
+0x00b5bc35      33c9           xor ecx, ecx
+0x00b5bc37      84c0           test al, al
+0x00b5bc39      0f94c1         sete cl
+0x00b5bc3c      41             inc ecx
+0x00b5bc3d      894a08         mov dword [edx + 8], ecx
+0x00b5bc40      84c0           test al, al
+0x00b5bc42      744c           je 0xb5bc90
+0x00b5bc44      8b86e0010000   mov eax, dword [esi + 0x1e0]
+0x00b5bc4a      85c0           test eax, eax
+0x00b5bc4c      7442           je 0xb5bc90
+0x00b5bc4e      8b7008         mov esi, dword [eax + 8]
+0x00b5bc51      85f6           test esi, esi
+0x00b5bc53      743b           je 0xb5bc90
+0x00b5bc55      8d4608         lea eax, [esi + 8]
+0x00b5bc58      8b00           mov eax, dword [eax]
+0x00b5bc5a      8b36           mov esi, dword [esi]
+0x00b5bc5c      85c0           test eax, eax
+0x00b5bc5e      742c           je 0xb5bc8c
+0x00b5bc60      83784001       cmp dword [eax + 0x40], 1
+0x00b5bc64      7526           jne 0xb5bc8c
+0x00b5bc66      8b4c2414       mov ecx, dword [arg_10h]
+0x00b5bc6a      8b542418       mov edx, dword [arg_18h_2]
+0x00b5bc6e      50             push eax
+0x00b5bc6f      53             push ebx
+0x00b5bc70      83ec0c         sub esp, 0xc
+0x00b5bc73      8bc4           mov eax, esp
+0x00b5bc75      8908           mov dword [eax], ecx
+0x00b5bc77      8b4c2430       mov ecx, dword [arg_30h]
+0x00b5bc7b      895004         mov dword [eax + 4], edx
+0x00b5bc7e      894808         mov dword [eax + 8], ecx
+0x00b5bc81      8bcf           mov ecx, edi
+0x00b5bc83      e8c8b40e00     call fcn.00c47150
+0x00b5bc88      84c0           test al, al
+0x00b5bc8a      7404           je 0xb5bc90
+0x00b5bc8c      85f6           test esi, esi
+0x00b5bc8e      75c5           jne 0xb5bc55
+0x00b5bc90      5f             pop edi
+0x00b5bc91      5e             pop esi
+0x00b5bc92      5b             pop ebx
+0x00b5bc93      c21400         ret 0x14

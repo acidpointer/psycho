@@ -32,16 +32,16 @@
 //! at the target change so a stale rectangle cannot cull the new cell.
 
 use core::ffi::c_void;
-use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use libpsycho::ffi::fnptr::FnPtr;
 use libpsycho::os::windows::winapi::get_current_thread_id;
 use parking_lot::Mutex;
 
-use super::cache::{self, CachedPlane, PlaneCache};
+use super::cache::PlaneCache;
 use super::contract::{
     ALLOC, APPEND, CELL_EXTERIOR_COORDS, CELL_FORM_ID, CELL_INTERIOR_FLAG, CELL_INTERIOR_MASK,
     CELL_LOCK_ENTER, CELL_LOCK_LEAVE, CELL_WORLDSPACE, CONSTRUCT, COORDS_X, COORDS_Y, FREE_NODE,
@@ -55,12 +55,12 @@ use super::contract::{
     AllocFn, AppendFn, CellLockFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn, SetTripleFn,
     SingletonFn,
 };
-use super::data::{CellKey, PlaneRecord};
+use super::data::{CellKey, PlaneIdentity, PlaneRecord};
 use super::raw::{
     read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u8_at, read_u32_at, write_ptr_at,
     write_u8_at, write_u32_at,
 };
-use super::runtime_generate::{self, Generation};
+use super::runtime_generate::{self, Generation, SourceProof};
 
 /// `NiRefObject::DeleteThis` at one vtable slot.
 type DeleteThisFn = unsafe extern "thiscall" fn(*mut c_void);
@@ -71,8 +71,6 @@ type DeleteThisFn = unsafe extern "thiscall" fn(*mut c_void);
 const SETTLE_RETRIES: usize = 5;
 /// Frames between settle rebuilds.
 const SETTLE_INTERVAL_FRAMES: usize = 20;
-/// Consecutive identical settle passes required before the window stops early.
-const SETTLE_STABLE_PASSES: usize = 2;
 /// Frames between checks that our tracked planes are still in the engine list.
 /// The engine can clear the occluder list on cell unload without changing the
 /// cell identity, which would otherwise leave the cell with no planes.
@@ -196,12 +194,59 @@ pub(super) fn native_size(full: [f32; 2]) -> [f32; 2] {
     [full[0] * 0.5, full[1] * 0.5]
 }
 
-/// One injected plane we own, with the quantized key used to reuse it across
+/// Full cell identity storage, written/read only on admitted main presentation.
+/// Separate atomic words keep this static inert before DeferredInit. These are
+/// not a cross-thread snapshot API; dashboard counters have their own owner.
+struct CellSlot {
+    kind: AtomicU32,
+    a: AtomicU32,
+    b: AtomicU32,
+    c: AtomicU32,
+}
+
+impl CellSlot {
+    const fn new() -> Self {
+        Self {
+            kind: AtomicU32::new(0),
+            a: AtomicU32::new(0),
+            b: AtomicU32::new(0),
+            c: AtomicU32::new(0),
+        }
+    }
+
+    fn get(&self) -> Option<CellKey> {
+        match self.kind.load(Ordering::Relaxed) {
+            1 => Some(CellKey::Interior {
+                form_id: self.a.load(Ordering::Relaxed),
+            }),
+            2 => Some(CellKey::Exterior {
+                worldspace: self.a.load(Ordering::Relaxed),
+                x: self.b.load(Ordering::Relaxed) as i32,
+                y: self.c.load(Ordering::Relaxed) as i32,
+            }),
+            _ => None,
+        }
+    }
+
+    fn set(&self, key: Option<CellKey>) {
+        let (kind, a, b, c) = match key {
+            None => (0, 0, 0, 0),
+            Some(CellKey::Interior { form_id }) => (1, form_id, 0, 0),
+            Some(CellKey::Exterior { worldspace, x, y }) => (2, worldspace, x as u32, y as u32),
+        };
+        self.a.store(a, Ordering::Relaxed);
+        self.b.store(b, Ordering::Relaxed);
+        self.c.store(c, Ordering::Relaxed);
+        self.kind.store(kind, Ordering::Relaxed);
+    }
+}
+
+/// One injected plane we own, with the full descriptor used to reuse it across
 /// settle passes instead of removing and recreating the whole list.
 #[derive(Clone, Copy, Debug)]
 struct TrackedPlane {
     pointer: usize,
-    key: u64,
+    key: PlaneIdentity,
 }
 
 /// Own the graph as well as its injected planes. Active selection may change
@@ -251,17 +296,22 @@ static CURRENT_SCENE_GRAPH: AtomicUsize = AtomicUsize::new(0);
 /// Current cell address alongside its freshly checked identity. The address
 /// alone cannot distinguish a live cell from reused engine storage.
 static CURRENT_CELL_PTR: AtomicUsize = AtomicUsize::new(0);
-static CURRENT_CELL_KEY: AtomicU64 = AtomicU64::new(0);
-static LAST_SIGNATURE: AtomicU64 = AtomicU64::new(0);
+static CURRENT_CELL_KEY: CellSlot = CellSlot::new();
+static LAST_SIGNATURE: Mutex<Vec<PlaneIdentity>> = Mutex::new(Vec::new());
 static SETTLE_RETRIES_LEFT: AtomicUsize = AtomicUsize::new(0);
 static SETTLE_COUNTDOWN: AtomicUsize = AtomicUsize::new(0);
 /// Set when a plane allocation failed, so the settle window keeps retrying
 /// instead of treating a short set as stable.
 static INCOMPLETE: AtomicBool = AtomicBool::new(false);
+/// Geometry requiring later validation; independent of missing native objects.
+static RESCAN_PENDING: AtomicBool = AtomicBool::new(false);
+/// Desired Rust records survive native allocation failure, including an empty
+/// tracked set. No borrowed engine pointer is dereferenced from this state.
+static DESIRED: Mutex<Option<(GenerationTarget, Vec<PlaneRecord>)>> = Mutex::new(None);
 /// Candidate target awaiting confirmation. Rapid cell-boundary flapping would
 /// otherwise remove and rebuild the whole plane set every few frames.
 static PENDING_SCENE: AtomicUsize = AtomicUsize::new(0);
-static PENDING_KEY: AtomicU64 = AtomicU64::new(0);
+static PENDING_KEY: CellSlot = CellSlot::new();
 static PENDING_STREAK: AtomicUsize = AtomicUsize::new(0);
 /// Consecutive frames a new cell target must persist before its planes replace
 /// the current set. About 60 ms at 60 fps: enough to reject a seam flip-flop
@@ -271,9 +321,8 @@ pub(super) const TARGET_STABLE_FRAMES: usize = 4;
 /// `gridCellArray + 0xC`; the engine's default exterior grid is 5.
 const MAX_GRID_DIMENSION: i32 = 64;
 /// Frames between checks that the cached neighborhood still matches the loaded
-/// grid. A mismatch rebuilds it, so planes are never kept for a cell the engine
-/// has unloaded. This path only reads the grid array and the persistent cache;
-/// it never walks a neighbor cell's meshes.
+/// grid. Removed neighbors leave the union; cached additions require bounded
+/// fresh input validation, without rectangle generation.
 const NEIGHBOR_VALIDATE_FRAMES: usize = 60;
 /// The loaded-cell grid radius. `0` is the old player-cell-only behavior.
 static GRID_RADIUS: AtomicUsize = AtomicUsize::new(0);
@@ -289,17 +338,22 @@ struct NeighborCell {
 
 /// The union of the player's cell and the loaded exterior neighbors.
 ///
-/// `planes` holds the records already available in memory: the freshly generated
-/// or cached center plus the **cached** neighbor sets. A neighbor without a
-/// complete cache entry is simply absent; it is never generated from the
-/// neighbor's live meshes on a frame path. Each cell is generated once, when it
-/// is the player's own cell, and reused by key from the persistent cache
-/// afterwards.
+/// `planes` holds the freshly generated center and settled neighbor sets whose
+/// complete source input was revalidated. Neighbor validation copies admitted
+/// mesh input but never runs coverage or merging. No world placement is loaded
+/// from disk.
 struct Neighborhood {
     center: CellKey,
     worldspace: usize,
     cells: Vec<NeighborCell>,
-    planes: HashMap<CellKey, Vec<PlaneRecord>>,
+    planes: HashMap<CellKey, CellPlanes>,
+}
+
+/// Rust-owned cell records with explicit neighbor admission state.
+#[derive(Clone)]
+struct CellPlanes {
+    records: Vec<PlaneRecord>,
+    settled: bool,
 }
 
 static NEIGHBORHOOD: Mutex<Option<Neighborhood>> = Mutex::new(None);
@@ -313,6 +367,7 @@ static NEIGHBOR_VALIDATE_COUNTDOWN: AtomicUsize = AtomicUsize::new(NEIGHBOR_VALI
 /// interval.
 static GENERATION: Mutex<Option<GenerationJob>> = Mutex::new(None);
 static GENERATION_ACTIVE: AtomicBool = AtomicBool::new(false);
+static SAVE_REQUESTED: AtomicBool = AtomicBool::new(false);
 static WORLD_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 /// Addresses are identity tokens only; collection gets the current cell afresh
@@ -328,6 +383,84 @@ struct GenerationTarget {
 struct GenerationJob {
     target: GenerationTarget,
     work: Generation,
+    initial: bool,
+}
+
+/// Pending collection is not a completed settle attempt.
+#[derive(Clone, Copy, Debug)]
+enum ReconcileOutcome {
+    Pending,
+    Finished { initial: bool, settle: bool },
+}
+
+impl ReconcileOutcome {
+    /// A pending pass cannot spend an attempt or reset the completion timer.
+    fn schedule(self, remaining: usize) -> Option<(usize, usize)> {
+        match self {
+            Self::Pending => None,
+            Self::Finished { settle: false, .. } => Some((0, 0)),
+            Self::Finished {
+                initial: true,
+                settle: true,
+            } => Some((SETTLE_RETRIES, SETTLE_INTERVAL_FRAMES)),
+            Self::Finished {
+                initial: false,
+                settle: true,
+            } => {
+                let remaining = remaining.saturating_sub(1);
+                Some((
+                    remaining,
+                    if remaining == 0 {
+                        CACHE_SAVE_INTERVAL_FRAMES
+                    } else {
+                        SETTLE_INTERVAL_FRAMES
+                    },
+                ))
+            }
+        }
+    }
+}
+
+/// Apply a completed pass exactly once regardless of how many frames it took.
+fn consume_outcome(outcome: ReconcileOutcome) {
+    if let Some((remaining, countdown)) =
+        outcome.schedule(SETTLE_RETRIES_LEFT.load(Ordering::Acquire))
+    {
+        SETTLE_RETRIES_LEFT.store(remaining, Ordering::Release);
+        SETTLE_COUNTDOWN.store(countdown, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn pending_passes_do_not_spend_settle_attempts() {
+        assert_eq!(ReconcileOutcome::Pending.schedule(SETTLE_RETRIES), None);
+        let first = ReconcileOutcome::Finished {
+            initial: true,
+            settle: true,
+        };
+        assert_eq!(
+            first.schedule(0),
+            Some((SETTLE_RETRIES, SETTLE_INTERVAL_FRAMES))
+        );
+        let stable = ReconcileOutcome::Finished {
+            initial: false,
+            settle: false,
+        };
+        assert_eq!(stable.schedule(SETTLE_RETRIES), Some((0, 0)));
+        let retry = ReconcileOutcome::Finished {
+            initial: false,
+            settle: true,
+        };
+        assert_eq!(
+            retry.schedule(SETTLE_RETRIES),
+            Some((SETTLE_RETRIES - 1, SETTLE_INTERVAL_FRAMES))
+        );
+        assert_eq!(retry.schedule(1), Some((0, CACHE_SAVE_INTERVAL_FRAMES)));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +475,7 @@ struct GenerationJob {
 static DASH_PRESENT: AtomicUsize = AtomicUsize::new(0);
 /// Linked planes the engine admitted for the current camera (`+0x40 == 1`).
 static DASH_ACTIVE: AtomicUsize = AtomicUsize::new(0);
-/// Cells in the persistent plane cache.
+/// Loaded cells with ephemeral world records.
 static DASH_CACHED_CELLS: AtomicUsize = AtomicUsize::new(0);
 /// Current cell kind: 0 none, 1 interior, 2 exterior.
 static DASH_CELL_KIND: AtomicUsize = AtomicUsize::new(0);
@@ -362,7 +495,7 @@ static DASH_LAST_GEN_MS: AtomicU64 = AtomicU64::new(0);
 static DASH_CREATED: AtomicU64 = AtomicU64::new(0);
 /// Planes removed this session.
 static DASH_REMOVED: AtomicU64 = AtomicU64::new(0);
-/// Rebuilds that reused a complete cache entry.
+/// Completed rebuilds that reused at least one local face analysis.
 static DASH_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 /// Candidates offered to the last rebuild.
 static DASH_LAST_CANDIDATES: AtomicU64 = AtomicU64::new(0);
@@ -372,7 +505,7 @@ static DASH_LAST_SELECTED: AtomicU64 = AtomicU64::new(0);
 static DASH_LAST_CREATED: AtomicU64 = AtomicU64::new(0);
 /// Planes removed by the last rebuild.
 static DASH_LAST_REMOVED: AtomicU64 = AtomicU64::new(0);
-/// Whether the last rebuild came from the persistent cache.
+/// Whether the last rebuild reused local face analysis.
 static DASH_LAST_FROM_CACHE: AtomicBool = AtomicBool::new(false);
 
 /// Plain-data snapshot of the occlusion-plane runtime for the dashboard.
@@ -458,7 +591,6 @@ fn store_cell_counters(key: &CellKey) {
 /// Consecutive settle passes that produced the same set. The window stops once
 /// this reaches `SETTLE_STABLE_PASSES`, so the common case costs two extra
 /// walks instead of all five while still allowing one more pass for late 3D.
-static STABLE_PASSES: AtomicUsize = AtomicUsize::new(0);
 static PRESENCE_COUNTDOWN: AtomicUsize = AtomicUsize::new(PRESENCE_INTERVAL_FRAMES);
 static SAVE_COUNTDOWN: AtomicUsize = AtomicUsize::new(CACHE_SAVE_INTERVAL_FRAMES);
 static CACHE: OnceLock<Mutex<PlaneCache>> = OnceLock::new();
@@ -542,29 +674,19 @@ fn activate() {
         return;
     }
     let _ = FNS.set(EngineFns::resolve());
-    let max = MAX_PER_CELL.load(Ordering::Acquire);
-    // Load the persistent plane cache. Its signature binds it to the exact
-    // active plugin list, so a mod install/uninstall/update discards it.
+    // Disk data contains local analysis only. Every live hit compares complete
+    // mesh input; world placements are ephemeral and require source validation.
     let cache_path = CACHE_PATH.get().map(String::as_str).unwrap_or_default();
-    let mod_signature = cache::current_mod_signature();
-    let signature = cache::config_signature(mod_signature, max);
-    // A zero mod signature means the mod list could not be read; do not reuse a
-    // cache whose provenance cannot be checked.
-    let cache = if mod_signature == 0 {
-        PlaneCache::empty(signature)
-    } else {
-        PlaneCache::load(cache_path, signature)
-    };
-    let cached_cells = cache.cell_count();
-    let _ = CACHE.set(Mutex::new(cache));
-    DASH_CACHED_CELLS.store(cached_cells, Ordering::Relaxed);
+    runtime_generate::load_analysis_cache(cache_path);
+    let _ = CACHE.set(Mutex::new(PlaneCache::empty()));
+    DASH_CACHED_CELLS.store(0, Ordering::Relaxed);
     // xNVSE DeferredInit and normal presentation are main-thread callbacks.
     // A mismatched host invocation cannot enter any native list/mesh operation.
     MAIN_THREAD.store(get_current_thread_id(), Ordering::Release);
     READY.store(true, Ordering::Release);
     log::info!(
         "[OCCLUSION_PLANES] Active; planes are generated at runtime, grid radius={}, \
-         cache cells={cached_cells}, mod signature={signature:016x}",
+         content-validated local cache",
         GRID_RADIUS.load(Ordering::Acquire)
     );
 }
@@ -598,7 +720,6 @@ fn frame_tick() {
 /// work crosses the threshold.
 fn log_frame_cost(elapsed_us: u64) {
     if FRAME_COST_COOLDOWN.load(Ordering::Relaxed) > 0 {
-        FRAME_COST_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
         return;
     }
     FRAME_COST_COOLDOWN.store(FRAME_COST_COOLDOWN_FRAMES, Ordering::Relaxed);
@@ -609,6 +730,9 @@ fn frame_tick_inner() {
     if get_current_thread_id() != MAIN_THREAD.load(Ordering::Acquire) {
         invalidate_world();
         return;
+    }
+    if FRAME_COST_COOLDOWN.load(Ordering::Relaxed) > 0 {
+        FRAME_COST_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
     }
     if !super::native_list::publishers_quiescent() {
         return;
@@ -627,10 +751,12 @@ fn frame_tick_inner() {
     unsafe {
         let player = read_ptr(PLAYER_PTR);
         if player.is_null() {
+            tick_cache_save();
             return;
         }
         let cell = read_ptr_at(player, super::contract::REFR_PARENT_CELL);
         if cell.is_null() {
+            tick_cache_save();
             return;
         }
         let owner = (fns.singleton)(0);
@@ -644,7 +770,7 @@ fn frame_tick_inner() {
         let scene = scene_graph as usize;
         let cell_ptr = cell as usize;
         let key = cell_key(cell);
-        let candidate_key = cell_key_signature(&key);
+        let candidate_key = key;
         let generation_target = GenerationTarget {
             epoch: WORLD_EPOCH.load(Ordering::Acquire),
             cell: cell_ptr,
@@ -664,8 +790,7 @@ fn frame_tick_inner() {
                 .is_some_and(|job| job.target == generation_target)
             {
                 let observer = read_observer(owner);
-                let _ = reconcile(fns, scene_graph, cell, observer, false);
-                tick_cache_save();
+                consume_outcome(reconcile(fns, scene_graph, cell, observer, false));
                 return;
             }
             // The player left the cell whose walk was in flight; drop it.
@@ -676,25 +801,25 @@ fn frame_tick_inner() {
         // reuse cell storage after retirement without changing its address.
         let fast_same = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
             && CURRENT_CELL_PTR.load(Ordering::Acquire) == cell_ptr
-            && CURRENT_CELL_KEY.load(Ordering::Acquire) == candidate_key;
-        let same_target = fast_same
-            || (CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
-                && CURRENT_CELL_KEY.load(Ordering::Acquire) == candidate_key);
+            && CURRENT_CELL_KEY.get() == Some(candidate_key);
+        let same_target = fast_same;
         if same_target {
-            if !fast_same {
-                CURRENT_CELL_PTR.store(cell_ptr, Ordering::Release);
-            }
             clear_pending_target();
         }
         let settle_left = SETTLE_RETRIES_LEFT.load(Ordering::Acquire);
         if !pending && same_target {
-            if settle_left == 0 {
+            let maintenance_due =
+                (settle_left == 0 || INCOMPLETE.load(Ordering::Acquire)) && presence_due();
+            if maintenance_due && INCOMPLETE.load(Ordering::Acquire) {
+                repair_desired(fns, generation_target);
+            }
+            if settle_left == 0 && !RESCAN_PENDING.load(Ordering::Acquire) {
                 // The engine can clear the occluder list on cell unload without
                 // changing the cell identity. Check periodically that our planes
                 // are still present and re-append them from the cache if not.
                 // With no tracked planes there is nothing to maintain, so the
                 // whole path stays idle.
-                if presence_due() {
+                if maintenance_due {
                     let total = TRACKED_COUNT.load(Ordering::Acquire);
                     if total == 0 {
                         DASH_PRESENT.store(0, Ordering::Relaxed);
@@ -705,9 +830,7 @@ fn frame_tick_inner() {
                     } else {
                         let (total, present, active) = tracked_status(scene_graph);
                         if present < total {
-                            let observer = read_observer(owner);
-                            let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
-                            schedule_settle(settle_needed);
+                            repair_desired(fns, generation_target);
                         }
                         let previous = LAST_ACTIVE.swap(active, Ordering::AcqRel);
                         // Log only when planes start or stop being admitted, so
@@ -729,18 +852,14 @@ fn frame_tick_inner() {
             let countdown = SETTLE_COUNTDOWN.load(Ordering::Acquire);
             if countdown > 1 {
                 SETTLE_COUNTDOWN.store(countdown - 1, Ordering::Release);
+                if settle_left == 0 {
+                    refresh_neighbors(fns, scene_graph, cell, read_observer(owner));
+                }
+                tick_cache_save();
                 return;
             }
             let observer = read_observer(owner);
-            let keep_settling = reconcile(fns, scene_graph, cell, observer, false);
-            if keep_settling {
-                SETTLE_RETRIES_LEFT.store(settle_left.saturating_sub(1), Ordering::Release);
-                SETTLE_COUNTDOWN.store(SETTLE_INTERVAL_FRAMES, Ordering::Release);
-            } else {
-                // The set stopped changing; skip the remaining regenerations.
-                SETTLE_RETRIES_LEFT.store(0, Ordering::Release);
-                SETTLE_COUNTDOWN.store(0, Ordering::Release);
-            }
+            consume_outcome(reconcile(fns, scene_graph, cell, observer, false));
             return;
         }
         if !pending {
@@ -753,12 +872,10 @@ fn frame_tick_inner() {
                 return;
             }
         }
-        // A confirmed new target (or an explicit reset) always rebuilds. A
-        // cache hit is a complete set and needs no settle window.
+        // A confirmed new target always captures current sources, even when
+        // its local mesh analysis is already cached.
         let observer = read_observer(owner);
-        let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
-        schedule_settle(settle_needed);
-        tick_cache_save();
+        consume_outcome(reconcile(fns, scene_graph, cell, observer, true));
     }
 }
 
@@ -768,36 +885,36 @@ fn clear_pending_target() {
         return;
     }
     PENDING_SCENE.store(0, Ordering::Release);
-    PENDING_KEY.store(0, Ordering::Release);
+    PENDING_KEY.set(None);
     PENDING_STREAK.store(0, Ordering::Release);
 }
 
 /// True once `(scene, key)` has been seen for `TARGET_STABLE_FRAMES` in a row.
 /// A different candidate resets the streak, so a rapid seam alternation never
 /// confirms.
-fn confirm_target(scene: usize, key: u64) -> bool {
+fn confirm_target(scene: usize, key: CellKey) -> bool {
     let (confirmed, pending_scene, pending_key, streak) = target_confirmation(
         PENDING_SCENE.load(Ordering::Acquire),
-        PENDING_KEY.load(Ordering::Acquire),
+        PENDING_KEY.get().unwrap_or(key),
         PENDING_STREAK.load(Ordering::Acquire),
         scene,
         key,
     );
     PENDING_SCENE.store(pending_scene, Ordering::Release);
-    PENDING_KEY.store(pending_key, Ordering::Release);
+    PENDING_KEY.set(Some(pending_key));
     PENDING_STREAK.store(streak, Ordering::Release);
     confirmed
 }
 
 /// Pure confirmation step: returns `(confirmed, pending_scene, pending_key,
 /// streak)` for the next frame.
-pub(super) fn target_confirmation(
+pub(super) fn target_confirmation<K: Copy + Eq>(
     pending_scene: usize,
-    pending_key: u64,
+    pending_key: K,
     streak: usize,
     scene: usize,
-    key: u64,
-) -> (bool, usize, u64, usize) {
+    key: K,
+) -> (bool, usize, K, usize) {
     if pending_scene != scene || pending_key != key {
         return (false, scene, key, 1);
     }
@@ -833,141 +950,73 @@ unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
     if total == 0 {
         return (0, 0, 0);
     }
-    let wanted: HashSet<usize> = tracked.planes.iter().map(|item| item.pointer).collect();
+    let mut scratch = MAINTENANCE
+        .get_or_init(|| Mutex::new(Maintenance::default()))
+        .lock();
+    let linked = &mut scratch.presence;
+    linked.clear();
+    linked.extend(tracked.planes.iter().map(|item| (item.pointer, None)));
     let list = unsafe { (scene_graph as *mut u8).add(LIST_OFFSET) as *mut c_void };
-    let mut linked: HashMap<usize, bool> = HashMap::with_capacity(wanted.len());
     let mut node = unsafe { read_ptr_at(list, LIST_HEAD) };
     while !node.is_null() {
         let next = unsafe { read_ptr_at(node, NODE_NEXT) };
         let plane = unsafe { read_ptr_at(node, NODE_PLANE) } as usize;
-        if wanted.contains(&plane) {
-            let active = unsafe { read_u32_at(plane as *mut c_void, PLANE_ACTIVE_OFFSET) } == 1;
-            linked.insert(plane, active);
+        if let Some(status) = linked.get_mut(&plane) {
+            *status = Some(unsafe { read_u32_at(plane as *mut c_void, PLANE_ACTIVE_OFFSET) } == 1);
         }
         node = next;
     }
-    let present = tracked
-        .planes
-        .iter()
-        .filter(|item| linked.contains_key(&item.pointer))
+    let present = linked.values().filter(|value| value.is_some()).count();
+    let active = linked
+        .values()
+        .filter(|value| **value == Some(true))
         .count();
-    let active = tracked
-        .planes
-        .iter()
-        .filter(|item| linked.get(&item.pointer) == Some(&true))
-        .count();
+    linked.clear();
     DASH_PRESENT.store(present, Ordering::Relaxed);
     DASH_ACTIVE.store(active, Ordering::Relaxed);
     (total, present, active)
 }
 
-/// Start or skip the settle window depending on whether the plane set is
-/// complete (cache hit) or freshly generated.
-fn schedule_settle(needed: bool) {
-    if needed {
-        SETTLE_RETRIES_LEFT.store(SETTLE_RETRIES, Ordering::Release);
-        SETTLE_COUNTDOWN.store(SETTLE_INTERVAL_FRAMES, Ordering::Release);
-    } else {
-        SETTLE_RETRIES_LEFT.store(0, Ordering::Release);
-        SETTLE_COUNTDOWN.store(0, Ordering::Release);
-    }
-}
-
-/// Decrement the cache-save countdown and flush a dirty cache when due.
-fn tick_cache_save() {
-    let remaining = SAVE_COUNTDOWN.load(Ordering::Acquire);
-    if remaining > 0 {
-        SAVE_COUNTDOWN.store(remaining - 1, Ordering::Release);
-        return;
-    }
-    SAVE_COUNTDOWN.store(CACHE_SAVE_INTERVAL_FRAMES, Ordering::Release);
-    save_cache();
-}
-
-/// Persist the cache when it changed. Called on a debounce and on
-/// load/new/exit, never on a per-frame hot path.
+/// Request persistence without doing file work in a loading callback.
 fn save_cache() {
-    let (Some(cache), Some(path)) = (CACHE.get(), CACHE_PATH.get()) else {
+    SAVE_REQUESTED.store(true, Ordering::Release);
+}
+
+/// Progress one bounded persistence unit only between generation passes.
+/// Idle frames take atomics only when there is no dirty checkpoint in progress.
+fn tick_cache_save() {
+    let remaining = SAVE_COUNTDOWN.load(Ordering::Relaxed);
+    if remaining > 0 {
+        SAVE_COUNTDOWN.store(remaining - 1, Ordering::Relaxed);
+    } else {
+        SAVE_COUNTDOWN.store(CACHE_SAVE_INTERVAL_FRAMES, Ordering::Relaxed);
+        save_cache();
+    }
+    if GENERATION_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(path) = CACHE_PATH.get() else {
         return;
     };
-    let (snapshot, cells) = {
-        let mut guard = cache.lock();
-        let cells = guard.cell_count();
-        (guard.take_snapshot(), cells)
-    };
-    let Some(bytes) = snapshot else {
-        return;
-    };
-    match cache::PlaneCache::write_snapshot(path, &bytes, 0) {
-        Ok(()) => {
-            if debug_log_enabled() {
-                log::debug!("[OCCLUSION_PLANES] cache saved cells={cells}");
-            }
-        }
-        Err(error) => {
-            // Restore the dirty flag so the failed write is retried on the next
-            // debounce instead of losing the generated set.
-            cache.lock().mark_dirty();
-            log::warn!("[OCCLUSION_PLANES] cache save failed: {error}");
-        }
+    let request = SAVE_REQUESTED.swap(false, Ordering::AcqRel);
+    if let Err(error) = runtime_generate::save_analysis_cache_step(path, request) {
+        log::warn!(
+            "[OCCLUSION_PLANES] local analysis checkpoint failed; retry on next checkpoint: {error}"
+        );
     }
 }
 
-/// Hash a cell identity so a reused cell pointer still reads as a new cell.
-///
-/// FxHash instead of SipHash: this runs on the frame path when the cell or
-/// scene pointer changes, and the key is a few small integers.
-fn cell_key_signature(key: &CellKey) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = rustc_hash::FxHasher::default();
-    key.hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Order-independent fingerprint of one cell's plane records, used to decide
-/// whether a settle pass produced the same set.
-///
-/// The position/size fields are quantized so sub-unit transform jitter from the
-/// engine settling does not defeat stability. The per-plane keys are sorted
-/// before hashing because the generator can emit the same planes in a different
-/// order: the engine may re-link a cell's reference list while geometry streams
-/// in, and the score sort is stable, so candidates with equal scores keep that
-/// list order. An order-sensitive hash therefore reported a change on every
-/// pass even when the aggregate scan statistics were byte-identical (observed
-/// 2026-10-18: six full regenerations per first visit while every
-/// `refs/nodes/geoms/faces/mesh_area/rect_area` value matched). Sorting the keys
-/// makes the fingerprint independent of emission order while still detecting
-/// any added, removed or moved plane.
-pub(super) fn plane_signature(planes: &[PlaneRecord]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut keys: Vec<u64> = planes.iter().map(plane_key).collect();
+/// Canonical, order-independent plane descriptors for settle equality. Hashes
+/// alone cannot establish equality, particularly on the supported 32-bit target.
+pub(super) fn plane_signature(planes: &[PlaneRecord]) -> Vec<PlaneIdentity> {
+    let mut keys: Vec<_> = planes.iter().map(plane_key).collect();
     keys.sort_unstable();
-    let mut hasher = rustc_hash::FxHasher::default();
-    keys.hash(&mut hasher);
-    hasher.finish()
+    keys
 }
 
-/// Quantized fingerprint of one plane. The same key means the plane is close
-/// enough that an existing native object can be reused across a settle pass.
-pub(super) fn plane_key(plane: &PlaneRecord) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = rustc_hash::FxHasher::default();
-    for value in plane.position {
-        ((value * 4.0).round() as i32).hash(&mut hasher);
-    }
-    for value in plane.size {
-        ((value * 4.0).round() as i32).hash(&mut hasher);
-    }
-    for value in plane.rotation {
-        ((value * 256.0).round() as i32).hash(&mut hasher);
-    }
-    plane.priority.hash(&mut hasher);
-    plane.source_form_id.hash(&mut hasher);
-    // Coverage decides the native side flag, so a change must force a recreate
-    // instead of reusing the existing plane. Quantize it so sub-percent
-    // generation jitter cannot churn the native list.
-    ((plane.coverage * 64.0).round() as i32).hash(&mut hasher);
-    hasher.finish()
+/// Native reuse identity; the historical name does not imply a hash value.
+pub(super) fn plane_key(plane: &PlaneRecord) -> PlaneIdentity {
+    plane.identity()
 }
 
 /// Observer/player world position, or `None` when the field is not finite.
@@ -987,19 +1036,6 @@ fn restore_pending(pending: bool) {
     if pending {
         RESET_PENDING.store(true, Ordering::Release);
     }
-}
-
-/// A complete cached plane set, converted to runtime records.
-///
-/// An incomplete entry (written before its settle window finished) is not
-/// trusted, exactly as before: the cell is regenerated instead.
-fn complete_cached(key: &CellKey) -> Option<(Vec<PlaneRecord>, usize)> {
-    let cache = CACHE.get()?;
-    let guard = cache.lock();
-    let entry = guard.get(key)?;
-    entry
-        .complete
-        .then(|| (cached_to_records(&entry.planes), entry.planes.len()))
 }
 
 /// Live `GridCellArray` pointers read from the `TES` singleton.
@@ -1119,11 +1155,8 @@ unsafe fn neighborhood_cells(cell: *mut c_void, radius: usize) -> (Vec<NeighborC
 
 /// Rebuild the neighborhood description for the current center cell.
 ///
-/// This path is **cache only**: a neighbor contributes planes only when it has a
-/// complete persistent-cache entry, i.e. it was generated and settled while it
-/// was the player's own cell. No neighbor mesh walk ever runs here, so the
-/// per-frame and cell-crossing paths add no generation work. The center cell's
-/// records are preserved across the rebuild and refreshed by `reconcile`.
+/// This updates loaded identities only. Neighbor records are admitted later by
+/// bounded source validation. Preserve the center while reconcile refreshes it.
 ///
 /// Returns `true` when the neighborhood changed.
 fn refresh_neighborhood(cell: *mut c_void, key: &CellKey, radius: usize) -> bool {
@@ -1137,7 +1170,7 @@ fn refresh_neighborhood(cell: *mut c_void, key: &CellKey, radius: usize) -> bool
         return false;
     }
     let old = guard.take();
-    let mut planes: HashMap<CellKey, Vec<PlaneRecord>> = HashMap::new();
+    let mut planes: HashMap<CellKey, CellPlanes> = HashMap::new();
     if let Some(records) = old
         .as_ref()
         .and_then(|neighborhood| neighborhood.planes.get(key))
@@ -1145,19 +1178,13 @@ fn refresh_neighborhood(cell: *mut c_void, key: &CellKey, radius: usize) -> bool
     {
         planes.insert(*key, records);
     }
-    for item in &cells {
-        if item.key == *key {
-            continue;
-        }
-        if let Some(records) = old
-            .as_ref()
-            .and_then(|neighborhood| neighborhood.planes.get(&item.key))
-            .cloned()
-        {
-            planes.insert(item.key, records);
-        } else if let Some((records, _)) = complete_cached(&item.key) {
-            planes.insert(item.key, records);
-        }
+    // A new neighborhood does not inherit unvalidated world placements. Keep
+    // the center while it is refreshed; neighbors enter after exact live proof.
+    let keys: Vec<_> = cells.iter().map(|item| item.key).collect();
+    if let Some(cache) = CACHE.get() {
+        let mut cache = cache.lock();
+        cache.retain(&keys);
+        DASH_CACHED_CELLS.store(cache.cell_count(), Ordering::Relaxed);
     }
     *guard = Some(Neighborhood {
         center: *key,
@@ -1165,6 +1192,8 @@ fn refresh_neighborhood(cell: *mut c_void, key: &CellKey, radius: usize) -> bool
         cells,
         planes,
     });
+    drop(guard);
+    NEIGHBOR_WORK.lock().clear();
     true
 }
 
@@ -1179,45 +1208,149 @@ fn neighbor_validate_due() -> bool {
     true
 }
 
-/// Periodically re-check the loaded grid and reload the cached neighbor sets.
-///
-/// This runs at most once every `NEIGHBOR_VALIDATE_FRAMES` frames. It reads the
-/// grid array and the persistent cache only; it never walks a neighbor cell's
-/// meshes. It drops planes for cells that left the grid and picks up a neighbor
-/// whose cache entry became complete while the player was elsewhere.
+/// One neighbor at a time shares the capture budget with center generation.
+/// Native addresses are identity tokens; every slice resolves a loaded grid
+/// cell afresh. Proof and queued records are Rust-owned.
+struct NeighborValidation {
+    owner: GenerationTarget,
+    key: CellKey,
+    cell: usize,
+    expected: Arc<SourceProof>,
+    records: Vec<PlaneRecord>,
+    work: Generation,
+}
+
+struct NeighborWork {
+    queue: VecDeque<CellKey>,
+    active: Option<NeighborValidation>,
+}
+
+impl NeighborWork {
+    fn clear(&mut self) {
+        self.queue.clear();
+        self.active = None;
+    }
+}
+
+static NEIGHBOR_WORK: Mutex<NeighborWork> = Mutex::new(NeighborWork {
+    queue: VecDeque::new(),
+    active: None,
+});
+
+/// Resolve a neighbor only from the current loaded grid and worldspace.
+unsafe fn resolve_neighbor(center: *mut c_void, key: CellKey) -> Option<*mut c_void> {
+    let worldspace = unsafe { read_ptr_at(center, CELL_WORLDSPACE) };
+    let grid = unsafe { read_grid() }?;
+    for x in 0..grid.size {
+        for y in 0..grid.size {
+            let Some(cell) = (unsafe { grid_cell_at(&grid, x, y) }) else {
+                continue;
+            };
+            if unsafe { read_ptr_at(cell, CELL_WORLDSPACE) } == worldspace
+                && unsafe { cell_key(cell) } == key
+            {
+                return Some(cell);
+            }
+        }
+    }
+    None
+}
+
+/// Periodically validate cached neighbors, without running coverage or merging
+/// on their meshes. Radius zero remains a single atomic load and return.
 fn refresh_neighbors(
     fns: &EngineFns,
     scene_graph: *mut c_void,
     cell: *mut c_void,
     observer: Option<[f32; 3]>,
 ) {
-    // The default configuration has no neighbors, so the frame path is a single
-    // atomic load and return.
     let radius = GRID_RADIUS.load(Ordering::Acquire);
     if radius == 0 {
         return;
     }
-    if !neighbor_validate_due() {
-        return;
+    let center = unsafe { cell_key(cell) };
+    let owner = GenerationTarget {
+        epoch: WORLD_EPOCH.load(Ordering::Acquire),
+        cell: cell as usize,
+        key: center,
+        graph: scene_graph as usize,
+    };
+    let due = neighbor_validate_due();
+    let mut changed = false;
+    if due {
+        changed = refresh_neighborhood(cell, &center, radius);
     }
-    let center_key = unsafe { cell_key(cell) };
-    {
-        let guard = NEIGHBORHOOD.lock();
-        let Some(neighborhood) = guard.as_ref() else {
-            return;
+    let mut jobs = NEIGHBOR_WORK.lock();
+    if jobs.active.as_ref().is_some_and(|job| job.owner != owner) {
+        jobs.clear();
+    }
+    if due && jobs.active.is_none() && jobs.queue.is_empty() {
+        if let Some(neighborhood) = NEIGHBORHOOD.lock().as_ref() {
+            jobs.queue.extend(
+                neighborhood
+                    .cells
+                    .iter()
+                    .filter(|item| item.key != center)
+                    .map(|item| item.key),
+            );
+        }
+    }
+    if jobs.active.is_none() {
+        while let Some(key) = jobs.queue.pop_front() {
+            let cached = CACHE
+                .get()
+                .and_then(|cache| cache.lock().get(&key).cloned());
+            let Some(entry) = cached.filter(|entry| entry.complete) else {
+                continue;
+            };
+            let Some(expected) = entry.proof else {
+                continue;
+            };
+            let Some(neighbor) = (unsafe { resolve_neighbor(cell, key) }) else {
+                continue;
+            };
+            jobs.active = Some(NeighborValidation {
+                owner,
+                key,
+                cell: neighbor as usize,
+                expected,
+                records: entry.planes,
+                work: Generation::new(1, None),
+            });
+            break;
+        }
+    }
+    if let Some(job) = jobs.active.as_mut() {
+        let current = unsafe { resolve_neighbor(cell, job.key) };
+        let result = if let Some(current) = current.filter(|ptr| *ptr as usize == job.cell) {
+            let _cell_lock = unsafe { CellRefLock::acquire(current, fns) };
+            unsafe { job.work.validate_inputs(current) }
+        } else {
+            Some(None)
         };
-        if neighborhood.center != center_key {
-            return;
-        }
-        if neighborhood.worldspace != 0
-            && unsafe { read_ptr_at(cell, CELL_WORLDSPACE) as usize } != neighborhood.worldspace
-        {
-            drop(guard);
-            NEIGHBORHOOD.lock().take();
-            return;
+        if let Some(proof) = result {
+            let valid = proof.is_some_and(|proof| job.expected.matches(&proof));
+            if let Some(neighborhood) = NEIGHBORHOOD.lock().as_mut() {
+                if valid {
+                    let previous = neighborhood.planes.insert(
+                        job.key,
+                        CellPlanes {
+                            records: job.records.clone(),
+                            settled: true,
+                        },
+                    );
+                    changed |= previous.is_none_or(|previous| {
+                        plane_signature(&previous.records) != plane_signature(&job.records)
+                    });
+                } else {
+                    changed |= neighborhood.planes.remove(&job.key).is_some();
+                }
+            }
+            jobs.active = None;
         }
     }
-    if refresh_neighborhood(cell, &center_key, radius) {
+    drop(jobs);
+    if changed {
         let _ = unsafe { apply_union(fns, scene_graph, observer) };
     }
 }
@@ -1234,9 +1367,16 @@ unsafe fn apply_union(
             return UnionReport::default();
         };
         let mut candidates: Vec<(f32, PlaneRecord)> = Vec::new();
-        let mut seen: HashSet<u64> = HashSet::new();
-        for planes in neighborhood.planes.values() {
-            for plane in planes {
+        let mut seen: HashSet<PlaneIdentity> = HashSet::new();
+        for cell in &neighborhood.cells {
+            let key = cell.key;
+            let Some(entry) = neighborhood.planes.get(&key) else {
+                continue;
+            };
+            if key != neighborhood.center && !entry.settled {
+                continue;
+            }
+            for plane in &entry.records {
                 // Two cells can only produce the same rectangle if a reference
                 // was duplicated; dedupe so the diff cannot create a duplicate
                 // native plane for one key.
@@ -1261,6 +1401,22 @@ unsafe fn apply_union(
         .filter(|plane| plane.coverage >= runtime_generate::TWO_SIDED_COVERAGE)
         .count();
     let injected = unsafe { inject(fns, scene_graph, &selection.planes) };
+    let player = unsafe { read_ptr(PLAYER_PTR) };
+    if !player.is_null() {
+        let cell = unsafe { read_ptr_at(player, super::contract::REFR_PARENT_CELL) };
+        if !cell.is_null() {
+            *DESIRED.lock() = Some((
+                GenerationTarget {
+                    epoch: WORLD_EPOCH.load(Ordering::Acquire),
+                    cell: cell as usize,
+                    key: unsafe { cell_key(cell) },
+                    graph: scene_graph as usize,
+                },
+                selection.planes.clone(),
+            ));
+        }
+    }
+    INCOMPLETE.store(!injected.complete, Ordering::Release);
     DASH_LAST_CANDIDATES.store(candidate_count as u64, Ordering::Relaxed);
     DASH_LAST_SELECTED.store(selected as u64, Ordering::Relaxed);
     UnionReport {
@@ -1270,6 +1426,20 @@ unsafe fn apply_union(
         two_sided,
         injected,
     }
+}
+
+/// Repair native presence without repeating geometry work. Current identity is
+/// supplied afresh by the admitted frame; saved addresses are comparison only.
+unsafe fn repair_desired(fns: &EngineFns, target: GenerationTarget) {
+    let desired = DESIRED.lock();
+    let Some((owner, planes)) = desired.as_ref() else {
+        return;
+    };
+    if *owner != target {
+        return;
+    }
+    let result = unsafe { inject(fns, target.graph as *mut c_void, planes) };
+    INCOMPLETE.store(!result.complete, Ordering::Release);
 }
 
 /// Diagnostics and injection result for one union refresh.
@@ -1290,6 +1460,21 @@ struct InjectResult {
     removed: usize,
     complete: bool,
 }
+
+/// Reused only on admitted main presentation, under TRACKED. Borrowed native
+/// nodes are cleared before releasing the publication lock, including on empty
+/// injection. Presence stores only pointers protected by the retained planes.
+#[derive(Default)]
+struct Maintenance {
+    presence: HashMap<usize, Option<bool>>,
+    linked: HashMap<usize, usize>,
+    old: Vec<(TrackedPlane, usize)>,
+    by_key: HashMap<PlaneIdentity, usize>,
+    used: Vec<bool>,
+    next: Vec<TrackedPlane>,
+}
+
+static MAINTENANCE: OnceLock<Mutex<Maintenance>> = OnceLock::new();
 
 /// Diff the desired set against the tracked set and update only the nodes that
 /// changed. A reused plane keeps its native object and list node, so a settle
@@ -1321,12 +1506,30 @@ unsafe fn inject(
     } else {
         unsafe { (tracked.graph as *mut u8).add(LIST_OFFSET).cast::<c_void>() }
     };
-    let linked = if list.is_null() {
-        HashMap::new()
-    } else {
-        unsafe { linked_nodes(list) }
-    };
-    let mut old: Vec<(TrackedPlane, *mut c_void)> = Vec::with_capacity(previous_count);
+    let mut scratch = MAINTENANCE
+        .get_or_init(|| Mutex::new(Maintenance::default()))
+        .lock();
+    let Maintenance {
+        linked,
+        old,
+        by_key,
+        used,
+        next,
+        ..
+    } = &mut *scratch;
+    linked.clear();
+    old.clear();
+    by_key.clear();
+    used.clear();
+    next.clear();
+    if !list.is_null() {
+        let mut node = unsafe { read_ptr_at(list, LIST_HEAD) };
+        while !node.is_null() {
+            let plane = unsafe { read_ptr_at(node, NODE_PLANE) };
+            linked.insert(plane as usize, node as usize);
+            node = unsafe { read_ptr_at(node, NODE_NEXT) };
+        }
+    }
     for item in tracked.planes.drain(..) {
         if let Some(&node) = linked.get(&item.pointer) {
             old.push((item, node));
@@ -1334,27 +1537,22 @@ unsafe fn inject(
             unsafe { release_plane(item.pointer as *mut c_void) };
         }
     }
-    let mut by_key: HashMap<u64, Vec<usize>> = HashMap::with_capacity(old.len());
     for (index, (item, _)) in old.iter().enumerate() {
-        by_key.entry(item.key).or_default().push(index);
+        by_key.insert(item.key, index);
     }
-    let mut used = vec![false; old.len()];
-    let mut next: Vec<TrackedPlane> = Vec::with_capacity(planes.len());
-    let mut injected: Vec<PlaneRecord> = Vec::with_capacity(planes.len());
+    used.resize(old.len(), false);
     let mut created = 0usize;
     for record in planes {
         let key = plane_key(record);
-        if let Some(index) = by_key.get_mut(&key).and_then(Vec::pop) {
+        if let Some(index) = by_key.remove(&key) {
             used[index] = true;
             next.push(old[index].0);
-            injected.push(*record);
         } else if let Some(plane) = unsafe { create_plane(fns, record) } {
             unsafe { (fns.append)(scene_graph, plane) };
             next.push(TrackedPlane {
                 pointer: plane as usize,
                 key,
             });
-            injected.push(*record);
             created += 1;
         }
     }
@@ -1362,22 +1560,28 @@ unsafe fn inject(
         if used[index] {
             continue;
         }
-        if !node.is_null() {
-            unsafe { unlink(fns, list, *node) };
+        if *node != 0 {
+            unsafe { unlink(fns, list, *node as *mut c_void) };
         }
         unsafe { release_plane(item.pointer as *mut c_void) };
     }
     let reused = next.len().saturating_sub(created);
     let removed = previous_count.saturating_sub(reused);
-    let complete = injected.len() == planes.len();
-    if !complete {
+    let complete = next.len() == planes.len();
+    if !complete && !INCOMPLETE.load(Ordering::Acquire) {
         log::warn!(
             "[OCCLUSION_PLANES] injected {}/{} planes; retrying",
-            injected.len(),
+            next.len(),
             planes.len()
         );
     }
-    tracked.planes = next;
+    std::mem::swap(&mut tracked.planes, next);
+    // End all scratch borrowing before native publication becomes available.
+    linked.clear();
+    old.clear();
+    by_key.clear();
+    used.clear();
+    next.clear();
     if tracked.planes.is_empty() && tracked.graph != 0 {
         let graph = core::mem::replace(&mut tracked.graph, 0);
         // Release the graph after the publication guard has dropped.
@@ -1423,6 +1627,11 @@ unsafe fn retire_injection(fns: &EngineFns, injection: &mut Injection) -> Option
 fn reset_world(fns: &EngineFns) {
     clear_pending_target();
     NEIGHBORHOOD.lock().take();
+    NEIGHBOR_WORK.lock().clear();
+    if let Some(cache) = CACHE.get() {
+        cache.lock().clear();
+    }
+    DASH_CACHED_CELLS.store(0, Ordering::Relaxed);
     *GENERATION.lock() = None;
     GENERATION_ACTIVE.store(false, Ordering::Release);
     let retired_graph = {
@@ -1441,23 +1650,23 @@ fn reset_world(fns: &EngineFns) {
     DASH_ACTIVE.store(0, Ordering::Relaxed);
     CURRENT_SCENE_GRAPH.store(0, Ordering::Release);
     CURRENT_CELL_PTR.store(0, Ordering::Release);
-    CURRENT_CELL_KEY.store(0, Ordering::Release);
-    LAST_SIGNATURE.store(0, Ordering::Release);
-    STABLE_PASSES.store(0, Ordering::Release);
+    CURRENT_CELL_KEY.set(None);
+    LAST_SIGNATURE.lock().clear();
     SETTLE_RETRIES_LEFT.store(0, Ordering::Release);
     SETTLE_COUNTDOWN.store(0, Ordering::Release);
     INCOMPLETE.store(false, Ordering::Release);
+    RESCAN_PENDING.store(false, Ordering::Release);
+    DESIRED.lock().take();
 }
 
-/// Returns `true` when the freshly generated set should run a settle window.
-/// A cache hit is a complete set and needs none.
+/// Advance one generation pass and distinguish pending work from completion.
 unsafe fn reconcile(
     fns: &EngineFns,
     scene_graph: *mut c_void,
     cell: *mut c_void,
     observer: Option<[f32; 3]>,
     force: bool,
-) -> bool {
+) -> ReconcileOutcome {
     let key = unsafe { cell_key(cell) };
     let target = GenerationTarget {
         epoch: WORLD_EPOCH.load(Ordering::Acquire),
@@ -1466,42 +1675,40 @@ unsafe fn reconcile(
         graph: scene_graph as usize,
     };
     store_cell_counters(&key);
-    let key_signature = cell_key_signature(&key);
+    let key_signature = key;
     let max = MAX_PER_CELL.load(Ordering::Acquire);
     if force {
-        STABLE_PASSES.store(0, Ordering::Release);
+        // A graph/cell transition cannot carry a previously validated neighbor
+        // set into a fresh target without checking its sources again.
+        NEIGHBORHOOD.lock().take();
     }
     // The union includes the loaded exterior neighbors the engine also renders.
-    // Neighbors contribute only their complete persistent-cache sets, so this
-    // adds no mesh walk to the frame or cell-crossing path.
-    let _ = refresh_neighborhood(cell, &key, GRID_RADIUS.load(Ordering::Acquire));
-
-    // A forced pass re-uses a complete cached entry when it has this cell, so a
-    // revisited cell skips the mesh walk. A settle retry always regenerates so
-    // the final set is complete, and it refreshes the cache entry.
-    let mut settle_needed = false;
-    let mut from_cache = false;
-    let mut generate_ms = 0.0f32;
-    let mut render_ready = false;
-    let mut planes: Vec<PlaneRecord> = Vec::new();
-    let mut raw = 0usize;
-    if force && let Some((records, count)) = complete_cached(&key) {
-        from_cache = true;
-        planes = records;
-        raw = count;
-        DASH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
-        DASH_LAST_FROM_CACHE.store(true, Ordering::Relaxed);
-        // Drop any in-flight generation for another target; this cache hit is
-        // the complete set.
-        *GENERATION.lock() = None;
-        GENERATION_ACTIVE.store(false, Ordering::Release);
+    // Neighbors contribute only after fresh validation of their settled source
+    // input. This description refresh performs no coverage work.
+    if force || NEIGHBORHOOD.lock().as_ref().is_none_or(|n| n.center != key) {
+        let _ = refresh_neighborhood(cell, &key, GRID_RADIUS.load(Ordering::Acquire));
     }
-    if !from_cache {
+
+    // Always resolve live sources on cell entry. Local content analysis is
+    // reusable, but old world positions have no authority over a new visit.
+    let settle_needed = true;
+    let initial;
+    let from_cache;
+    let generate_ms;
+    let render_ready;
+    let planes;
+    let raw;
+    NEIGHBOR_WORK.lock().clear();
+    {
         // A target change must not leave the previous cell's rectangles in the
         // engine list while the new set is being assembled: a stale rectangle
         // could cull visible geometry of the new cell. Drop them once, while
         // the resumable walk runs over several frames.
-        if force && CURRENT_CELL_KEY.load(Ordering::Acquire) != key_signature {
+        if force
+            && (CURRENT_CELL_KEY.get() != Some(key_signature)
+                || CURRENT_CELL_PTR.load(Ordering::Acquire) != cell as usize
+                || CURRENT_SCENE_GRAPH.load(Ordering::Acquire) != scene_graph as usize)
+        {
             let _ = unsafe { inject(fns, scene_graph, &[]) };
         }
         // Advance the resumable walk by one frame's work budget. A new target
@@ -1515,47 +1722,64 @@ unsafe fn reconcile(
                 *guard = Some(GenerationJob {
                     target,
                     work: Generation::new(max, observer),
+                    initial: force,
                 });
             }
+            // restart inserts whenever empty; this guard excludes removal.
             let generation = guard.as_mut().expect("generation was just inserted");
             // SAFETY: current main-frame cell, not the saved identity token.
             // Keep one native CellRefLock level through the complete slice.
-            let done = {
+            let slice_started = Instant::now();
+            {
                 let _cell_lock = unsafe { CellRefLock::acquire(cell, fns) };
-                unsafe { generation.work.advance(cell) }
-            };
+                generation.work.account_lock_wait(slice_started.elapsed());
+                unsafe { generation.work.capture(cell) };
+            }
+            let done = generation.work.advance(slice_started);
             if target.epoch != WORLD_EPOCH.load(Ordering::Acquire) {
                 *guard = None;
                 GENERATION_ACTIVE.store(false, Ordering::Release);
-                return true;
+                return ReconcileOutcome::Pending;
             }
             if done {
+                // No mutation removed the job while this guard was held.
                 Some(guard.take().expect("generation is present"))
             } else {
                 None
             }
         };
-        let Some(finished) = outcome else {
+        let Some(mut finished) = outcome else {
             // The cell is still being walked. Keep the settle window alive so
             // the next frame continues it; the caller does not inject yet.
             GENERATION_ACTIVE.store(true, Ordering::Release);
-            return true;
+            return ReconcileOutcome::Pending;
         };
         GENERATION_ACTIVE.store(false, Ordering::Release);
+        initial = finished.initial;
+        let proof = finished.work.source_proof();
+        from_cache = finished.work.used_analysis();
         let (generated_planes, generated_raw, ready, generation_ms) = finished.work.finish();
         generate_ms = generation_ms;
         DASH_REBUILDS.fetch_add(1, Ordering::Relaxed);
         DASH_LAST_GEN_MS.store(generation_ms.round() as u64, Ordering::Relaxed);
-        DASH_LAST_FROM_CACHE.store(false, Ordering::Relaxed);
+        DASH_LAST_FROM_CACHE.store(from_cache, Ordering::Relaxed);
+        if from_cache {
+            DASH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+        }
         render_ready = ready;
         planes = generated_planes;
         raw = generated_raw;
-        store_in_cache(&key, &planes, false);
-        settle_needed = true;
+        store_in_cache(&key, &planes, proof);
     }
     // Keep the union source current even when no native plane is re-created.
     if let Some(neighborhood) = NEIGHBORHOOD.lock().as_mut() {
-        neighborhood.planes.insert(key, planes.clone());
+        neighborhood.planes.insert(
+            key,
+            CellPlanes {
+                records: planes.clone(),
+                settled: false,
+            },
+        );
     }
     let signature = plane_signature(&planes);
     // The set is stable when the same target produced the same signature again.
@@ -1563,48 +1787,45 @@ unsafe fn reconcile(
     // on a later visit and a settle retry with an unchanged set keeps the
     // existing planes instead of rebuilding.
     let same_target = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene_graph as usize
-        && CURRENT_CELL_KEY.load(Ordering::Acquire) == key_signature;
-    let stable = !INCOMPLETE.load(Ordering::Acquire)
-        && same_target
-        && LAST_SIGNATURE.load(Ordering::Acquire) == signature;
+        && CURRENT_CELL_KEY.get() == Some(key_signature);
+    let stable = same_target && *LAST_SIGNATURE.lock() == signature;
     if stable {
-        let passes = STABLE_PASSES.fetch_add(1, Ordering::AcqRel) + 1;
-        // The set did not change. A presence-driven force pass re-appends it
-        // below; a settle pass stops once enough identical passes were seen.
-        // When every reference already has an attached render node, no more 3D
-        // can appear, so one identical pass is enough.
-        let stable_passes_needed = if render_ready {
-            1
-        } else {
-            SETTLE_STABLE_PASSES
-        };
-        settle_needed = false;
-        if !force && passes >= stable_passes_needed {
+        // Equality with the previous completed pass is already two observed
+        // sets. Missing eligible data or truncated scans remain retryable.
+        if !initial && render_ready {
             mark_cache_complete(&key);
-            return false;
+            RESCAN_PENDING.store(false, Ordering::Release);
+            if debug_log_enabled() {
+                log::debug!(
+                    "[OCCLUSION_PLANES] settled key={} complete=true",
+                    cell_key_log(&key)
+                );
+            }
+            return ReconcileOutcome::Finished {
+                initial,
+                settle: false,
+            };
         }
-        if !force {
-            return true;
+        if !initial {
+            RESCAN_PENDING.store(true, Ordering::Release);
+            return ReconcileOutcome::Finished {
+                initial,
+                settle: true,
+            };
         }
-    } else {
-        STABLE_PASSES.store(0, Ordering::Release);
     }
     let report = unsafe { apply_union(fns, scene_graph, observer) };
     if !report.injected.complete {
         // An allocation failed; keep the bounded settle window alive so the
         // missing plane is retried instead of being silently absent.
         INCOMPLETE.store(true, Ordering::Release);
-        settle_needed = true;
     } else {
         INCOMPLETE.store(false, Ordering::Release);
     }
-    if !settle_needed {
-        mark_cache_complete(&key);
-    }
     CURRENT_SCENE_GRAPH.store(scene_graph as usize, Ordering::Release);
     CURRENT_CELL_PTR.store(cell as usize, Ordering::Release);
-    CURRENT_CELL_KEY.store(key_signature, Ordering::Release);
-    LAST_SIGNATURE.store(signature, Ordering::Release);
+    CURRENT_CELL_KEY.set(Some(key_signature));
+    *LAST_SIGNATURE.lock() = signature;
     if debug_log_enabled() {
         let (observer_x, observer_y, observer_z) = observer
             .map(|position| (position[0], position[1], position[2]))
@@ -1620,7 +1841,7 @@ unsafe fn reconcile(
                     .planes
                     .iter()
                     .filter(|(neighbor, _)| **neighbor != key)
-                    .map(|(_, planes)| planes.len())
+                    .map(|(_, planes)| planes.records.len())
                     .sum();
                 (cells, planes)
             });
@@ -1649,57 +1870,42 @@ unsafe fn reconcile(
             observer_z,
         );
     }
-    settle_needed
-}
-
-/// Convert a cached plane back into the runtime record.
-fn cached_to_records(cached: &[CachedPlane]) -> Vec<PlaneRecord> {
-    cached
-        .iter()
-        .map(|plane| PlaneRecord {
-            position: plane.position,
-            size: plane.size,
-            rotation: plane.rotation,
-            priority: plane.priority,
-            source_form_id: plane.source_form_id,
-            coverage: plane.coverage,
-        })
-        .collect()
-}
-
-/// Convert a generated plane into a cache entry.
-fn record_to_cached(record: &PlaneRecord) -> CachedPlane {
-    CachedPlane {
-        position: record.position,
-        size: record.size,
-        rotation: record.rotation,
-        priority: record.priority,
-        source_form_id: record.source_form_id,
-        coverage: record.coverage,
+    RESCAN_PENDING.store(settle_needed, Ordering::Release);
+    ReconcileOutcome::Finished {
+        initial,
+        settle: settle_needed,
     }
 }
 
-/// Store the latest generated set for a cell so a revisit can re-append it
-/// without re-walking the meshes. `complete` is false until the settle window
-/// sees two identical passes; an incomplete entry is regenerated on a revisit.
-fn store_in_cache(key: &CellKey, planes: &[PlaneRecord], complete: bool) {
+/// Keep only loaded-neighborhood placements; proof is weak, non-persistent and
+/// must be revalidated against fresh native input before neighbor admission.
+fn store_in_cache(key: &CellKey, planes: &[PlaneRecord], proof: Option<Arc<SourceProof>>) {
     let Some(cache) = CACHE.get() else {
         return;
     };
-    let cached: Vec<CachedPlane> = planes.iter().map(record_to_cached).collect();
     let mut guard = cache.lock();
-    guard.insert(*key, cached, complete);
+    guard.insert(*key, planes.to_vec(), proof);
     DASH_CACHED_CELLS.store(guard.cell_count(), Ordering::Relaxed);
 }
 
 /// Mark a cached entry complete once the settle window has ended.
 fn mark_cache_complete(key: &CellKey) {
+    if let Some(entry) = NEIGHBORHOOD
+        .lock()
+        .as_mut()
+        .and_then(|n| n.planes.get_mut(key))
+    {
+        entry.settled = true;
+    }
     if let Some(cache) = CACHE.get() {
         cache.lock().mark_complete(key);
     }
 }
 
 unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_void> {
+    if !record.valid_native() {
+        return None;
+    }
     let raw = unsafe { (fns.alloc)(PLANE_SIZE) };
     if raw.is_null() {
         return None;
@@ -1723,7 +1929,7 @@ unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_v
         // as solid enough for that; an irregular or partly open face stays
         // one-sided, so `0x00C358A0` runs the engine's camera-side test and the
         // plane is active only from its outward side.
-        let two_sided = record.coverage >= runtime_generate::TWO_SIDED_COVERAGE;
+        let two_sided = record.two_sided();
         write_u8_at(plane, PLANE_SIDE_FLAG, u8::from(two_sided));
     }
     Some(plane)

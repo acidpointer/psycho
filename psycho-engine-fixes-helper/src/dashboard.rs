@@ -2068,9 +2068,9 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
         "CELLS CACHED",
         &cached_value,
         BLUE,
-        "Reused when you return",
+        "Loaded cell records",
         width,
-        "Cells whose rectangles are saved to disk. Revisiting one reuses them instead of measuring the meshes again. The cache is dropped when your mod list changes.",
+        "World rectangles retained for loaded cells. Neighbor reuse requires matching live sources. Only reusable local mesh analysis is saved to disk.",
     );
 
     if !ready {
@@ -2117,7 +2117,7 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
             "Status",
             "Measuring this cell's geometry…",
             WARN,
-            "Psycho walks the cell's static meshes in small per-frame slices, so this never stalls the game. The rectangles appear when the walk finishes.",
+            "Psycho spreads mesh capture and analysis across frames. Native calls and individual faces can exceed the soft budget. Rectangles appear after generation finishes.",
         );
     } else if core.occlusion_rebuilds == 0 {
         draw_value_help(
@@ -2127,29 +2127,24 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
             MUTED,
             "The first rebuild happens once the game has loaded a cell with static geometry.",
         );
-    } else if core.occlusion_last_from_cache != 0 {
-        draw_value_help(
-            ui,
-            "Source",
-            "Saved cache",
-            GOOD,
-            "This cell's rectangles came from the saved cache, so no meshes were walked.",
-        );
-        draw_value_help(
-            ui,
-            "Rectangles",
-            format!("{} kept", core.occlusion_last_selected),
-            ACCENT,
-            "How many rectangles this rebuild installed.",
-        );
     } else {
-        draw_value_help(
-            ui,
-            "Source",
-            "Freshly measured",
-            ACCENT,
-            "This cell's rectangles were derived from its live static meshes.",
-        );
+        if core.occlusion_last_from_cache != 0 {
+            draw_value_help(
+                ui,
+                "Source",
+                "Reused mesh analysis",
+                GOOD,
+                "Live mesh inputs matched cached local analysis for part of this rebuild. World placement and source eligibility were checked again.",
+            );
+        } else {
+            draw_value_help(
+                ui,
+                "Source",
+                "Freshly measured",
+                ACCENT,
+                "This cell's rectangles were derived from its live static meshes.",
+            );
+        }
         draw_value_help(
             ui,
             "Rectangles",
@@ -2175,7 +2170,7 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
             "Time",
             format!("{} ms", core.occlusion_last_generation_ms),
             MUTED,
-            "Total walk time, summed across its per-frame slices. It is spread over several frames, not spent in one.",
+            "Generation work summed across slices, including lock acquisition, capture, analysis and completion. Native publication and checkpoint I/O are measured by the frame-work warning.",
         );
     }
 
@@ -2185,11 +2180,11 @@ fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot)
         ui,
         "Rebuilds",
         format!(
-            "{} total · {} from cache",
+            "{} total · {} reused analysis",
             core.occlusion_rebuilds, core.occlusion_cache_hits
         ),
         ACCENT,
-        "Completed cell rebuilds and how many reused the saved cache instead of re-measuring.",
+        "Completed cell rebuilds and how many reused at least one content-matched local face analysis.",
     );
     draw_value_help(
         ui,

@@ -295,10 +295,10 @@ pub struct PerformanceConfig {
     pub occlusion_planes_max_per_cell: u16,
     /// Loaded exterior-cell grid radius for cached occluder coverage. `0`
     /// (default) limits collection to the player's cell. `1` also reuses the
-    /// complete cache entries of the surrounding 3x3 loaded cells; no neighbor
-    /// mesh walk runs on a frame path.
+    /// settled records of surrounding 3x3 loaded cells after bounded live input
+    /// validation. Neighbors do not run coverage or merge generation.
     pub occlusion_planes_grid_radius: u8,
-    /// Generated plane cache file, relative to the game directory or absolute.
+    /// Content-keyed local analysis cache, relative to the game directory or absolute.
     pub occlusion_planes_cache_path: String,
     /// Write the verbose per-cell occlusion-plane diagnostics at debug level.
     /// Off by default; warnings and errors always log.

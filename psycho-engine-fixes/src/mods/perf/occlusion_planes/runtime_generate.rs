@@ -58,6 +58,14 @@ use super::raw::{read_f32_at, read_ptr, read_ptr_at, read_u8_at, read_u16_at, re
 #[path = "surface_tests.rs"]
 mod surface_tests;
 
+#[path = "runtime_generate_work.rs"]
+mod work;
+use work::{MergeWork, SelectionWork};
+#[path = "runtime_generate_cache.rs"]
+mod surface_cache;
+use std::sync::{Arc, Weak};
+use surface_cache::{LocalFace, Surface};
+
 const MAX_REFS: usize = 2000;
 const MAX_VISITED_NODES: usize = 512;
 const MAX_VERTICES_PER_MESH: usize = 4096;
@@ -105,8 +113,8 @@ const MIN_FACE_THICKNESS: f32 = 16.0;
 const OUTWARD_OFFSET: f32 = 2.0;
 
 /// Fingerprint of the generation constants. Mixed into the cache signature so
-/// any change to extraction or merge semantics invalidates cached planes
-/// automatically, even when the manual format version is not bumped.
+/// changing a listed output-affecting constant invalidates local analysis.
+/// Code/format changes still require a manual schema revision.
 pub(super) fn generation_signature() -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let values = [
@@ -120,6 +128,12 @@ pub(super) fn generation_signature() -> u64 {
         MAX_HORIZONTAL_NORMAL,
         TWO_SIDED_COVERAGE,
         MIN_FACE_THICKNESS,
+        OUTWARD_OFFSET,
+        MAX_OCCLUDER_DISTANCE,
+        MAX_REFS as f32,
+        MAX_VISITED_NODES as f32,
+        MAX_VERTICES_PER_MESH as f32,
+        VERTEX_BUDGET as f32,
         MERGE_OFFSET_TOLERANCE,
         MERGE_GAP_TOLERANCE,
         MERGE_GROUP_TOLERANCE,
@@ -139,6 +153,8 @@ pub(super) fn generation_signature() -> u64 {
         }
     }
     hash ^= SUPPORT_GRID as u64;
+    hash = hash.wrapping_mul(0x100_0000_01b3);
+    hash ^= FACE_GRID as u64;
     hash.wrapping_mul(0x100_0000_01b3)
 }
 
@@ -213,6 +229,9 @@ pub(super) struct ScanStats {
     skinned: usize,
     alpha: usize,
     no_vertices: usize,
+    /// Eligible source data unavailable or invalid at this capture boundary.
+    /// Unsupported formats remain distinct so they do not force busy retries.
+    unavailable: usize,
     /// A geometry whose model data could not be decoded as a triangle mesh, so
     /// its faces can never be proven solid.
     no_triangles: usize,
@@ -246,39 +265,100 @@ pub(super) struct ScanStats {
 /// feature: a release build measured 20-32 ms for the Fairfax exterior cells
 /// (the triangle coverage test alone is linear in the mesh triangles), which
 /// drops a frame on cell entry while the settle window repeats it. The walk is
-/// resumable and pays at most this many triangles and references per call, so
-/// no single frame stalls on generation while the final set stays complete. A
-/// single geometry is capped at `MAX_TRIANGLES_PER_MESH`, so a frame's slice
-/// cannot exceed one mesh's coverage work.
+/// resumable. Capture checks this work target between meshes; one admitted
+/// mesh may overshoot it. Coverage yields between faces. The cell input budget
+/// and final coverage are preserved; neither count nor elapsed time is a hard
+/// frame-latency guarantee.
 const GENERATION_TRIANGLES_PER_FRAME: usize = 8_000;
 /// Upper bound on references examined in one frame's generation slice.
 const GENERATION_REFS_PER_FRAME: usize = 96;
-/// Wall-clock ceiling for one frame's generation slice. A single reference can
-/// carry a mesh of `MAX_TRIANGLES_PER_MESH` triangles on up to six faces, so the
-/// triangle budget alone cannot bound a pathological mesh; this stops the slice
-/// after the current reference once the ceiling is passed. It is kept under the
-/// module's 2 ms frame-cost warning so a normal slice never trips it.
+/// Soft wall-clock target, checked between native mesh captures, owned faces
+/// and bounded completion batches. One mesh, one face, native acquisition and
+/// destruction can exceed it; the full frame-cost warning includes those costs.
 const GENERATION_SLICE_BUDGET_MS: u128 = 1;
 
 /// Resumable per-cell occluder generation.
 ///
-/// A cell's reference list can be hundreds of meshes; walking all of them once
-/// is the frame stall. `advance` examines at most `GENERATION_REFS_PER_FRAME`
-/// references (and `GENERATION_TRIANGLES_PER_FRAME` triangles) and returns
-/// `true` only when the whole list has been walked, so the caller can spread a
-/// cell over several frames. References are located by re-walking the list from
-/// its head to `cursor` each call, so no engine list node is held across frames
-/// (the engine can re-link the list while geometry streams in); a re-link can
-/// therefore skip or repeat a reference, which only wastes a duplicate that the
-/// shared dedup already handles.
+/// Full reference identity for fresh per-slice resolution. Relinking cannot
+/// skip work: membership is compared before a saved token is resolved. No
+/// borrowed engine list node survives the native capture boundary.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct ReferenceIdentity {
+    form_id: u32,
+    address: usize,
+}
+
+/// Exact captured source facts for a cached world placement. Native addresses
+/// are comparison tokens only; geometry equality comes from interned full input.
+#[derive(Clone)]
+struct SourceMesh {
+    reference: ReferenceIdentity,
+    geometry: usize,
+    world: [u32; 13],
+    source: u32,
+    surface: Weak<()>,
+}
+
+/// A world result is reusable only after freshly capturing the same source
+/// inputs. This proof is never persisted and owns no engine object or mesh data.
+pub(super) struct SourceProof {
+    references: Vec<ReferenceIdentity>,
+    meshes: Vec<SourceMesh>,
+}
+
+impl SourceProof {
+    /// Compare all instance facts and live interned content identities. A dead
+    /// token cannot establish equality, even if a native address was recycled.
+    pub(super) fn matches(&self, other: &Self) -> bool {
+        self.references == other.references
+            && self.meshes.len() == other.meshes.len()
+            && self.meshes.iter().zip(&other.meshes).all(|(a, b)| {
+                a.reference == b.reference
+                    && a.geometry == b.geometry
+                    && a.world == b.world
+                    && a.source == b.source
+                    && a.surface
+                        .upgrade()
+                        .zip(b.surface.upgrade())
+                        .is_some_and(|(a, b)| Arc::ptr_eq(&a, &b))
+            })
+    }
+}
+
+/// Owned admitted mesh input. CPU work may outlive its original engine object;
+/// world/cell identity still controls whether the resulting set can publish.
+struct MeshSnapshot {
+    surface: Arc<Surface>,
+    world: WorldTransform,
+    source_form_id: u32,
+    reference: ReferenceIdentity,
+    geometry: usize,
+    recorded: bool,
+    face: usize,
+}
+
 pub(super) struct Generation {
+    order: Vec<ReferenceIdentity>,
+    membership: Vec<ReferenceIdentity>,
+    live: Vec<ReferenceIdentity>,
+    enumerated: bool,
+    truncated: bool,
+    sources: Vec<SourceMesh>,
+    proof: Option<Arc<SourceProof>>,
+    proof_complete: bool,
     max_planes: usize,
     observer: Option<[f32; 3]>,
     cursor: usize,
     done: bool,
     candidates: Vec<(f32, PlaneRecord)>,
     stack: Vec<usize>,
-    mesh_out: Vec<(f32, PlaneRecord)>,
+    reference_walk: Vec<usize>,
+    snapshots: std::collections::VecDeque<MeshSnapshot>,
+    merge: Option<MergeWork>,
+    selection: Option<SelectionWork>,
+    selected: Option<Selection>,
+    candidate_count: usize,
+    merge_ms: f32,
     vertex_buf: Vec<[f32; 3]>,
     triangles: Vec<[u16; 3]>,
     support_points: Vec<[f32; 2]>,
@@ -289,18 +369,33 @@ pub(super) struct Generation {
     triangle_budget: usize,
     stats: ScanStats,
     spent_ms: f32,
+    analysis_reused: bool,
 }
 
 impl Generation {
     pub(super) fn new(max_planes: usize, observer: Option<[f32; 3]>) -> Self {
         Self {
+            order: Vec::new(),
+            membership: Vec::new(),
+            live: Vec::new(),
+            enumerated: false,
+            truncated: false,
+            sources: Vec::new(),
+            proof: None,
+            proof_complete: true,
             max_planes,
             observer,
             cursor: 0,
             done: false,
-            candidates: Vec::with_capacity(max_planes.max(1) * 4),
+            candidates: Vec::with_capacity(max_planes.clamp(1, MAX_REFS) * 4),
             stack: Vec::with_capacity(64),
-            mesh_out: Vec::new(),
+            reference_walk: Vec::with_capacity(MAX_VISITED_NODES),
+            snapshots: std::collections::VecDeque::new(),
+            merge: None,
+            selection: None,
+            selected: None,
+            candidate_count: 0,
+            merge_ms: 0.0,
             vertex_buf: Vec::with_capacity(MAX_VERTICES_PER_MESH),
             triangles: Vec::with_capacity(MAX_TRIANGLES_PER_MESH),
             support_points: Vec::with_capacity(64),
@@ -311,6 +406,7 @@ impl Generation {
             triangle_budget: TRIANGLE_BUDGET,
             stats: ScanStats::default(),
             spent_ms: 0.0,
+            analysis_reused: false,
         }
     }
 
@@ -327,14 +423,176 @@ impl Generation {
     /// reference list, node transforms and mesh arrays are read-only here. The
     /// caller owns CellRefLock for this slice. The cell is supplied afresh for
     /// each call; the work item never dereferences a saved engine pointer.
-    pub(super) unsafe fn advance(&mut self, cell: *mut c_void) -> bool {
-        if self.done {
-            return true;
+    pub(super) unsafe fn capture(&mut self, cell: *mut c_void) {
+        let started = std::time::Instant::now();
+        let _ = unsafe { self.advance_slice(cell) };
+        self.stack.clear();
+        for mesh in &mut self.snapshots {
+            if mesh.recorded {
+                continue;
+            }
+            mesh.recorded = true;
+            if self.sources.len() == MAX_REFS {
+                self.proof_complete = false;
+                continue;
+            }
+            let mut world = [0; 13];
+            for (out, value) in world.iter_mut().zip(
+                mesh.world
+                    .rotation
+                    .into_iter()
+                    .chain(mesh.world.translation)
+                    .chain([mesh.world.scale]),
+            ) {
+                *out = if value == 0.0 { 0 } else { value.to_bits() };
+            }
+            self.sources.push(SourceMesh {
+                reference: mesh.reference,
+                geometry: mesh.geometry,
+                world,
+                source: mesh.source_form_id,
+                surface: Arc::downgrade(&mesh.surface.identity),
+            });
+        }
+        self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    /// Include native lock acquisition in total generation work. The caller
+    /// measures it before entering the capture boundary, on the same thread.
+    pub(super) fn account_lock_wait(&mut self, elapsed: std::time::Duration) {
+        self.spent_ms += elapsed.as_secs_f32() * 1000.0;
+    }
+
+    /// Whether a live admitted face reused content-matched local analysis.
+    pub(super) fn used_analysis(&self) -> bool {
+        self.analysis_reused
+    }
+
+    /// Snapshot of a completed, fully admitted source enumeration. Oversized
+    /// proof metadata makes this cell uncacheable without reducing its output.
+    pub(super) fn source_proof(&mut self) -> Option<Arc<SourceProof>> {
+        if !self.done || !self.proof_complete {
+            return None;
         }
         let started = std::time::Instant::now();
-        let done = unsafe { self.advance_slice(cell) };
+        if self.proof.is_none() {
+            self.sources.sort_by_key(|s| (s.reference, s.geometry));
+            self.proof = Some(Arc::new(SourceProof {
+                references: self.membership.clone(),
+                meshes: std::mem::take(&mut self.sources),
+            }));
+        }
+        self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
+        self.proof.clone()
+    }
+
+    /// Revalidate an existing neighbor's inputs without generating rectangles.
+    /// The caller supplies a freshly resolved loaded cell and owns CellRefLock.
+    pub(super) unsafe fn validate_inputs(
+        &mut self,
+        cell: *mut c_void,
+    ) -> Option<Option<Arc<SourceProof>>> {
+        unsafe { self.capture(cell) };
+        self.snapshots.clear();
+        if !self.done {
+            return None;
+        }
+        Some(if self.ready() {
+            self.source_proof()
+        } else {
+            None
+        })
+    }
+
+    fn ready(&self) -> bool {
+        !self.truncated
+            && self.stats.budget_stop == 0
+            && self.stats.refs > 0
+            && self.stats.render_null == 0
+            && self.stats.node_null == 0
+            && self.stats.unavailable == 0
+            && self.stats.base_null == 0
+            && self.stats.parent_mismatch == 0
+    }
+
+    /// Advance only owned CPU work, after releasing the native reference lock.
+    /// One face is an atomic coverage unit; completion jobs yield after bounded
+    /// batches. Native acquisition/destruction and an individual face remain
+    /// outside any hard wall-clock guarantee.
+    pub(super) fn advance(&mut self, frame_started: std::time::Instant) -> bool {
+        let started = std::time::Instant::now();
+        let done = self.advance_owned(frame_started);
         self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
         done
+    }
+
+    fn advance_owned(&mut self, frame_started: std::time::Instant) -> bool {
+        loop {
+            if let Some(mesh) = self.snapshots.front_mut() {
+                let start = self.candidates.len();
+                let rejects = faces_in_range(
+                    &mesh.surface.local,
+                    &mesh.world,
+                    &mesh.surface.vertices,
+                    &mesh.surface.triangles,
+                    &mut self.candidates,
+                    &mut self.support_points,
+                    &mut self.support_hull,
+                    &mut self.support_upper,
+                    &mut self.coverage,
+                    mesh.face..mesh.face + 1,
+                    Some(&mesh.surface),
+                );
+                self.analysis_reused |= rejects.reused > 0;
+                mesh.face += 1;
+                self.stats.horizontal_reject += rejects.horizontal;
+                self.stats.support_reject += rejects.unsupported;
+                self.stats.small_reject += rejects.small;
+                self.stats.opening_reject += rejects.opening;
+                self.stats.thin_faces += rejects.thin;
+                self.stats.low_coverage_faces += rejects.low_coverage;
+                for (_, plane) in &mut self.candidates[start..] {
+                    plane.source_form_id = mesh.source_form_id;
+                    self.stats.faces += 1;
+                }
+                if mesh.face == 6 {
+                    self.snapshots.pop_front();
+                }
+            } else if !self.done {
+                return false;
+            } else if self.selected.is_some() {
+                return true;
+            } else if let Some(selection) = self.selection.as_mut() {
+                if selection.advance(GENERATION_REFS_PER_FRAME) {
+                    self.selected = self.selection.take().map(SelectionWork::finish);
+                    return true;
+                }
+            } else {
+                if self.merge.is_none() {
+                    self.merge = Some(MergeWork::new(std::mem::take(&mut self.candidates)));
+                }
+                let merge_started = std::time::Instant::now();
+                // This entry was inserted above. No native callback or external
+                // mutation can remove the owned job during this method.
+                let merged = self
+                    .merge
+                    .as_mut()
+                    .is_some_and(|work| work.advance(GENERATION_REFS_PER_FRAME));
+                self.merge_ms += merge_started.elapsed().as_secs_f32() * 1000.0;
+                if merged && let Some(work) = self.merge.take() {
+                    let candidates = work.finish();
+                    self.candidate_count = candidates.len();
+                    self.selection = Some(SelectionWork::new(
+                        candidates,
+                        self.observer,
+                        self.max_planes,
+                    ));
+                }
+            }
+            if frame_started.elapsed().as_millis() >= GENERATION_SLICE_BUDGET_MS {
+                return false;
+            }
+        }
     }
 
     /// One bounded slice of the walk.
@@ -349,63 +607,147 @@ impl Generation {
         // Safety: see the function contract. Every pointer is read from the
         // cell's own list and null-checked before it is dereferenced.
         unsafe {
-            let list = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
-            let mut node = list;
-            let mut index = 0usize;
-            while index < self.cursor {
-                node = read_ptr_at(node, TLIST_NEXT);
-                if node.is_null() {
-                    self.done = true;
-                    return true;
+            // Re-resolve the complete admitted membership under this slice's
+            // CellRefLock. A relink with unchanged membership cannot skip work;
+            // a changed membership abandons the old results before publication.
+            self.live.clear();
+            let mut node = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
+            let mut truncated = false;
+            loop {
+                let reference = read_ptr_at(node, TLIST_DATA);
+                if !reference.is_null() {
+                    if self.live.len() == MAX_REFS {
+                        truncated = true;
+                        break;
+                    }
+                    self.live.push(ReferenceIdentity {
+                        form_id: read_u32_at(reference, TESFORM_REF_ID),
+                        address: reference as usize,
+                    });
                 }
-                index += 1;
+                let next = read_ptr_at(node, TLIST_NEXT);
+                if next.is_null() {
+                    break;
+                }
+                node = next;
+            }
+            // Keep native initial enumeration order for the existing shared
+            // geometry budgets. Only the membership comparison is sorted.
+            if !self.enumerated {
+                self.order.clone_from(&self.live);
+            }
+            self.live.sort_unstable();
+            if self.enumerated && (self.membership != self.live || self.truncated != truncated) {
+                self.cursor = 0;
+                self.reference_walk.clear();
+                self.done = false;
+                self.snapshots.clear();
+                self.sources.clear();
+                self.proof = None;
+                self.proof_complete = true;
+                self.merge = None;
+                self.selection = None;
+                self.selected = None;
+                self.candidates.clear();
+                self.vertex_budget = VERTEX_BUDGET;
+                self.triangle_budget = TRIANGLE_BUDGET;
+                self.stats = ScanStats::default();
+                self.analysis_reused = false;
+                // This fresh sorted order is deterministic for the restarted
+                // scan; no stale reference pointer is used to resume work.
+                self.order.clone_from(&self.live);
+            }
+            self.membership.clone_from(&self.live);
+            self.enumerated = true;
+            self.truncated = truncated;
+            if self.done
+                || !self.snapshots.is_empty()
+                || self.merge.is_some()
+                || self.selection.is_some()
+            {
+                return self.done;
             }
             loop {
                 // The shared cell budgets are spent: finalize with what was
                 // collected, exactly as the previous single-pass loop did.
-                if self.stats.refs >= MAX_REFS
+                if (self.stats.refs >= MAX_REFS && self.reference_walk.is_empty())
                     || self.vertex_budget == 0
                     || self.triangle_budget == 0
                 {
+                    self.stats.budget_stop += 1;
                     self.done = true;
                     return true;
                 }
                 if refs_left == 0 {
                     return false;
                 }
-                let reference = read_ptr_at(node, TLIST_DATA);
-                let next = read_ptr_at(node, TLIST_NEXT);
-                self.cursor += 1;
+                let Some(requested) = self.order.get(self.cursor) else {
+                    self.done = true;
+                    return true;
+                };
+                // Resolve from this frame's live membership, not the saved
+                // address token. The current native lock owns its list lifetime.
+                let index = self
+                    .live
+                    .binary_search(requested)
+                    .expect("membership was compared under CellRefLock");
+                let reference = self.live[index].address as *mut c_void;
                 if !reference.is_null() {
-                    self.stats.refs += 1;
+                    if self.reference_walk.is_empty() {
+                        self.stats.refs += 1;
+                    }
                     let triangles_before = self.triangle_budget;
                     let vertices_before = self.vertex_budget;
-                    collect_reference(
+                    let captured = capture_reference(
                         reference,
                         cell,
                         &mut self.stack,
                         &mut self.vertex_buf,
                         &mut self.triangles,
-                        &mut self.mesh_out,
                         &mut self.vertex_budget,
                         &mut self.triangle_budget,
-                        &mut self.candidates,
+                        &mut self.snapshots,
                         &mut self.stats,
-                        &mut self.support_points,
-                        &mut self.support_hull,
-                        &mut self.support_upper,
-                        &mut self.coverage,
+                        &mut self.reference_walk,
+                        slice_started,
+                        triangle_slice,
                     );
+                    match captured {
+                        CaptureResult::Changed => {
+                            // A freshly traversed prefix no longer names the
+                            // same hierarchy. Abandon all old owned results;
+                            // never resume by dereferencing a saved node.
+                            self.enumerated = false;
+                            self.membership.clear();
+                            self.order.clear();
+                            self.cursor = 0;
+                            self.reference_walk.clear();
+                            self.snapshots.clear();
+                            self.sources.clear();
+                            self.proof = None;
+                            self.proof_complete = true;
+                            self.candidates.clear();
+                            self.vertex_budget = VERTEX_BUDGET;
+                            self.triangle_budget = TRIANGLE_BUDGET;
+                            self.stats = ScanStats::default();
+                            self.analysis_reused = false;
+                            return false;
+                        }
+                        CaptureResult::Yield => return false,
+                        CaptureResult::Complete => {
+                            self.cursor += 1;
+                            self.reference_walk.clear();
+                        }
+                    }
                     let spent = (triangles_before - self.triangle_budget)
                         .max(vertices_before - self.vertex_budget);
                     triangle_slice = triangle_slice.saturating_sub(spent);
                     refs_left = refs_left.saturating_sub(1);
                 }
-                if next.is_null() || self.stats.refs >= MAX_REFS {
+                if self.cursor == self.order.len() || self.stats.refs >= MAX_REFS {
                     self.done = true;
                     return true;
                 }
-                node = next;
                 if refs_left == 0
                     || triangle_slice == 0
                     || self.vertex_budget == 0
@@ -422,22 +764,16 @@ impl Generation {
     /// selected planes, the raw pre-cap candidate count, whether every reference
     /// had attached 3D, and the total generator time in milliseconds.
     pub(super) fn finish(mut self) -> (Vec<PlaneRecord>, usize, bool, f32) {
-        // Merge coplanar adjacent rectangles before scoring and capping. Two
-        // support-validated rectangles that share a full edge have a rectangular
-        // union, so the merged rectangle cannot cover empty space, and it culls
-        // more bounds per plane while reducing the pair cost. The merge is the
-        // quadratic step, so its time is reported to target any future cost
-        // work.
-        let merge_started = std::time::Instant::now();
-        merge_coplanar(&mut self.candidates);
-        let merge_ms = merge_started.elapsed().as_secs_f32() * 1000.0;
-
-        // Distance filter and score against the observer after merging, so the
-        // merged center is the one that is scored. The union selection reuses
-        // the same rule across loaded cells so a nearby plane always beats a
-        // distant one regardless of which cell produced it.
-        let candidate_count = self.candidates.len();
-        let selection = select_planes(self.candidates, self.observer, self.max_planes);
+        // Completion jobs already merged and selected the owned candidates.
+        // Existing merge tolerances are preserved; they do not prove an exact
+        // geometric union (see the documented conservativeness research gate).
+        // The caller consumes the job only after advance returned true.
+        let Some(selection) = self.selected.take() else {
+            return (Vec::new(), 0, false, self.spent_ms);
+        };
+        let merge_ms = self.merge_ms;
+        let candidate_count = self.candidate_count;
+        let ready = self.ready();
         let stats = &mut self.stats;
         stats.rect_area = selection.raw_area;
         stats.cap_drop_area = selection.cap_drop_area;
@@ -449,7 +785,7 @@ impl Generation {
             log::debug!(
                 "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
                  render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
-                 no_vertices={} no_triangles={} size={} horizontal={} support={} small={} opening={} distance={} \
+                 no_vertices={} unavailable={} no_triangles={} size={} horizontal={} support={} small={} opening={} distance={} \
                  dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
                  cap_drop={:.0} thin={} low_cov={} merge_ms={:.1}",
                 stats.refs,
@@ -464,6 +800,7 @@ impl Generation {
                 stats.skinned,
                 stats.alpha,
                 stats.no_vertices,
+                stats.unavailable,
                 stats.no_triangles,
                 stats.size_reject,
                 stats.horizontal_reject,
@@ -485,12 +822,10 @@ impl Generation {
         (
             planes,
             raw,
-            // All references have an attached render node, so no more 3D can
-            // appear: the settle window can stop after the first identical pass.
-            // Require at least one walked reference: an empty list can mean the
-            // cell is still attaching, so it is not a finished generation and a
-            // neighbor must not be cached as complete on it.
-            stats.refs > 0 && stats.render_null == 0 && stats.node_null == 0,
+            // No unavailable eligible source or truncation was observed in
+            // this pass. This is not a future-immutability guarantee. An empty
+            // reference list remains retryable while the cell attaches.
+            ready,
             self.spent_ms,
         )
     }
@@ -520,73 +855,41 @@ pub(super) fn select_planes(
     observer: Option<[f32; 3]>,
     max_planes: usize,
 ) -> Selection {
-    let mut scored: Vec<(f32, PlaneRecord)> = Vec::with_capacity(candidates.len());
-    let mut distance_reject = 0usize;
-    let mut distance_max = 0.0f32;
-    for (area, plane) in candidates {
-        let mut weight = 1.0f32;
-        if let Some(observer) = observer {
-            let offset = [
-                plane.position[0] - observer[0],
-                plane.position[1] - observer[1],
-                plane.position[2] - observer[2],
-            ];
-            let distance =
-                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
-            if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
-                distance_reject += 1;
-                if distance.is_finite() {
-                    distance_max = distance_max.max(distance);
-                }
-                continue;
-            }
-            weight = 1.0 + (distance * distance) / (2048.0 * 2048.0);
-        }
-        scored.push((area / weight, plane));
-    }
-    let raw_area: f32 = scored
-        .iter()
-        .map(|(_, plane)| plane.size[0] * plane.size[1])
-        .sum();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
-    scored.truncate(max_planes.max(1));
-    let kept_area: f32 = scored
-        .iter()
-        .map(|(_, plane)| plane.size[0] * plane.size[1])
-        .sum();
-    Selection {
-        planes: scored.into_iter().map(|(_, plane)| plane).collect(),
-        raw_area,
-        cap_drop_area: (raw_area - kept_area).max(0.0),
-        distance_reject,
-        distance_max,
-    }
+    let mut work = SelectionWork::new(candidates, observer, max_planes);
+    while !work.advance(GENERATION_TRIANGLES_PER_FRAME) {}
+    work.finish()
+}
+
+/// A reference can yield between meshes. The saved prefix contains comparison
+/// tokens only and is checked against a fresh DFS under the current cell lock.
+enum CaptureResult {
+    Complete,
+    Yield,
+    Changed,
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn collect_reference(
+unsafe fn capture_reference(
     reference: *mut c_void,
     cell: *mut c_void,
     stack: &mut Vec<usize>,
     vertex_buf: &mut Vec<[f32; 3]>,
     triangles: &mut Vec<[u16; 3]>,
-    mesh_out: &mut Vec<(f32, PlaneRecord)>,
     vertex_budget: &mut usize,
     triangle_budget: &mut usize,
-    out: &mut Vec<(f32, PlaneRecord)>,
+    out: &mut std::collections::VecDeque<MeshSnapshot>,
     stats: &mut ScanStats,
-    support_points: &mut Vec<[f32; 2]>,
-    support_hull: &mut Vec<[f32; 2]>,
-    support_upper: &mut Vec<[f32; 2]>,
-    coverage: &mut CoverageScratch,
-) {
+    walked: &mut Vec<usize>,
+    slice_started: std::time::Instant,
+    snapshot_budget: usize,
+) -> CaptureResult {
     // Stop examining further references once a shared budget is spent, so the
     // cell-load pass stays bounded instead of falling back to coarse sphere
     // bounds for the remaining objects. The triangle budget matters because the
     // coverage test needs the mesh triangles for every emitted face.
     if *vertex_budget == 0 || *triangle_budget == 0 {
         stats.budget_stop += 1;
-        return;
+        return CaptureResult::Complete;
     }
     // The reference comes from this cell's own `objectList`. A non-null parent
     // that differs is unexpected; a null parent is tolerated while the cell is
@@ -594,16 +897,16 @@ unsafe fn collect_reference(
     let parent = unsafe { read_ptr_at(reference, REFR_PARENT_CELL) };
     if !parent.is_null() && parent != cell {
         stats.parent_mismatch += 1;
-        return;
+        return CaptureResult::Complete;
     }
     let base = unsafe { read_ptr_at(reference, REFR_BASE_FORM) };
     if base.is_null() {
         stats.base_null += 1;
-        return;
+        return CaptureResult::Complete;
     }
     if !admits_base_type(unsafe { read_u8_at(base, TESFORM_TYPE_ID) }) {
         stats.not_stat += 1;
-        return;
+        return CaptureResult::Complete;
     }
     // Bind every plane from this reference to its source form so a cached
     // plane can be traced back to the plugin that owns it.
@@ -611,12 +914,12 @@ unsafe fn collect_reference(
     let render_state = unsafe { read_ptr_at(reference, REFR_RENDER_STATE) };
     if render_state.is_null() {
         stats.render_null += 1;
-        return;
+        return CaptureResult::Complete;
     }
     let node = unsafe { read_ptr_at(render_state, RENDER_STATE_NODE) };
     if node.is_null() {
         stats.node_null += 1;
-        return;
+        return CaptureResult::Complete;
     }
     // Cheap rejection before the node walk: the engine's world-bound radius is
     // at least half the object's largest extent. A null bound is allowed; the
@@ -625,29 +928,27 @@ unsafe fn collect_reference(
         && radius < MIN_WORLD_RADIUS
     {
         stats.radius_reject += 1;
-        return;
+        return CaptureResult::Complete;
     }
-    mesh_out.clear();
     unsafe {
-        collect_object_planes(
+        capture_object_meshes(
             node,
             stack,
             vertex_buf,
             triangles,
             vertex_budget,
             triangle_budget,
-            mesh_out,
+            out,
             stats,
-            support_points,
-            support_hull,
-            support_upper,
-            coverage,
-        );
-    }
-    for (area, mut plane) in mesh_out.drain(..) {
-        plane.source_form_id = source_form_id;
-        stats.faces += 1;
-        out.push((area, plane));
+            source_form_id,
+            ReferenceIdentity {
+                form_id: read_u32_at(reference, TESFORM_REF_ID),
+                address: reference as usize,
+            },
+            walked,
+            slice_started,
+            snapshot_budget,
+        )
     }
 }
 
@@ -690,47 +991,65 @@ unsafe fn admits_geometry(object: *mut c_void) -> bool {
 
 /// Walk the node tree and emit occlusion rectangles for every opaque,
 /// unskinned geometry below `root`, one box per geometry.
-unsafe fn collect_object_planes(
+unsafe fn capture_object_meshes(
     root: *mut c_void,
     stack: &mut Vec<usize>,
     vertex_buf: &mut Vec<[f32; 3]>,
     triangles: &mut Vec<[u16; 3]>,
     vertex_budget: &mut usize,
     triangle_budget: &mut usize,
-    out: &mut Vec<(f32, PlaneRecord)>,
+    out: &mut std::collections::VecDeque<MeshSnapshot>,
     stats: &mut ScanStats,
-    support_points: &mut Vec<[f32; 2]>,
-    support_hull: &mut Vec<[f32; 2]>,
-    support_upper: &mut Vec<[f32; 2]>,
-    coverage: &mut CoverageScratch,
-) {
+    source_form_id: u32,
+    reference: ReferenceIdentity,
+    walked: &mut Vec<usize>,
+    slice_started: std::time::Instant,
+    snapshot_budget: usize,
+) -> CaptureResult {
     stack.clear();
     stack.push(root as usize);
+    let initial_vertices = *vertex_budget;
+    let initial_triangles = *triangle_budget;
+    let resume = walked.len();
     let mut visited = 0usize;
     while let Some(object) = stack.pop() {
         let object = object as *mut c_void;
         visited += 1;
         if visited > MAX_VISITED_NODES {
-            return;
+            stats.budget_stop += 1;
+            return CaptureResult::Complete;
         }
-        stats.nodes += 1;
+        let replay = visited <= resume;
+        if replay && walked[visited - 1] != object as usize {
+            return CaptureResult::Changed;
+        }
+        if !replay {
+            walked.push(object as usize);
+            stats.nodes += 1;
+        }
         let is_node = unsafe { call_kind(object, VTABLE_IS_NODE) };
         let is_geometry = unsafe { call_kind(object, VTABLE_IS_GEOMETRY) };
-        if !is_geometry.is_null() {
+        if !replay && !is_geometry.is_null() {
             stats.geoms += 1;
             if !unsafe { read_ptr_at(object, GEOMETRY_SKIN) }.is_null() {
                 stats.skinned += 1;
             } else if !unsafe { admits_geometry(object) } {
                 stats.alpha += 1;
             } else if let Some((local, world, model)) =
-                unsafe { geometry_local_box(object, vertex_buf, vertex_budget) }
+                unsafe { geometry_local_box(object, vertex_buf, vertex_budget, stats) }
             {
                 if local.is_eligible(world.scale) {
                     // The triangles are the engine's own definition of the
                     // surface; without them a face cannot be proven hole-free,
                     // so the geometry contributes no occluder.
                     if !unsafe {
-                        read_mesh_triangles(model, triangles, vertex_buf.len(), triangle_budget)
+                        read_mesh_triangles(
+                            model,
+                            triangles,
+                            vertex_buf.len(),
+                            triangle_budget,
+                            stats,
+                        )
                     } {
                         stats.no_triangles += 1;
                     } else {
@@ -742,23 +1061,20 @@ unsafe fn collect_object_planes(
                             * ((extents[0] * world_scale) * (extents[1] * world_scale)
                                 + (extents[1] * world_scale) * (extents[2] * world_scale)
                                 + (extents[2] * world_scale) * (extents[0] * world_scale));
-                        let rejects = faces_from_oriented_box(
-                            &local,
-                            &world,
-                            vertex_buf,
-                            triangles,
-                            out,
-                            support_points,
-                            support_hull,
-                            support_upper,
-                            coverage,
-                        );
-                        stats.horizontal_reject += rejects.horizontal;
-                        stats.support_reject += rejects.unsupported;
-                        stats.small_reject += rejects.small;
-                        stats.opening_reject += rejects.opening;
-                        stats.thin_faces += rejects.thin;
-                        stats.low_coverage_faces += rejects.low_coverage;
+                        if let Some(surface) = surface_cache::capture(local, vertex_buf, triangles)
+                        {
+                            out.push_back(MeshSnapshot {
+                                surface,
+                                world,
+                                source_form_id,
+                                reference,
+                                geometry: object as usize,
+                                recorded: false,
+                                face: 0,
+                            });
+                        } else {
+                            stats.budget_stop += 1;
+                        }
                     }
                 } else {
                     stats.size_reject += 1;
@@ -770,16 +1086,31 @@ unsafe fn collect_object_planes(
         if !is_node.is_null() {
             let base = unsafe { read_ptr_at(object, NODE_CHILD_BASE) };
             let count = unsafe { read_u16_at(object, NODE_CHILD_COUNT) } as usize;
-            if base.is_null() {
-                continue;
+            if !replay && count > MAX_VISITED_NODES {
+                stats.budget_stop += 1;
             }
-            for index in 0..count.min(MAX_VISITED_NODES) {
-                let child = unsafe { read_ptr_at(base, index * 4) };
-                if !child.is_null() {
-                    stack.push(child as usize);
+            if !base.is_null() {
+                for index in 0..count.min(MAX_VISITED_NODES) {
+                    let child = unsafe { read_ptr_at(base, index * 4) };
+                    if !child.is_null() {
+                        stack.push(child as usize);
+                    }
                 }
             }
         }
+        if !replay
+            && !stack.is_empty()
+            && (slice_started.elapsed().as_millis() >= GENERATION_SLICE_BUDGET_MS
+                || (initial_vertices - *vertex_budget).max(initial_triangles - *triangle_budget)
+                    >= snapshot_budget)
+        {
+            return CaptureResult::Yield;
+        }
+    }
+    if visited < resume {
+        CaptureResult::Changed
+    } else {
+        CaptureResult::Complete
     }
 }
 
@@ -793,13 +1124,18 @@ unsafe fn geometry_local_box(
     object: *mut c_void,
     vertex_buf: &mut Vec<[f32; 3]>,
     vertex_budget: &mut usize,
+    stats: &mut ScanStats,
 ) -> Option<(Aabb, WorldTransform, *mut c_void)> {
-    let world = unsafe { read_world_transform(object) }?;
+    let Some(world) = (unsafe { read_world_transform(object) }) else {
+        stats.unavailable += 1;
+        return None;
+    };
     let model = unsafe { read_ptr_at(object, GEOMETRY_MODEL_DATA) };
     if model.is_null() {
+        stats.unavailable += 1;
         return None;
     }
-    let local = unsafe { vertices_local_aabb(model, vertex_buf, vertex_budget) }?;
+    let local = unsafe { vertices_local_aabb(model, vertex_buf, vertex_budget, stats) }?;
     Some((local, world, model))
 }
 
@@ -807,17 +1143,27 @@ unsafe fn vertices_local_aabb(
     model: *mut c_void,
     vertex_buf: &mut Vec<[f32; 3]>,
     vertex_budget: &mut usize,
+    stats: &mut ScanStats,
 ) -> Option<Aabb> {
     let compress = unsafe { read_u8_at(model, GEOMETRY_DATA_COMPRESS) };
     if compress & COMPRESS_POSITION != 0 {
         return None;
     }
     let count = unsafe { read_u16_at(model, GEOMETRY_DATA_VERTEX_COUNT) } as usize;
-    if count == 0 || count > MAX_VERTICES_PER_MESH || count > *vertex_budget {
+    if count == 0 {
+        stats.unavailable += 1;
+        return None;
+    }
+    if count > MAX_VERTICES_PER_MESH {
+        return None;
+    }
+    if count > *vertex_budget {
+        stats.budget_stop += 1;
         return None;
     }
     let vertices = unsafe { read_ptr_at(model, GEOMETRY_DATA_VERTICES) };
     if vertices.is_null() {
+        stats.unavailable += 1;
         return None;
     }
     // Safety: the model data owns a contiguous array of `count` NiPoint3
@@ -831,6 +1177,7 @@ unsafe fn vertices_local_aabb(
         .iter()
         .all(|point| point.iter().all(|value| value.is_finite()))
     {
+        stats.unavailable += 1;
         return None;
     }
     vertex_buf.clear();
@@ -854,6 +1201,7 @@ unsafe fn read_mesh_triangles(
     triangles: &mut Vec<[u16; 3]>,
     vertex_count: usize,
     triangle_budget: &mut usize,
+    stats: &mut ScanStats,
 ) -> bool {
     triangles.clear();
     if vertex_count == 0 || *triangle_budget == 0 {
@@ -867,10 +1215,12 @@ unsafe fn read_mesh_triangles(
             return false;
         }
         if count / 3 > *triangle_budget {
+            stats.budget_stop += 1;
             return false;
         }
         let list = unsafe { read_ptr_at(model, SHAPE_TRI_LIST) };
         if list.is_null() {
+            stats.unavailable += 1;
             return false;
         }
         // Safety: `NiTriShapeData::m_pusTriList` owns `m_uiTriListLength`
@@ -901,6 +1251,7 @@ unsafe fn read_mesh_triangles(
         let lengths = unsafe { read_ptr_at(model, STRIPS_STRIP_LENGTHS) };
         let lists = unsafe { read_ptr_at(model, STRIPS_STRIP_LISTS) };
         if lengths.is_null() || lists.is_null() {
+            stats.unavailable += 1;
             return false;
         }
         // Safety: `m_pusStripLengths` owns `m_usStrips` `u16` lengths. Read it as
@@ -922,6 +1273,7 @@ unsafe fn read_mesh_triangles(
             if length >= 3 {
                 for index in 0..length - 2 {
                     if triangles.len() >= MAX_TRIANGLES_PER_MESH || *triangle_budget == 0 {
+                        stats.budget_stop += 1;
                         break;
                     }
                     let i0 = list[offset + index] as usize;
@@ -1095,6 +1447,7 @@ pub(super) struct FaceRejects {
     /// Emitted face kept one-sided because its support coverage is below the
     /// two-sided floor.
     pub(super) low_coverage: usize,
+    reused: usize,
 }
 
 /// Derive face rectangles from one local box and its world transform.
@@ -1117,6 +1470,7 @@ pub(super) struct FaceRejects {
 /// over-cover.
 ///
 /// This function reads no engine memory and is unit-tested.
+#[cfg(test)]
 pub(super) fn faces_from_oriented_box(
     local: &Aabb,
     world: &WorldTransform,
@@ -1128,11 +1482,41 @@ pub(super) fn faces_from_oriented_box(
     support_upper: &mut Vec<[f32; 2]>,
     coverage: &mut CoverageScratch,
 ) -> FaceRejects {
+    faces_in_range(
+        local,
+        world,
+        vertices,
+        triangles,
+        out,
+        support_points,
+        support_hull,
+        support_upper,
+        coverage,
+        0..6,
+        None,
+    )
+}
+
+fn faces_in_range(
+    local: &Aabb,
+    world: &WorldTransform,
+    vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
+    out: &mut Vec<(f32, PlaneRecord)>,
+    support_points: &mut Vec<[f32; 2]>,
+    support_hull: &mut Vec<[f32; 2]>,
+    support_upper: &mut Vec<[f32; 2]>,
+    coverage: &mut CoverageScratch,
+    face_range: std::ops::Range<usize>,
+    cached: Option<&Surface>,
+) -> FaceRejects {
     let mut rejects = FaceRejects::default();
     let center = local.center();
     let extents = local.extents();
     let world_scale = world.scale.abs();
-    for axis in 0..3usize {
+    for face in face_range {
+        let axis = face / 2;
+        let sign = if face % 2 == 0 { 1.0f32 } else { -1.0 };
         let tangent_a = (axis + 1) % 3;
         let tangent_b = (axis + 2) % 3;
         let extent_a = extents[tangent_a] * world_scale;
@@ -1140,143 +1524,205 @@ pub(super) fn faces_from_oriented_box(
         if extent_a < MIN_FACE_EXTENT || extent_b < MIN_FACE_EXTENT {
             continue;
         }
-        for sign in [1.0f32, -1.0f32] {
-            let face_coord = if sign > 0.0 {
-                local.max[axis]
-            } else {
-                local.min[axis]
-            };
-            let mut normal_local = [0.0f32; 3];
-            normal_local[axis] = sign;
-            let Some(outward) = transform_unit_direction(world, &normal_local) else {
-                rejects.unsupported += 1;
-                continue;
-            };
-            // Horizontal faces are ground, roofs or steep slopes. The player
-            // views the world from above the ground, so these over-cover far
-            // more than they occlude.
-            if outward[2].abs() >= MAX_HORIZONTAL_NORMAL {
-                rejects.horizontal += 1;
-                continue;
-            }
-            let Some(rect) = support_rect(
+        let face_coord = if sign > 0.0 {
+            local.max[axis]
+        } else {
+            local.min[axis]
+        };
+        let mut normal_local = [0.0f32; 3];
+        normal_local[axis] = sign;
+        let Some(outward) = transform_unit_direction(world, &normal_local) else {
+            rejects.unsupported += 1;
+            continue;
+        };
+        // Horizontal faces are ground, roofs or steep slopes. The player
+        // views the world from above the ground, so these over-cover far
+        // more than they occlude.
+        if outward[2].abs() >= MAX_HORIZONTAL_NORMAL {
+            rejects.horizontal += 1;
+            continue;
+        }
+        let mut calculate = || {
+            local_face(
+                local,
                 vertices,
-                axis,
-                face_coord,
-                extents[axis],
-                center[tangent_a],
-                center[tangent_b],
-                extents[tangent_a] * 0.5,
-                extents[tangent_b] * 0.5,
+                triangles,
+                face,
                 support_points,
                 support_hull,
                 support_upper,
-            ) else {
-                rejects.unsupported += 1;
-                continue;
-            };
-            // The support hull is convex, so it spans a window opening, an empty
-            // door frame or any other missing surface. Only emit a rectangle the
-            // mesh's own triangles actually back.
-            let tolerance = SUPPORT_TOLERANCE_MIN.max(extents[axis] * SUPPORT_TOLERANCE_RATIO);
-            // The support hull is convex, so it spans a window opening, an empty
-            // door frame or any other missing surface. Reduce the rectangle to
-            // the largest part the mesh's own triangles actually back; if there
-            // is no solid part, drop the face.
-            let Some((rect_center_u, rect_center_v, rect_half_u, rect_half_v)) =
-                covered_face_rect_scratch(
-                    vertices,
-                    triangles,
-                    axis,
-                    face_coord,
-                    tolerance,
-                    rect.center_u,
-                    rect.center_v,
-                    rect.half_u,
-                    rect.half_v,
-                    coverage,
-                )
-            else {
-                rejects.opening += 1;
-                continue;
-            };
-            let Some(tangent) = transform_unit_direction(world, &unit_axis(tangent_a, 1.0)) else {
-                rejects.unsupported += 1;
-                continue;
-            };
-            // `0x00C358A0` builds the engine plane from corners `p0 = +A+B`,
-            // `p1 = +A-B`, `p2 = -A-B` and computes `(p1-p0) x (p2-p1)`, which
-            // equals the stored local +Y column. It activates the plane on that
-            // plane's negative side. Store the inverse of the geometric outward
-            // normal so the engine activates the rectangle only when the camera
-            // is outside the solid face. The rectangle is symmetric, so the
-            // flipped normal and bitangent cover the same area.
-            let normal = [-outward[0], -outward[1], -outward[2]];
-            let bitangent = cross(tangent, normal);
-            let size = [
-                rect_half_u * 2.0 * world_scale * PLANE_SHRINK,
-                rect_half_v * 2.0 * world_scale * PLANE_SHRINK,
-            ];
-            if size[0] < MIN_FACE_EXTENT || size[1] < MIN_FACE_EXTENT {
-                rejects.small += 1;
-                continue;
-            }
-            // A face on a thin mesh is not a solid-volume face: the mesh may be
-            // a one-sided panel whose back is invisible, so the engine's
-            // two-sided window could false-cull from behind it. A face whose
-            // support hull is strongly non-rectangular is likewise kept
-            // one-sided. Both reasons are counted so a playtest can tell which
-            // gate is limiting the two-sided planes.
-            let thickness = extents[axis] * world_scale;
-            let side_confidence = if thickness < MIN_FACE_THICKNESS {
-                rejects.thin += 1;
-                0.0
+                coverage,
+            )
+        };
+        let footprint = if let Some(cached) = cached {
+            if let Some(footprint) = cached.faces[face].get() {
+                rejects.reused += 1;
+                *footprint
             } else {
-                if rect.coverage < TWO_SIDED_COVERAGE {
-                    rejects.low_coverage += 1;
+                let footprint = calculate();
+                let _ = cached.faces[face].set(footprint);
+                surface_cache::mark_dirty();
+                footprint
+            }
+        } else {
+            calculate()
+        };
+        let (rect_center_u, rect_center_v, rect_half_u, rect_half_v, support_coverage) =
+            match footprint {
+                LocalFace::Unsupported => {
+                    rejects.unsupported += 1;
+                    continue;
                 }
-                rect.coverage
+                LocalFace::Opening => {
+                    rejects.opening += 1;
+                    continue;
+                }
+                LocalFace::Rectangle {
+                    center_u,
+                    center_v,
+                    half_u,
+                    half_v,
+                    coverage,
+                } => (center_u, center_v, half_u, half_v, coverage),
             };
-            let mut local_face_center = center;
-            local_face_center[axis] = face_coord;
-            local_face_center[tangent_a] = rect_center_u;
-            local_face_center[tangent_b] = rect_center_v;
-            let face_center = transform_point(world, &local_face_center);
-            let position = [
-                face_center[0] + outward[0] * OUTWARD_OFFSET,
-                face_center[1] + outward[1] * OUTWARD_OFFSET,
-                face_center[2] + outward[2] * OUTWARD_OFFSET,
-            ];
-            let rotation = [
-                tangent[0],
-                normal[0],
-                bitangent[0],
-                tangent[1],
-                normal[1],
-                bitangent[1],
-                tangent[2],
-                normal[2],
-                bitangent[2],
-            ];
-            out.push((
-                size[0] * size[1],
-                PlaneRecord {
-                    position,
-                    size,
-                    rotation,
-                    priority: 255,
-                    // Filled in by the caller from the reference's base form.
-                    source_form_id: 0,
-                    coverage: side_confidence,
-                },
-            ));
+        let Some(tangent) = transform_unit_direction(world, &unit_axis(tangent_a, 1.0)) else {
+            rejects.unsupported += 1;
+            continue;
+        };
+        // `0x00C358A0` builds the engine plane from corners `p0 = +A+B`,
+        // `p1 = +A-B`, `p2 = -A-B` and computes `(p1-p0) x (p2-p1)`, which
+        // equals the stored local +Y column. It activates the plane on that
+        // plane's negative side. Store the inverse of the geometric outward
+        // normal so the engine activates the rectangle only when the camera
+        // is outside the solid face. The rectangle is symmetric, so the
+        // flipped normal and bitangent cover the same area.
+        let normal = [-outward[0], -outward[1], -outward[2]];
+        let bitangent = cross(tangent, normal);
+        let size = [
+            rect_half_u * 2.0 * world_scale * PLANE_SHRINK,
+            rect_half_v * 2.0 * world_scale * PLANE_SHRINK,
+        ];
+        if size[0] < MIN_FACE_EXTENT || size[1] < MIN_FACE_EXTENT {
+            rejects.small += 1;
+            continue;
         }
+        // A face on a thin mesh is not a solid-volume face: the mesh may be
+        // a one-sided panel whose back is invisible, so the engine's
+        // two-sided window could false-cull from behind it. A face whose
+        // support hull is strongly non-rectangular is likewise kept
+        // one-sided. Both reasons are counted so a playtest can tell which
+        // gate is limiting the two-sided planes.
+        let thickness = extents[axis] * world_scale;
+        let side_confidence = if thickness < MIN_FACE_THICKNESS {
+            rejects.thin += 1;
+            0.0
+        } else {
+            if support_coverage < TWO_SIDED_COVERAGE {
+                rejects.low_coverage += 1;
+            }
+            support_coverage
+        };
+        let mut local_face_center = center;
+        local_face_center[axis] = face_coord;
+        local_face_center[axis] = face_coord;
+        local_face_center[tangent_a] = rect_center_u;
+        local_face_center[tangent_b] = rect_center_v;
+        let face_center = transform_point(world, &local_face_center);
+        let position = [
+            face_center[0] + outward[0] * OUTWARD_OFFSET,
+            face_center[1] + outward[1] * OUTWARD_OFFSET,
+            face_center[2] + outward[2] * OUTWARD_OFFSET,
+        ];
+        let rotation = [
+            tangent[0],
+            normal[0],
+            bitangent[0],
+            tangent[1],
+            normal[1],
+            bitangent[1],
+            tangent[2],
+            normal[2],
+            bitangent[2],
+        ];
+        out.push((
+            size[0] * size[1],
+            PlaneRecord {
+                position,
+                size,
+                rotation,
+                priority: 255,
+                // Filled in by the caller from the reference's base form.
+                source_form_id: 0,
+                coverage: side_confidence,
+            },
+        ));
     }
     rejects
 }
 
+/// Compute only local geometry facts. Instance eligibility, shrink, scale,
+/// orientation and native side policy stay outside this memo.
+fn local_face(
+    local: &Aabb,
+    vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
+    face: usize,
+    points: &mut Vec<[f32; 2]>,
+    hull: &mut Vec<[f32; 2]>,
+    upper: &mut Vec<[f32; 2]>,
+    coverage: &mut CoverageScratch,
+) -> LocalFace {
+    let axis = face / 2;
+    let a = (axis + 1) % 3;
+    let b = (axis + 2) % 3;
+    let extents = local.extents();
+    let center = local.center();
+    let coordinate = if face % 2 == 0 {
+        local.max[axis]
+    } else {
+        local.min[axis]
+    };
+    let Some(rect) = support_rect(
+        vertices,
+        axis,
+        coordinate,
+        extents[axis],
+        center[a],
+        center[b],
+        extents[a] * 0.5,
+        extents[b] * 0.5,
+        points,
+        hull,
+        upper,
+    ) else {
+        return LocalFace::Unsupported;
+    };
+    let tolerance = SUPPORT_TOLERANCE_MIN.max(extents[axis] * SUPPORT_TOLERANCE_RATIO);
+    let Some((center_u, center_v, half_u, half_v)) = covered_face_rect_scratch(
+        vertices,
+        triangles,
+        axis,
+        coordinate,
+        tolerance,
+        rect.center_u,
+        rect.center_v,
+        rect.half_u,
+        rect.half_v,
+        coverage,
+    ) else {
+        return LocalFace::Opening;
+    };
+    LocalFace::Rectangle {
+        center_u,
+        center_v,
+        half_u,
+        half_v,
+        coverage: rect.coverage,
+    }
+}
+
 /// Grid resolution of the covered-sub-rectangle search. A face that covers an
-/// opening is reduced to the largest solid rectangle; eight cells per axis is
+/// opening is reduced to the largest solid rectangle; sixteen cells per axis is
 /// enough to recover the solid band around a window or door while staying cheap.
 const FACE_GRID: usize = 16;
 
@@ -1576,7 +2022,8 @@ pub(super) fn covered_face_rect_scratch(
                     u0 + (column as f32 + 0.5) * cell_w,
                     v0 + (row as f32 + 0.5) * cell_h,
                 ];
-                if point_in_triangle_2d(center, pa, pb, pc) {
+                if !mask[row as usize][column as usize] && point_in_triangle_2d(center, pa, pb, pc)
+                {
                     mask[row as usize][column as usize] = true;
                 }
             }
@@ -1626,43 +2073,48 @@ fn largest_covered_rect(
     mask: &[[bool; FACE_GRID]; FACE_GRID],
 ) -> Option<(usize, usize, usize, usize)> {
     let mut best: Option<(usize, usize, usize, usize, usize)> = None;
-    for top in 0..FACE_GRID {
-        let mut heights = [0usize; FACE_GRID];
-        for row in top..FACE_GRID {
-            for column in 0..FACE_GRID {
-                heights[column] = if mask[row][column] {
-                    heights[column] + 1
-                } else {
-                    0
-                };
+    let mut heights = [0usize; FACE_GRID];
+    let mut stack = [(0usize, 0usize); FACE_GRID + 1];
+    for (row, cells) in mask.iter().enumerate() {
+        for column in 0..FACE_GRID {
+            heights[column] = if cells[column] {
+                heights[column] + 1
+            } else {
+                0
+            };
+        }
+        let mut len = 0;
+        for column in 0..=FACE_GRID {
+            let height = if column < FACE_GRID {
+                heights[column]
+            } else {
+                0
+            };
+            let mut start = column;
+            while len > 0 {
+                let (stack_start, stack_height) = stack[len - 1];
+                if stack_height <= height {
+                    break;
+                }
+                len -= 1;
+                let area = stack_height * (column - stack_start);
+                let candidate = (area, stack_start, row + 1 - stack_height, column - 1, row);
+                // This is the original top=0 sweep, including its stack
+                // order and strict improvement rule. Later suffix sweeps in
+                // the old code could not exceed its maximum. Do not replace
+                // an equal area: the first bottom/right/pop-order tie wins.
+                if best.is_none_or(|current| area > current.0) {
+                    best = Some(candidate);
+                }
+                start = stack_start;
             }
-            let mut stack: Vec<(usize, usize)> = Vec::with_capacity(FACE_GRID + 1);
-            for column in 0..=FACE_GRID {
-                let height = if column < FACE_GRID {
-                    heights[column]
-                } else {
-                    0
-                };
-                let mut start = column;
-                while let Some(&(stack_start, stack_height)) = stack.last() {
-                    if stack_height <= height {
-                        break;
-                    }
-                    stack.pop();
-                    let width = column - stack_start;
-                    let area = stack_height * width;
-                    if best.is_none_or(|current| area > current.0) {
-                        best = Some((area, stack_start, row + 1 - stack_height, column - 1, row));
-                    }
-                    start = stack_start;
-                }
-                if height > 0 {
-                    stack.push((start, height));
-                }
+            if height > 0 {
+                stack[len] = (start, height);
+                len += 1;
             }
         }
     }
-    best.map(|(_, column0, row0, column1, row1)| (column0, row0, column1, row1))
+    best.map(|(_, left, top, right, bottom)| (left, top, right, bottom))
 }
 
 /// True when `(u, v)` lies inside at least one of the projected triangles.
@@ -1698,6 +2150,7 @@ fn triangle_area_2d(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
 
 /// A genuine triangle includes its edges, so shared internal edges do not read
 /// as openings. Zero-area projections supply no coverage at any point.
+#[inline(always)]
 fn point_in_triangle_2d(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> bool {
     let area = triangle_area_2d(a, b, c);
     if !area.is_finite() || area == 0.0 {
@@ -1767,78 +2220,22 @@ struct Rect2 {
     v_max: f32,
 }
 
-/// Upper bound on pairwise merge comparisons for one cell.
-///
-/// The merge is quadratic within a coplanar group, and `merge_coplanar` runs in
-/// one frame when a generation completes. A release benchmark measured ~38 ns
-/// per non-merging comparison (two `rect2` projections), so the documented
-/// cells that emit up to 892 raw candidates would spend about 15 ms in one
-/// frame when nothing merges. The budget bounds that to roughly a millisecond;
-/// once it is spent the remaining candidates are kept unmerged and the
-/// score-and-cap step still selects the largest.
+/// Total pairwise comparison budget for one cell. Generation advances grouping,
+/// comparisons and emission in bounded batches; exhaustion keeps remaining
+/// rectangles unmerged. Changing this budget can change the selected set.
 const MERGE_PAIR_BUDGET: usize = 30_000;
 
 /// Merge coplanar adjacent rectangles in place, replacing each group with its
-/// rectangular union. Bounded to a few passes; a chain of segments is handled
+/// merged rectangle under the existing geometric tolerances. Bounded to a few passes; a chain of segments is handled
 /// by the repeated pass. Pairwise work is bounded by `MERGE_PAIR_BUDGET` so a
-/// dense cell cannot stall the completion frame.
+/// dense cell has bounded pair work. Generation yields during grouping and
+/// comparisons; the existing offset/gap/angle tolerances remain a documented
+/// conservativeness research gate.
+#[cfg(test)]
 pub(super) fn merge_coplanar(candidates: &mut Vec<(f32, PlaneRecord)>) {
-    if candidates.len() < 2 {
-        return;
-    }
-    let planes: Vec<PlaneRecord> = candidates.drain(..).map(|(_, plane)| plane).collect();
-    // Group by orientation first so the quadratic merge only compares faces
-    // that could share a plane. A dense cell has few distinct wall
-    // orientations, which keeps this bounded.
-    let mut groups: Vec<([f32; 3], Vec<PlaneRecord>)> = Vec::new();
-    for plane in planes {
-        let normal = basis(plane.rotation).1;
-        let mut target = None;
-        for (index, (group_normal, _)) in groups.iter().enumerate() {
-            if dot3(normal, *group_normal) > MERGE_GROUP_TOLERANCE {
-                target = Some(index);
-                break;
-            }
-        }
-        match target {
-            Some(index) => groups[index].1.push(plane),
-            None => groups.push((normal, vec![plane])),
-        }
-    }
-    let mut budget = MERGE_PAIR_BUDGET;
-    for (_, mut group) in groups {
-        if budget > 0 {
-            'passes: for _ in 0..3 {
-                let mut changed = false;
-                let mut i = 0;
-                while i < group.len() {
-                    let mut j = i + 1;
-                    while j < group.len() {
-                        if budget == 0 {
-                            break 'passes;
-                        }
-                        budget -= 1;
-                        if let Some(merged) = merge_rect(&group[i], &group[j]) {
-                            group[i] = merged;
-                            group.swap_remove(j);
-                            changed = true;
-                        } else {
-                            j += 1;
-                        }
-                    }
-                    i += 1;
-                }
-                if !changed {
-                    break;
-                }
-            }
-        }
-        candidates.extend(
-            group
-                .into_iter()
-                .map(|plane| (plane.size[0] * plane.size[1], plane)),
-        );
-    }
+    let mut work = MergeWork::new(std::mem::take(candidates));
+    while !work.advance(GENERATION_TRIANGLES_PER_FRAME) {}
+    *candidates = work.finish();
 }
 
 fn basis(rotation: [f32; 9]) -> ([f32; 3], [f32; 3], [f32; 3]) {
@@ -2314,4 +2711,14 @@ fn transform_direction(rotation: &[f32; 9], vector: &[f32; 3]) -> [f32; 3] {
         rotation[3] * vector[0] + rotation[4] * vector[1] + rotation[5] * vector[2],
         rotation[6] * vector[0] + rotation[7] * vector[1] + rotation[8] * vector[2],
     ]
+}
+
+/// Load content-keyed local analysis at DeferredInit.
+pub(super) fn load_analysis_cache(path: &str) {
+    surface_cache::load(path);
+}
+
+/// Advance a bounded idle-frame checkpoint unit.
+pub(super) fn save_analysis_cache_step(path: &str, request: bool) -> std::io::Result<()> {
+    surface_cache::save_step(path, request)
 }

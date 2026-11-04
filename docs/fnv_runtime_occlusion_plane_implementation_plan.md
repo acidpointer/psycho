@@ -1,34 +1,20 @@
 # Runtime occlusion-plane injection: implementation plan
 
-Status: enabled by default in the shipped TOML, core fallback and dashboard
-fallback at the owner's request; explicit false disables it. The ownership,
-presentation-phase, collection identity
-and surface/cache corrections are implemented as an unreleased candidate under
-the owner's explicit no-runtime-test authorization. See the
-[implementation contract](#11-ownership-and-phase-correction-implementation)
-for offline qualification and game-only limits. The
-[stability investigation and repair plan](#10-stability-investigation-and-repair-plan-2026-11-04)
-below supersedes the lifecycle safety assumptions in the original plan.
-The collector accepts only uncompressed vertex data, builds each
-geometry's box in local space and orients the faces by the live world transform,
-fits every rectangle inside the vertices that support that face, and verifies the
-rectangle against the mesh's own triangles so a window opening, an empty door
-frame or any missing surface is never covered. It skips horizontal ground/roof
-faces and keeps the engine's two-sided window only for
-faces whose support rectangle nearly fills their vertex hull (an irregular face
-stays one-sided). Planes are scored by
-supported solid angle and cached per cell. Neighboring loaded cells can be
-included from their **complete cache entries only** (`occlusion_planes_grid_radius`,
-default `0`): a cell is generated once, when it is the player's own cell, and
-reused by key afterwards, so no neighbor mesh walk ever runs on a frame or
-cell-crossing path. All covered cells share one injection budget so the native
-bounds-times-occluders cost does not grow beyond the previous cap. Installing,
-removing, reordering or updating a mod invalidates the cache through the
-plugin-list signature. A 2026-10-19 report of a skipped frame while running led
-to a resumable, frame-budgeted generator: a cell's mesh walk is sliced across
-frames instead of blocking the frame thread for 20-32 ms (see section 4.3.1).
-The heuristic's game-only image composition remains unverified under the owner's
-runtime-test waiver. No game run and no FPS claim.
+Status: enabled by default; explicit false disables it. The ownership repair
+was committed as `129fc60` after the owner reported no crashes. The authorized
+[post-review work](#12-post-review-correctness-and-performance-plan) is implemented
+under the same explicit no-runtime-test authorization.
+It preserves graph ownership, publisher synchronization, native side policy,
+shared plane cap and default neighbor radius zero.
+
+The collector fits rectangles to live opaque static geometry and checks triangle
+coverage before native creation. Local mesh analysis is content-validated and
+reusable; disk data never authorizes world placement. Optional neighbors require
+settled records and freshly matching source inputs. Collection, coverage and
+completion yield across frames under a soft 1 ms target. Native acquisition,
+one mesh, one face, publication and destruction are not hard latency bounded.
+See sections 4.3, 5.3 and 12 for ownership, budgets and qualification limits.
+No game run, image-correctness acceptance or FPS claim accompanies this work.
 Companion to
 [runtime visibility injection research](fnv_runtime_visibility_injection_research.md).
 Address evidence is in
@@ -141,21 +127,15 @@ occluded volume is the pyramid from the camera through the rectangle; the
 stored normal selects the active side when `+0xEA` is clear. The owner's visual
 check remains required.
 
-The `+0x40` admission that gates the whole pass is
-`+0x40 = ((uVar2 & uVar3) == 0) + 1`, where `uVar2` is `0x00C33CF0` (0 when the
-rectangle's four corners are inside one camera-frustum plane, i.e. the rectangle
-is on screen) and `uVar3` is `0x00C358A0` (1 when `+0xEA` is set or the camera
-is on the stored normal's negative side). A rectangle that is on screen
-(`uVar2 == 0`) is therefore admitted regardless of `+0xEA`; the side flag only
-changes admission for a rectangle that is off screen. The engine reconstructs
-the occlusion pyramid in `0x00C33870` from the camera and the rectangle and has
-separate paths for the camera on either side (`0x00C33981` tests the camera side
-and branches), so the occluded volume is always the far side and the stored
-normal sign does not change a visible plane's cull result. `+0xEA` is kept
-authored-faithful for well-shaped, thick solid faces; the one-sided value for
-the rest is a conservative no-op for on-screen culling and only affects off-screen
-admission. This is why coverage of the rendered scene, not the side flag, is the
-main effectiveness lever.
+The native admission byte sequence computes
+`+0x40 = ((frustum_test & side_test) == 0) + 1`. The bound consumer accepts
+state 1 only, so both tests must succeed. `0x00B5AD91` ANDs their results,
+`0x00B5AD98`/`0x00B5AD9B` compute the state, and `0x00B5BC60` rejects state 2.
+The previous assertion that the side policy cannot affect visible rectangles
+inverted this condition. It is not authority for changing the side policy or
+normal convention. The frustum producer still handles both camera sides;
+that does not bypass the earlier admission gate. See
+[verified admission instructions](../analysis/radare2/output/occlusion_admission_review_20261104.txt).
 
 `0x00C33870` builds that pyramid as six planes: the rectangle's own plane plus
 four side planes `(edge_i, edge_i+1, camera)`, with the mask at output `+0x60`
@@ -324,6 +304,11 @@ reference list under its native lock and reads admitted static node transforms.
 - `.../occlusion_planes/data.rs` - cell keys and plane records.
 - `.../occlusion_planes/runtime_generate.rs` - live cell occluder collection
   and conservative face-rectangle generation.
+- `.../occlusion_planes/runtime_generate_work.rs` - resumable merge and top-K selection.
+- `.../occlusion_planes/runtime_generate_cache.rs` - bounded owned local analysis,
+  validated persistence and real-asset/file-path regressions.
+- `.../occlusion_planes/cache.rs` - ephemeral loaded-neighborhood world records
+  and weak source provenance.
 - `.../occlusion_planes/runtime.rs` - lifecycle state, creation, insertion,
   scanning, removal, release.
 - `.../occlusion_planes/tests.rs` - pure-logic tests for cell keys, the
@@ -387,115 +372,78 @@ Active -> Reset pending (loading/unknown/load/new/exit: invalidate epoch only)
 Reset pending -> Ready (normal main presentation: unlink + release owned state)
 ```
 
-`on_frame` pseudo-flow:
+Normal presentation admits native work only on the DeferredInit thread after
+pre-publication native publishers drain. Pending world invalidation retires the
+owned graph before player/cell lookup. A target contains the world epoch, full
+`CellKey`, current cell address and current graph address. Stored addresses are
+comparison tokens, never resumable borrowed engine pointers. Target confirmation
+still suppresses cell-seam flapping. A changed cell address requires fresh input,
+even when its logical key matches.
 
-1. admit only a normal presentation on the DeferredInit thread, after native
-   publishers that entered before synchronization was published have drained.
-   Retire pending owned state before looking up a player/cell. Then read
-   `player = *(0x011DEA3C)`; bail if null.
-2. read `cell = *(player + 0x40)`; bail if null.
-3. read `owner` with `0x00450B80(0)` (the same call the engine uses) and
-   `scene_graph = *(owner + 0x1E0)`; bail if null.
-4. compute the cell identity key and its hash; the tracked target is
-   `(scene_graph, key_hash)`, so a reused cell pointer still reads as a new
-   cell. The interior/exterior decision uses the cell's interior flag, and a
-   null worldspace or coords pointer is kept as a stable zero.
-5. a different target must persist for `TARGET_STABLE_FRAMES` frames before it
-   replaces the current planes. Cell seams can otherwise alternate between two
-   cells every few frames; the debounce keeps the previous planes until the new
-   target is stable.
-6. if the target is unchanged and no settle retry is pending, periodically
-   check that the tracked planes are still in `scene_graph + 8` (the engine can
-   clear the list on cell unload without changing the cell identity); a missing
-   node is released and the diff recreates it. Save the cache on a debounce.
-7. a confirmed target change (or load/new/exit reset) forces a rebuild. A
-   complete cache hit skips the settle window; a miss generates and restarts the
-   settle window, and each settle retry refreshes the cache entry. An entry
-   written before the settle window finished is marked incomplete and is
-   regenerated on the next visit.
-8. the same target also describes a neighborhood: the current cell plus the
-   loaded exterior grid slots within `occlusion_planes_grid_radius`. A neighbor
-   contributes only its **complete persistent-cache entry**; it is not generated
-   from live meshes here. The neighborhood rebuild reads the grid array and the
-   cache. A periodic check (60 frames) drops planes for cells that left the grid
-   and picks up neighbors whose cache entry became complete.
-9. rebuild: if the scene graph is unchanged, drop tracked planes whose node is
-   no longer in the list (release the retained object) and diff the generated
-   set against the remaining tracked set by quantized plane key. Unchanged
-   planes stay linked; unmatched old nodes are unlinked in Rust and returned
-   through `0x004A49E0(list, node)`; only new records are created. A changed
-   graph requires unlinking the previous graph's injected nodes before plane
-   release; one retained graph reference proves the old list is still live.
-   Release that graph outside the publication lock. The desired set is the union of the center set
-   and the cached neighbor sets, deduplicated by plane key, scored by solid
-   angle and capped by the shared budget. Cells that remain in the new
-   neighborhood keep their in-memory planes, so crossing a cell boundary
-   reuses most of the native set instead of rebuilding it.
-10. resolve the cell key: the persistent cache wins, then the runtime
-    collector. Create, retain and append only the records that were not reused,
-    then store the new `(scene_graph, key_hash, signature)`.
+A confirmed target always captures live sources. Completed generation and
+pending slices have distinct outcomes: only completion spends a settle attempt.
+Equality compares sorted full plane descriptors, including actual native side
+policy; 32-bit hashes and rounded confidence cannot establish semantic equality.
+A repeatable set with no observed unavailable input or truncation ends settling.
+Empty, unavailable or budget-limited scans keep five fast retries followed by a
+cold retry at the existing 1,800-frame cadence. Completeness records observations
+of that pass; it does not prove arbitrary future script-driven 3D immutability.
 
-The scan is O(list length) and the list holds authored planes plus ours. It
-runs on target changes and the bounded settle window, not every frame, and never
-on a neighbor cell. A cell change no longer requires the first frame to already
-have every reference's 3D attached.
+Desired records survive native allocation failure separately from tracked native
+objects. Periodic presence repair can recreate a missing subset, including zero
+successful allocations, without mesh regeneration. The diff scans the native
+list once and reuses Rust scratch. Borrowed node addresses are cleared before
+publication unlock. Native object identity and authored list entries are kept.
+Graph release stays outside tracking/publication locks.
+
+A neighborhood description reads loaded identities only. Optional neighbor reuse
+requires complete ephemeral records plus fresh matching reference membership,
+geometry input, instance transform and source eligibility. Validation copies
+admitted native input in bounded slices but runs no coverage or merging. Default
+radius zero bypasses it. A new target discards previous neighbor admission;
+world invalidation clears every world placement. No neighbor is generated merely
+to fill the optional union.
 
 ### 4.3.1 Resumable, frame-budgeted generation
 
-Walking a dense cell's meshes and proving every face hole-free is larger than a
-frame. A 2026-10-19 release playtest measured `gen_ms=20-32` for the Fairfax
-exterior cells, and the settle window repeated the walk, so entering a cell
-dropped one or more frames — the tester reported a skipped frame while running
-through the exterior. The triangle coverage test added in the previous commit
-was the dominant cost (a release benchmark measures 0.06-0.25 ms for a
-512-2048-triangle solid face and up to 1.2-1.9 ms for an 8192-triangle face, so
-a cell with dozens of large meshes reaches 20-30 ms).
+Each capture resolves current reference membership under CellRefLock. Relinking
+without membership change cannot skip work; membership change restarts owned
+results. A partial reference rewalks its hierarchy and checks the saved address
+prefix against freshly encountered objects. Only comparison tokens survive a
+slice. Native geometry arrays are copied into bounded Rust-owned surfaces before
+releasing the lock; CPU analysis never borrows an engine mesh across frames.
 
-The generator is therefore resumable (`runtime_generate::Generation`):
+Capture targets 96 references, 8,000 vertices/triangles of work and 1 ms per
+advance. It checks inside a large reference between meshes; the final atomic
+mesh can overshoot the count target. Coverage yields between faces. Grouping,
+merge comparison/emission and top-K selection advance in batches of 96 operations.
+An individual face, mesh, lock wait or native call can exceed the soft target.
+There is no hard frame-latency guarantee and no reduction of admitted coverage
+to meet a timer.
 
-- `Generation::advance` examines at most `GENERATION_REFS_PER_FRAME` (96)
-  references, `GENERATION_TRIANGLES_PER_FRAME` (8000) triangles and
-  `GENERATION_SLICE_BUDGET_MS` (2 ms) per call, then returns `false`; the frame
-  path advances it every frame while `GENERATION_ACTIVE` is set and only
-  installs the set when the whole reference list has been walked.
-- References are located by re-walking the cell list from its head to a saved
-  index each frame, so no engine list node is held across frames (the engine can
-  re-link the list while geometry streams in). A re-link can skip or repeat a
-  reference, which only wastes a duplicate the shared dedup already removes.
-- On a target change the previous cell's tracked planes are removed once, before
-  the walk starts, so a stale rectangle cannot cull the new cell's geometry
-  during the assembly window.
-- The settle window still runs a bounded number of verification passes; each
-  pass is now sliced the same way, so no pass stalls a frame.
+Opening recovery uses a fixed-stack histogram: 16 row passes replace 136 suffix
+row passes and their allocations. The first complete histogram sweep already
+finds the maximum; preserving its stack order and strict improvement rule keeps
+the original bottom/right/pop-order tie. Already-covered mask cells skip repeat
+containment queries. Scratch is reused; projected-triangle materialization is not
+retained without a repeatable cold-path improvement.
 
-The coverage test itself reuses caller-owned scratch buffers
-(`CoverageScratch`), sorts packed edge keys instead of hashing every edge per
-face, and keeps only the opening edges whose bounding box overlaps the candidate
-rectangle, so a solid face skips the boundary analysis. All buffers are reused
-across every face of every mesh in a generation.
+### 4.3.2 Completion and timing boundaries
 
-### 4.3.2 Completion-frame bounds
+Merging retains its three passes and total 30,000-pair budget, but grouping and
+comparison now yield instead of landing on one completion frame. Exhaustion
+keeps remaining rectangles unmerged. Selection retains stable score ties and
+uses streaming top-K; only the configured cap (at most 256) is sorted finally.
+The existing offset/gap/angle merge tolerances do not prove an exact geometric
+union; their conservativeness remains a research gate before expanding coverage.
 
-`Generation::finish` still runs when the walk completes, and two of its steps
-were unbounded on that one frame:
-
-- `merge_coplanar` is quadratic within each coplanar group. A release benchmark
-  of a non-merging coplanar row measured 67 µs at 64 candidates, 265 µs at 128,
-  1.06 ms at 256 and 4.22 ms at 512 (about 38 ns per pair); the documented cells
-  can emit up to 892 raw candidates, which would be roughly 15 ms. The pairwise
-  work is now bounded by `MERGE_PAIR_BUDGET` (30 000 comparisons, about 1.2 ms
-  in the same benchmark); once it is spent the remaining candidates stay
-  unmerged and the score-and-cap step still selects the largest. The budget is
-  part of the generation signature, so cached sets from a different budget are
-  discarded.
-- The rebuild diff looked a tracked plane's node up by walking the occluder list
-  once per tracked plane and again per removed plane. `inject` now builds one
-  `plane -> node` map from a single list walk (`linked_nodes`) and reuses it for
-  both the keep test and the unlink, so a cell change is linear in the injected
-  count instead of quadratic.
-
-The completion frame also allocates the injected planes and writes the cache
-entry; those are bounded by the plane cap.
+Generation timing includes lock acquisition, capture, owned analysis, merge,
+selection and source-certificate preparation. The outer frame warning also
+includes neighborhood work, native publication and checkpoint work. Its cooldown
+advances on normal admitted frames. Native publication remains atomic; its
+creation/destruction cost and filesystem sync/rename latency are unmeasured in
+the game and are not claimed bounded by 1 ms. Persistent work advances in idle
+frames, separately from generation completion.
 
 ### 4.4 Data lookup
 
@@ -517,8 +465,8 @@ Add to `PerformanceConfig`:
 - `occlusion_planes_grid_radius: u8` (default `0`, clamped `0..=2`). `0` is the
   player-cell-only behavior and the measured-safe default. `1` reuses the
   complete cache entries of the loaded 3x3 neighborhood and `2` the 5x5
-  neighborhood. Enabling it adds no frame-path generation: a neighbor is
-  generated only while it is the player's own cell.
+  neighborhood. Neighbors are generated only while they are the player's cell;
+  reuse performs bounded live source validation, without rectangle generation.
 - `occlusion_planes_cache_path: String` (default
   `syringe/psycho_occlusion_planes.cache`);
 - `occlusion_planes_debug_log: bool` (default `false`). Gates the verbose
@@ -557,7 +505,7 @@ list or touches engine memory. This replaced the removed debug overlay.
 Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
 at `debug` the scan counters and per-cell summaries. The `scan` line reports
 `refs`, `not_stat`, `render_null`, `node_null`, `radius`, `no_vertices`,
-`no_triangles`, `horizontal`, `support`, `small`, `size`, `opening`, `distance`,
+`unavailable`, `no_triangles`, `horizontal`, `support`, `small`, `size`, `opening`, `distance`,
 `faces`, plus
 `mesh_area`, `rect_area`, `cap_drop`, `thin`, `low_cov` and `merge_ms`: the
 admitted surface area, the merged rectangle area before the cap, the merged area
@@ -575,8 +523,8 @@ The `scan` line includes `dist_max`, so a playtest can show which cell is being 
 many planes kept the two-sided window, how long generation took, and why the
 distance filter rejected candidates. A `presence` line is emitted only when the
 engine-admitted plane count changes or a missing plane is repaired; it reports
-`tracked`, `present` and `active`. The presence path is skipped entirely while
-no planes are tracked, so an empty cell costs nothing per frame. Route through
+`tracked`, `present` and `active`. An empty tracked set skips native presence traversal; a missing desired subset
+still receives periodic repair. Route through
 `libpsycho::logger::Logger` / `log`, never `println!`.
 
 ### 4.7 Failure containment
@@ -678,7 +626,7 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
 12. Apply the observer distance filter and score each rectangle by supported
     solid angle (`area / (1 + (distance/2048)^2)`), then keep the per-cell
     candidate set. The `scan` line reports `cap_drop` for that set.
-13. For the whole neighborhood, deduplicate by quantized plane key, score the
+13. For the whole neighborhood, deduplicate by full native descriptor, score the
     per-cell candidates again against the same observer, sort, and cap at the
     shared `occlusion_planes_max_per_cell` budget. This is the injected set;
     the native pair cost stays bounded even though the collector now covers
@@ -725,72 +673,57 @@ One residual false-cull class remains documented:
   guard stays a thickness heuristic. A window opening is now handled by the
   triangle coverage test, not by this flag.
 
-### 5.3 Persistent plane cache
+### 5.3 Content-validated local cache and ephemeral placements
 
-Generating planes is the expensive part, so a revisited cell re-appends its
-planes instead of re-walking the meshes. The cache is a compact binary file
-(`syringe/psycho_occlusion_planes.cache`, `PSOC` magic) keyed by cell; each
-entry stores the ready rectangle (position, size, rotation, priority) and the
-`TESForm::refID` of the base form it came from, binding it to its source
-plugin.
+`runtime_generate_cache.rs` owns PSOC revision 11 at the existing configured
+path. The file stores finite local vertices, valid triangle indices and computed
+local support/coverage footprints, plus extraction signature and per-record
+integrity checks. Older world-placement formats are rejected. Decoder bounds
+apply to the whole file and aggregate data, not only individual records. Code
+or format changes require a revision; the signature includes both coverage-grid
+resolutions and listed extraction constants. Plugin names, file sizes, raw engine
+addresses and a merged plane's first FormID are not cache authority.
 
-The header carries a schema/generator version (bumped whenever the extracted
-set would change for the same meshes) and a hash of the active plugin list read
-from
-`DataHandler::modList` (`*(DataHandler**)0x011C3F2C`, `modList` at `+0x210`,
-`tList<ModInfo>` with `ModInfo::name` at `+0x20` and the `WIN32_FIND_DATA` file
-size at `+0x2B8`/`+0x2BC`). The hash covers load order, names and sizes, so
-installing, uninstalling, reordering or updating a mod changes it and the whole
-cache is discarded. A cache entry is only consulted on a target change; a
-complete entry skips the settle window, and an incomplete entry (written before
-the window finished) is regenerated instead of trusted. Every generated set is
-written to the cache immediately as incomplete, so the cache always holds the
-latest set and a revisit repairs a set that was interrupted by a cell change.
-The settle comparison uses a coarse, quantized,
-**order-independent** plane signature (`FxHasher`, positions rounded to quarter
-units, per-plane keys sorted before hashing) so neither sub-unit engine jitter
-nor a re-link of the cell's reference list defeats stability; the window stops
-after two identical passes (`SETTLE_STABLE_PASSES`), or after one when every
-reference already has an attached render node (`render_null == 0`), instead of
-always running all five retries. This was the headline fix after a 2026-10-18 log showed
-`cached=false` and six full regenerations per cell change, which cost frame time
-and churned the occluder list. A later 2026-10-18 log proved the window still ran
-to its full six scans while every scan statistic
-(`refs/nodes/geoms/faces/mesh_area/rect_area`) was byte-identical, so the same
-set was being emitted in a different order and the order-sensitive hash reported
-a change every pass; sorting the per-plane keys fixed that. The file is
-snapshotted on the main thread and written on the debounce, so the final state
-is durable; a later offload experiment was reverted to this synchronous write
-after it changed the measured baseline. A periodic presence check re-appends the
-cached planes if the
-engine cleared the occluder list without changing the cell identity, which is
-what fixes the "leave and come back" loss of planes. Changing the per-cell cap
-changes the config part of the signature, so cached sets from a different cap
-are discarded.
+Every local hit hashes then compares complete input bytes/indices. Hash equality
+alone never establishes identity. World transform, signed scale, material/skin
+admission, horizontal rejection, shrink and native side policy stay at the live
+instance boundary. Changed input recomputes analysis; changed placement uses the
+same local analysis with its fresh transform. New world planes are always derived
+from live inputs, including on cell revisits.
 
-The cache is per cell, so the same entry serves as the player's cell and as a
-neighbor. A cell is generated (and its entry completed by the settle window)
-only while it is the player's own cell. As a neighbor it is then reused by key,
-with no mesh walk. This is what makes the optional 3x3 coverage free on the
-frame and cell-crossing paths; a neighbor with no complete entry is simply
-absent until the player visits it. The injected set is the shared-budget union
-of the center set and the cached neighbor sets; the cache never stores that
-union, so changing the grid radius does not invalidate cached cells.
+The owner selected the existing input budget: active snapshots and reusable local
+surfaces share 200,000 vertices and 400,000 triangles (4.58 MiB of retained array
+payload). LRU residency is also bounded to 2,000 entries. Evicted surfaces still
+held by snapshots remain charged until dropped. Scratch, bounded metadata and
+encoded checkpoint bytes are additional memory; 4.58 MiB is not a total cache
+VAS claim. Decoder and writer derive their encoded cap from those same limits;
+the writer never retains a second decoded mesh pool.
 
-The runtime now diffs the generated set against the tracked set using the same
-quantized per-plane key. Unchanged native planes stay in the list, only changed
-planes are removed, and only new planes are created. A missing node found by
-the presence check is released and recreated by the same diff. This avoids the
-one-frame cull flip caused by removing and re-adding the whole list on every
-settle pass. The cache schema version is 9 and each entry carries a completion
-flag and the face's side confidence; older caches are discarded because the
-extraction semantics changed. The
-header signature also mixes a fingerprint of the generation constants
-(`PLANE_SHRINK`, size thresholds, support tolerances, merge tolerances, grid
-resolution), so changing extraction or merge semantics invalidates the cache
-even when the manual format version is not bumped. This was added after a
-2026-10-18 cache generated under larger planes was reused across a constant
-change and contributed to a measured FPS regression.
+`cache.rs` retains at most the 25 loaded neighborhood cells. Each certificate
+bounds reference and mesh metadata to 2,000 items per cell; oversized certificates
+make that world result uncacheable without changing center output. Certificates
+hold only weak, separately allocated content identity tokens. They neither own
+engine objects nor keep decoded surface allocations alive after eviction.
+A neighbor placement is admitted only after fresh matching sources; expired
+identity is a cache miss. Incomplete results cannot be promoted via an old
+neighborhood map. World events clear placements but retain reusable local data.
+This validates reuse; it is not a new continuous tracker for arbitrary scripted
+geometry mutation while the player stays in one cell.
+
+One sequenced checkpoint encodes at most one admitted mesh record or writes one
+bounded chunk per idle advance. It uses weak inputs, an encoded-size cap and a
+temporary file followed by sync and atomic replacement. Failure leaves the old
+file and dirty state for a later checkpoint. Changes during a checkpoint keep
+newer work dirty; older snapshots cannot finish after newer writers. No worker,
+new startup initializer, config field or host ABI is added. Loading callbacks only
+request a checkpoint. Menu presentation can progress it; process termination
+before completion can lose recent reusable analysis, which is regenerated safely.
+Filesystem latency, final sync/rename and crash durability are not hard bounded.
+
+Presence repair uses the independent desired set, not a stale disk world cache.
+Exact native descriptors keep unchanged objects linked across settle passes.
+Dashboard cache counters now describe loaded world records and passes that
+reused local analysis, preserving the existing host layout.
 
 ## 6. Phased delivery
 
@@ -884,20 +817,20 @@ Behavioral (real runtime, owner-run):
 | False culling through windows/gaps | Vertex support fit, oriented faces, horizontal-face rejection, size limits, support-coverage gate that keeps an irregular face one-sided, shrink margin, owner visual check |
 | Camera-side sign is wrong | The contract test proves the current corner order; a wrong sign deactivates the one-sided plane from the intended side and must be caught by the owner's visual check |
 | `B*O` pair cost outweighs savings | One shared budget across all covered cells; per-cell candidate cap of 128 by default; support-coverage gate; lower the cap if a dense cell regresses |
-| Neighbor generation costs frame time | Neighbors are cache-only; a cell is generated only while it is the player's own cell. The per-frame neighbor path is one atomic countdown decrement |
+| Neighbor generation costs frame time | Default radius zero bypasses neighbors. Other radii validate cached sources in bounded slices without rectangle generation |
 | A loaded grid slot changes under the collector | The neighborhood rebuild re-reads the grid array and matches cells by key, and a 60-frame validation drops planes for cells that left the grid |
 | Shared budget starves the player's own cell | The union is scored by solid angle, so the near player-cell planes normally win; the default radius `0` keeps the original player-cell-only set |
 | Native pair cost from neighbor planes | Neighbor planes are always scored against the player-cell planes under the same `occlusion_planes_max_per_cell` cap; set `occlusion_planes_grid_radius = 0` to restore the measured baseline |
-| List reset/duplicate planes | Diff tracked planes by quantized key; only remove changed planes; never clear the whole list |
-| Refcount/list ownership error | Increment the `NiRefObject` count once per plane; decrement only after node removal or scene-graph replacement |
+| List reset/duplicate planes | Diff tracked planes by full descriptor; only remove changed planes; never clear the whole list |
+| Refcount/list ownership error | Increment the `NiRefObject` count once per plane; unlink own nodes before plane release; retain the graph through retirement and release it outside publication locks |
 | Startup compatibility regression | Defer all work to DeferredInit; owner Proton playtest |
-| Data staleness after load-order changes | Cache header hashes the active plugin list (order, names, sizes) and discards the cache on any change; each plane records its source FormID |
+| Stale world placement after source changes | Disk stores local content only; live input equality controls analysis reuse and fresh certificates control neighbor placement |
 | Engine clears the occluder list without a cell change | Periodic presence check releases missing nodes and the diff recreates them |
-| Regenerating on every visit wastes work | Persistent per-cell cache; a complete cache hit skips the mesh walk and the settle window |
+| Repeating local analysis wastes work | Bounded content-matched mesh footprints; source capture and instance validation still run |
 | Cell-seam target flapping swaps the plane set every few frames | `TARGET_STABLE_FRAMES` confirmation before a new target replaces the current set |
 | A settle window aborted by a cell change caches an empty/partial set | Per-entry completion flag; incomplete entries are regenerated on the next visit |
 | Stable cell identity flips while an exterior cell streams in | Interior flag decides interior/exterior; null worldspace or coords is kept as a stable zero; the cell key is logged |
-| Settle pass flips the whole plane set | Quantized per-plane keys and a diff that keeps unchanged native planes |
+| Settle pass flips the whole plane set | Exact per-plane descriptors and a diff that keeps unchanged native planes |
 | Compressed meshes lose coverage | Skip them for safety; verify the compressed vertex layout before recovering them |
 | Event timing during visibility pass | Phase 1 verifies `ON_FRAME_PRESENT`; fallback to CellTransitionOrchestrator |
 | Config/data path errors | Path next to the DLL or explicit config; missing file disables cleanly |
@@ -940,13 +873,9 @@ Behavioral (real runtime, owner-run):
   (`parent_mismatch`, `not_stat`, `render_null`, `node_null`, `radius`,
   `no_vertices`, `no_triangles`, `size`, `horizontal`, `support`, `small`,
   `opening`, `distance`). Use that line before changing any offset.
-- The `+0x40` derivation above shows the one-sided `+0xEA` value only changes
-  admission for off-screen rectangles; it does not stop an on-screen rectangle
-  from culling. The current thin/low-coverage gate is therefore conservative and
-  cheap but not a false-cull protection for a visible face. If a playtest ever
-  shows off-screen pair cost, setting `+0xEA` for every generated plane would
-  match authored `XOCP` exactly and let `0x00C358A0` reject two-sided off-screen
-  planes; that is a runtime-tuned change, not a coverage fix.
+- Both frustum and side predicates must succeed for native admission. Preserve
+  the current side policy; the previous off-screen-only interpretation was
+  incorrect, as the reverified instructions in section 2.3 establish.
 - The cross-cell option is grounded in the engine's own whole-grid visibility
   loop, but a 2026-10-18 owner log showed the original live-neighbor generation
   ran 31 neighbor scans in ~90 s (26 not-ready, ten retried twice), totalled
@@ -961,19 +890,13 @@ Behavioral (real runtime, owner-run):
   frame (`0x00B5AC90`) and once per camera-admitted bound (`0x00B5BBE0` ->
   `0x00C47150`), so its cost is `bounds x admitted planes`. Rust cannot remove
   it without patching `0x00B5BBE0` (option E broad phase), and the feature does
-  not. The only in-scope lever is the injected count, and no full playtest log
+  not. Selection and ordering can affect early exits, but no full playtest log
   has been captured to correlate `active` with frame time. Before lowering
   `occlusion_planes_max_per_cell`, capture a fixed-camera A/B with planes on and
   off and the `frame work` warning; do not lower it on inference.
-- Remaining Rust frame cost: the cache is serialized and written synchronously
-  on the debounce (`CACHE_SAVE_INTERVAL_FRAMES`, about 30 s) and on
-  load/new/exit. A long playthrough grows the cache to hundreds of cells; the
-  write is bounded by the cache size but not measured. An offload experiment was
-  reverted once, so only revisit it with a measured baseline.
-- Off-thread generation of neighbor cells is not viable: the walk reads
-  engine-owned `TESObjectCELL`/`Ni*` memory that the engine mutates and frees on
-  the main thread, so a worker thread could read freed memory during cell
-  streaming. The cache-only design removes the work from the frame path instead.
+- Checkpoint encoding and writes are now incremental and bounded in size, on
+  idle frames. Sync/rename and native publication/destruction latency remain
+  game-only measurements; no worker or off-thread engine traversal is added.
 - The shipped TOML, Rust fallback and dashboard fallback enable the feature
   by default at the owner's request. This implementation's runtime-test waiver
   and unverified gameplay/image/performance scope are recorded in section 11.
@@ -1436,3 +1359,278 @@ After the default-on change, the owner reported "no crashes" and requested
 committing the fix. This is positive owner-reported runtime evidence. Session
 duration, route, deployed artifact identity, transition coverage and performance
 measurements were not supplied, so those details remain unverified.
+
+## 12. Post-review correctness and performance plan
+
+Status: implementation authorized after the review and plan, against baseline
+`129fc60`. The earlier planning-only restriction is superseded by the owner's
+instruction to proceed. Preserve the graph ownership and publisher synchronization
+repair, normal main-thread admission, default-on setting, explicit disable,
+shared plane cap and default neighbor radius. Improve work scheduling and
+selection without reducing validated surface coverage to meet a timing target.
+The existing task-specific runtime-test waiver remains recorded in section 11;
+gameplay, image and FPS conclusions require observations, not offline timing.
+
+### Baseline and evidence
+
+Review established source-level errors in settle completion handling, semantic
+identity, side-flag reuse, readiness/completeness, neighbor admission and repair
+after injection failure. It also identified insufficient cache provenance and
+numeric validation. Merge over-coverage remains a proof gap, not a reproduced
+false cull. No additional release-before-unlink defect was established in the
+new ownership code. Most generator/cache findings predate the ownership repair.
+
+Correct the contradictory admission explanation in section 2.3 before changing
+side policy. Verified `0x00B5AD91` ANDs the two predicate results;
+`0x00B5AD98`/`0x00B5AD9B` turn false into state 2 and true into state 1.
+The consumer at `0x00B5BC60` accepts state 1 only. The assertion that a visible
+plane is admitted regardless of its side flag is not supported by this chain.
+Preserve the review's native capture under `analysis/radare2/output/` before
+implementing a policy change; do not infer another normal convention from the
+erroneous paragraph. Correct affected module comments at the same time.
+
+Use the existing production coverage and merge benchmarks to compare CPU work.
+Run serial repetitions with identical inputs/settings; report mean ranges and
+completion-frame costs separately. The 64x64 coverage workload has 4,225
+vertices, exceeding production's 4,096-vertex admission limit: it is a component
+stress probe, not an admitted complete mesh or a gameplay workload. Include the
+actual archived mesh/cache fixtures, and obtain additional real affected assets
+before qualifying new geometry cases. No FPS conversion or guessed time saving.
+
+### Delivery order and owning files
+
+| Phase | Outcome | Main ownership | Dependencies |
+| --- | --- | --- | --- |
+| 1 | Correct identities, completion, readiness and repair | `runtime.rs`, `data.rs`, `runtime_generate.rs`, `cache.rs` | Verified existing contracts |
+| 2 | Less CPU/allocation for identical geometry results | `runtime_generate.rs`, existing geometry tests | Baseline outputs and tie rules |
+| 3 | Resumable expensive stages and truthful timing | `runtime.rs`, `runtime_generate.rs` | Phases 1 and 2; collection lifetime proof |
+| 4 | Validated persistent data with bounded persistence work | `cache.rs`, `runtime.rs`, source-validation boundary | Phase 1; verified source revalidation contract |
+| 5 | Reuse immutable local mesh analysis | Generator/cache ownership | Phases 3 and 4 |
+| 6 | More useful planes within the existing native budget | Selection, merge and injection ordering | Earlier phases; coverage and native consumer proof |
+
+Each phase is independently reviewable. Qualify it before combining it with
+the next behavioral change. Do not introduce new config fields, startup owners,
+workers, per-bound hooks or ABI changes as incidental cleanup.
+
+### Phase 1: correctness and recovery
+
+- Compare full `CellKey` values for current and pending targets. Keep epoch,
+  cell address and graph checks for in-flight work. A hash indexes candidates;
+  it never establishes semantic identity. On the supported target, FxHasher's
+  `usize` state is 32 bits even when `finish()` returns `u64`.
+- Define a canonical plane descriptor for reuse/deduplication and verify its
+  fields after hash lookup. Include the actual native side-policy boolean.
+  Coverage 0.349 and 0.351 currently share a rounded key but select different
+  flags. Separate native reuse equality from stability tolerances; retain a
+  geometric tolerance only after its conservativeness is established.
+- Replace the ambiguous generation/settle boolean with explicit outcomes for
+  pending work, completed work and retryable failure. Consume completion on
+  both immediate and multi-frame paths. Charge a settle attempt when its pass
+  finishes, and stop future passes when the completed result is stable.
+- Track scan termination, unavailable eligible 3D and budget truncation
+  separately. Repeated empty/partial output does not prove source readiness.
+  Budget-limited output must retain its provenance rather than claim a full
+  scan. Preserve already validated coverage while incomplete work waits.
+- Prove a stable enumeration/readiness contract for streaming references.
+  Re-walking by ordinal cursor can skip references after relinking; holding
+  CellRefLock during one slice does not stabilize the next slice. Select a
+  verified membership/change signal or re-resolution scheme before replacing
+  this traversal. Never retain borrowed list nodes across frames.
+- Make neighbor records carry settled/validated status. Apply that status to
+  both persistent-cache and previous-neighborhood reuse paths.
+- Keep the desired plane set independently of successful native allocations.
+  Retry a missing subset with bounded work and backoff, including when zero
+  planes were injected. Do not regenerate meshes merely to repair injection.
+
+Acceptance: execute the actual production Rust decisions offline wherever
+possible. Confirm equivalent final behavior for immediate and sliced completion,
+no lost completion result, side-policy changes never reusing the old flag,
+distinct descriptors surviving hash collisions, no unsettled neighbor admission,
+and desired-set recovery after failed allocation admission. Native allocation,
+list mutation and streaming integration require verified contracts under the
+owner waiver; fabricated engine objects/providers are not acceptance evidence.
+
+### Phase 2: preserve output while reducing pure CPU work
+
+- Replace the opening-recovery rectangle search's repeated top-row histogram
+  sweeps with a single sweep and fixed stack storage. A 16x16 search currently
+  executes 136 histogram-row passes and allocates a vector in each pass; one
+  sweep needs 16 row passes. Preserve the selected rectangle's tie behavior
+  explicitly, not just its maximum area.
+- Reuse scratch storage in presence checking, injection diffing and generator
+  restarts. Avoid rebuilding the unchanged neighborhood on every generation
+  slice, particularly with radius zero. Scratch contains Rust-owned values,
+  not cached native nodes or unretained geometry pointers.
+- Prepare projected triangle data once per face instead of recomputing area
+  and edge arithmetic for every containment query. Skip already-covered mask
+  cells where the existing OR accumulation proves that equivalent.
+- Reuse the scoring vector and squared distance where possible. Keep stable,
+  explicit tie ordering; only use partial top-K selection if it preserves the
+  chosen set and final order. Benchmark this separately from coverage work.
+- Bound orientation-group construction as well as merge comparisons. Evaluate
+  conservative orientation/plane-position candidate bucketing, with exact
+  existing checks after lookup and proof that bucket boundaries omit no pair.
+
+Acceptance: actual production extraction and opening tests preserve rectangles,
+native side policy, holes and complete-asset coverage. Compare serial executable
+benchmarks and deterministic operation/allocation budgets. A changed output or
+tie rule is a semantic change requiring separate coverage qualification and
+cache invalidation; it cannot be hidden in a performance-only patch.
+
+### Phase 3: bound scheduling and account for complete frame work
+
+Make collection, coverage, merging, selection and publication preparation
+explicit resumable stages. Budget checks must occur inside expensive work,
+not only after a complete reference. Include completion work in the same
+scheduler; a completed collection must not trigger an unbudgeted merge/cache/
+injection burst in that frame. Retain the current 1 ms setting as a soft target,
+not a guarantee about operating-system scheduling or native destructor time.
+
+Before changing collection lifetime, prove which current-cell operations keep
+each geometry's data live and immutable. Copy bounded admitted mesh data into
+Rust-owned snapshots at that boundary, then perform resumable CPU math after
+releasing CellRefLock. Do not merely shorten the lock around unowned pointers.
+Capture and memory budgets are part of this design, not an unbounded queue.
+Discard stale snapshots/results using the existing world/cell/graph identity.
+
+Keep native publication atomic with respect to its verified readers/publishers.
+If native creation work needs staging, retain unpublished objects explicitly,
+roll back partial construction and publish only the validated target set at the
+safe boundary. Preserve graph release outside the publication/tracking locks.
+Do not claim that graph destruction or a contended engine call is time-bounded.
+
+Account separately for collection/lock wait, pure geometry, completion,
+publication and persistence. Report actual-frame warnings using a cooldown
+that advances on frames, and include completion in generation cost. Avoid
+routine diagnostic allocation, logging or file writes on the frame path.
+
+Acceptance: deterministic per-advance work limits, interruption at each pure
+CPU stage, stale-result rejection and output equivalence on actual fixtures.
+Compare total CPU and worst-slice timing; improving the maximum slice must not
+silently multiply total work. Game-only lock wait, native integration and frame
+timings remain unmeasured until separately observed.
+
+### Phase 4: cache provenance, validation and persistence
+
+- Validate finite positions, positive supported sizes, the native rotation
+  contract and valid policy/confidence fields before native use. Establish
+  numeric tolerances from generator/native evidence. Check aggregate encoded
+  and decoded size/count budgets, not only per-cell counts.
+- Separate immutable local geometry results from cached world placements.
+  Prove source reference re-resolution and transform/material/geometry
+  validation before reusing a world-space rectangle. Plugin names and sizes
+  alone are insufficient for asset overrides or save-dependent changes.
+  Define invalidation for changed or unavailable sources and merged provenance;
+  a merged plane's first base-form ID cannot validate all its sources.
+- Keep settled, pending and budget-limited provenance explicit. Revalidate
+  source changes through a verified lifecycle/membership contract; do not
+  invent a cell-ready flag, assume callbacks exist, or poll config per frame.
+- Advance the cache revision when descriptors, readiness, provenance or
+  extraction semantics change. Include all output-affecting choices in the
+  signature. Reject actual older caches and regenerate validated coverage.
+- Compute serialization capacity from actual entries and bound snapshot work.
+  Evaluate incremental serialization before adding concurrency. Any offload
+  uses a bounded immutable snapshot and one sequenced writer, activated only
+  at the established post-DeferredInit boundary. Preserve atomic replacement,
+  failure retry and newest-snapshot ordering. Revisit the previous reverted
+  offload only after its retained failure evidence has been understood.
+
+Acceptance: production decoder and file path tests with actual archived cache
+inputs, invalid numeric records, truncation, failed replacement and schema
+changes; source changes must invalidate affected world placements. Derive the
+memory/file budget from repository VAS constraints and actual cache workloads
+before implementation. Source lifetime, change notification and rotation
+tolerances remain research gates, not assumed implementation details.
+
+### Phase 5: reuse immutable mesh analysis
+
+Reuse local bounds, support hulls and triangle-coverage results for repeated
+geometry and settle passes. Key by validated geometry/content and extraction
+semantics, not a raw engine address or base FormID alone. Keep world transform,
+scale, material admission, horizontal rejection and native side policy at the
+instance boundary. Own cached data in Rust, bound its memory, and invalidate
+it when the verified source changes. No new worker is needed for this phase.
+
+Acceptance: repeated real assets and different verified instance transforms
+produce the same rectangles as direct production extraction. Measure cache
+lookup/capture cost, CPU saved and memory retained; an optimization that only
+moves an equivalent cost into content hashing is not qualified as a win.
+
+### Phase 6: improve usefulness within the same native plane budget
+
+After correctness and scheduling are qualified, evaluate these independently:
+
+1. Retain a bounded, spatially diverse candidate reservoir, then reselect after
+   meaningful observer movement with hysteresis. The current cache permanently
+   loses candidates outside the initial observer's top set. Choose reservoir
+   and refresh thresholds from actual workloads, not guessed constants.
+2. Compare distance/area scoring with projected angular usefulness. The native
+   bound consumer exits after a successful occlusion rejection, so useful
+   ordering can reduce tested pairs. Prove any own-node reordering boundary;
+   do not reorder authored nodes or churn native objects on every frame.
+3. Recover additional solid rectangles around openings only when their marginal
+   usefulness justifies their share of the existing cap. Every rectangle must
+   retain the same surface-coverage proof as the current single result.
+4. Qualify merge conservativeness before expanding merge coverage. The current
+   gap, offset and angular tolerances need proof across repeated merges. Carry
+   coverage provenance or establish a conservative geometric bound. Evaluate
+   merging before final shrink only after that proof; do not fill an unproven
+   gap to make a larger occluder.
+
+Acceptance: real-asset opening, thin-surface, negative-scale and transformed-face
+regressions; deterministic selection; stable native object reuse; unchanged
+shared count budget. Native side policy stays as implemented until its complete
+consumer contract is reverified. Broad-phase engine hooks, compressed formats,
+larger caps/radii and off-thread engine traversal are outside this plan.
+
+### Qualification and stop conditions
+
+For each implementation phase, define the observable first and preserve an
+unchanged failing result for confirmed behavior that can execute offline.
+Exercise shipped Rust/native boundaries where available; do not replace native
+integration with mocks, mirrored algorithms or source-order assertions. Use the
+owner waiver and direct engine evidence for game-only boundaries, with those
+limits stated explicitly. No game execution is requested as part of this plan.
+
+Run focused regressions, affected core/helper suites, formatting, document/link
+checks, `git diff --check` and the complete supported
+`i686-pc-windows-gnu` release build after code changes. Recheck startup footprint
+when a phase actually changes startup-visible state, imports, TLS, config or
+workers. Pure Rust output-preserving changes do not require speculative new
+engine research. Stop a phase when its acceptance evidence is sufficient.
+Deployment and packaging remain user-only. Implementation results are recorded below.
+
+### Implemented outcomes and remaining research gates
+
+The current changes implement the correctness, owned scheduling and local-cache
+work above. The native admission correction is supported by the preserved
+[admission review](../analysis/radare2/output/occlusion_admission_review_20261104.txt).
+The real archived WoodShack surface runs through the production owned pipeline,
+cache codec and transformed-instance extraction. Decoder cases include actual
+legacy cache input, nonfinite data, invalid indices, truncation and signature
+changes. The real file path exercises replacement and failure cleanup. Evidence
+and serial CPU probes are retained under
+`.reports/20261104-occlusion-stability/post-review/`. Component stress inputs are
+not gameplay or FPS acceptance.
+
+Phase 6 was evaluated without changing geometric coverage or native ordering.
+The reverified [native consumer](../analysis/radare2/output/occlusion_selection_review_20261104.txt)
+walks forward and exits after a successful bound rejection. That establishes an
+ordering opportunity, not a useful-order oracle for the supplied workload.
+Reservoir/movement thresholds, projected scoring and additional opening rectangles
+lack qualified real-workload evidence; no thresholds or coverage proof are
+invented. Expanding merging remains blocked by its tolerance proof gap. These
+proposals stay separate research work, with default cap/radius/side policy intact.
+No guessed FPS gain, authored-node reordering or per-bound hook is introduced.
+
+The earlier owner report of no crashes applies to the committed ownership repair.
+New game-only image, streaming, native allocation repair, locking and frame/FPS
+behavior is not run under the owner's standing waiver. Offline qualification does
+not convert those unknowns into runtime acceptance. Arbitrary scripted live
+geometry changes outside cell transition/revalidation remain an integration limit.
+
+Offline qualification passed for the production regressions and file path,
+affected core/helper suites, supported 32-bit release build, formatting, document
+checks and final diff review. Startup imports, CRT initializers and normalized
+TLS inputs match the retained baseline. Static/offline agreement does not prove
+game startup, native integration, images or FPS. Deployment remains user-only.

@@ -4,12 +4,11 @@
 //! This module derives conservative oriented rectangles per opaque, unskinned
 //! static geometry of the current cell and injects `BSOcclusionPlane` objects
 //! into the engine's native occluder list, reusing the engine's own authored
-//! `XOCP` creation path. Rectangles are fitted to the vertices that support
-//! each face and emitted one-sided, so the engine activates a plane only while
-//! the camera is on the solid side. Results are cached per cell and reused on a
-//! revisit; the cache header is bound to the active plugin list, so a mod
-//! install, removal, reorder or update discards it and stale planes are never
-//! reused.
+//! `XOCP` creation path. Triangle support limits each rectangle; thin or
+//! irregular faces keep conservative one-sided admission. Content-matched local
+//! mesh analysis is reused independently of world transform and native policy.
+//! Disk data never authorizes a world placement. Loaded-neighborhood records
+//! require fresh live source validation before neighbor admission.
 //!
 //! # Ownership
 //!
@@ -26,10 +25,11 @@
 //! check; a new cell must be stable before it replaces the current planes. On a
 //! transition the runtime rebuilds and then retries a bounded settle window, so
 //! references whose 3D attaches after the first frame are still collected; a
-//! retry whose generated set is unchanged keeps the existing planes. The mesh
-//! walk is resumable and advances a fixed work slice per frame, so a dense cell
-//! never blocks the frame thread. A cache entry is reused only after its settle
-//! window completed. Creation, insertion, removal and release happen only on a
+//! retry whose generated set is unchanged keeps the existing planes. Capture,
+//! coverage and completion yield across frames under a soft work target. One
+//! mesh, one face or a native call can exceed it. Incomplete source scans retain
+//! cold retries. Missing native objects are repaired from desired records without
+//! repeating geometry work. Native mutation stays atomic during each
 //! rebuild. Loading/unknown phases and world-lifetime events cancel the world
 //! epoch without touching engine memory. The next normal presentation cleans
 //! the retained graph before looking up a player or cell. Each collection
@@ -39,7 +39,7 @@
 //!
 //! A signature/publication failure prevents activation. A stale cache is
 //! regenerated; failed plane allocations leave the admitted subset owned and
-//! schedule a bounded retry. See docs/fnv_runtime_occlusion_plane_implementation_plan.md.
+//! schedule periodic desired-set repair. See docs/fnv_runtime_occlusion_plane_implementation_plan.md.
 
 mod cache;
 mod contract;
