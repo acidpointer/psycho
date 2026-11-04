@@ -136,7 +136,7 @@ not current policy unless a newer contract links to them.
 |---|---|---|
 | [`crash_20260712_engine_fix_plan.md`](crash_20260712_engine_fix_plan.md) | 2026-07-12 crash engine-fix change set | post-mortem |
 | [`crash_20260712_mod_independent_revision_plan.md`](crash_20260712_mod_independent_revision_plan.md) | Mod-independent revision plan for the 2026-07-12 crash fixes | post-mortem |
-| [`crash_20260717_lowprocess_save_structural_containment_plan.md`](crash_20260717_lowprocess_save_structural_containment_plan.md) | LowProcess generic-location structural containment | post-mortem |
+| [`crash_20260717_lowprocess_save_structural_containment_plan.md`](crash_20260717_lowprocess_save_structural_containment_plan.md) | LowProcess generic-location containment and offline-qualified teardown candidate | contract / incident |
 | [`crash_20260802_encounter_zone_form_guard.md`](crash_20260802_encounter_zone_form_guard.md) | Encounter-zone invalid form guard | post-mortem |
 | [`crash_20260803_dead_corpse_cell_render_retirement.md`](crash_20260803_dead_corpse_cell_render_retirement.md) | Dead-corpse cell render-list retirement fix | post-mortem |
 | [`crash_20260817_controller_sequence_idtag_retirement.md`](crash_20260817_controller_sequence_idtag_retirement.md) | Controller-sequence IDTag retirement containment | post-mortem |

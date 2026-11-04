@@ -7,6 +7,11 @@ save serialization. Its implementation is in
 `psycho-engine-fixes/src/mods/engine_fixes/lowprocess.rs`; configuration is
 owned by `psycho-engine-fixes/config/psycho_engine_fixes.toml`.
 
+The [2026-11-04 teardown investigation](#2026-11-04-process-teardown-crash)
+below records the uncovered consumer and its scoped defensive candidate.
+The candidate executes production-code regressions offline; game behavior and
+the original corrupting producer remain unverified.
+
 ## Result
 
 The 2026-07-17 autosave crash is the same LowProcess ownership failure first
@@ -127,6 +132,198 @@ The normal empty-list path remains two direct NULL reads. Non-empty lists are
 bounded to 256 nodes and use stack-local page-region caches. The startup
 observer restores its main-loop call site after 120 observations, leaving no
 per-frame hook.
+
+## 2026-11-04 process teardown crash
+
+### Runtime evidence and immediate cause
+
+The owner reports: "Companion killed mole rat, my actor just walked".
+Complete inputs are preserved in
+`.reports/20261104-lowprocess-teardown/{CrashLogger.log,psycho-engine-fixes-latest.log}`;
+`inputs.json` records their identity and the owner's report. The crash copy is
+named `CrashLogger.2026-11-04-15-02-59.log` in the original report. No local
+game directory, save, or runnable reproduction was discovered. No game was
+executed during this investigation.
+
+The supplied runtime report establishes:
+
+- access violation at `EIP=0x00470488`, with `EDX=0x00000005`;
+- `ECX=EAX=0xDD6737EC`, and process storage at `0xDD673780` on the stack;
+- return addresses `0x009071A3`, `0x00907026`, `0x0092CA53`,
+  `0x00914A98`, `0x009145EF`, and `0x0088304A`;
+- actor `0xF834E6C0`, Mole Rat reference `0606FE59`, base `0001CF9F`;
+- actor cell `06001103` in the Capital Wasteland, state `Unloading`.
+
+Reanalysis of the supported executable proves that `0x00470488` is
+`mov eax, [edx+4]`: native clear follows a successor link whose value is `5`.
+The implied read address is `0x00000009`; the log does not separately record
+the exception's memory-address parameter. The caller loads the process and
+adds `0x6C` before clear, and `0xDD673780 + 0x6C = 0xDD6737EC`.
+This is the same generic-location list covered by the earlier live-scan and
+save fixes, now consumed by process teardown.
+
+The head's current successor is `5` at the fault. It is unknown whether this
+was the entry-time head link or a later link advanced into the head by clear;
+the original complete chain and earlier frees were not captured. There is no
+allocation-identity evidence proving a freed node, freed process, double free,
+or race. The immediate cause is a malformed successor consumed without
+structural admission. The writer that introduced it remains unknown.
+
+The report names the actor base's last modifying plugin and includes a
+JohnnyGuitar event wrapper in the call chain. Neither identifies the writer.
+Earlier Stewie source findings above establish a historical borrowed-payload
+ownership bug, not the source of this incident's link value. The current log
+shows cleanup predecessors captured and all eight LowProcess slots wrapped;
+it records no subsequent LowProcess repair or ownership-loss event. That does
+not prove a particular wrapper ran for this actor or remained in every later
+provider chain. Memory statistics do not establish OOM as the cause.
+
+### Binary contract and coverage gap
+
+The local research image was reverified as FalloutNV `1.4.0.525`, PE32 i386,
+preferred base `0x00400000`, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+The crashing installation's executable and live patched bytes were unavailable;
+this identity applies to the research image. Captures use radare2 with
+relocations applied. Disassembly and bytes, rather than inferred decompiler
+prototypes or the old xNVSE layout declarations, establish these offsets and
+ABIs.
+
+| Native boundary | Verified behavior |
+|---|---|
+| `0x00883048` | Dispatches the old actor process's deleting destructor; `0x0088304A` is its return. Replacement process publication follows at `0x0088305C`. |
+| `0x009145E0` | Deleting destructor calls `0x00914610`; process free at `0x009145FB` follows successful destruction. |
+| `0x00914A93` | Derived process destruction calls `0x0092CA00`. |
+| `0x0092CA4E` | Base destruction calls `0x00906FE0`. |
+| `0x00906FE0` | Writes the LowProcess vtable, invokes `0x009070A0` at `0x00907021`, then destroys embedded fields including the list at `+0x6C`. The observed LowProcess vtable is therefore consistent with derived-process teardown. |
+| `0x009070A0` | Process cleanup, `thiscall(process)`, no stack arguments, plain `RET`; clears owned package state and several lists. |
+| `0x00907198..0x009071A3` | Loads the process, adds `0x6C`, and calls `0x00470470` at `0x0090719E`. Bytes: `8B 4D CC 83 C1 6C E8 CD 92 B6 FF`. |
+| `0x00470470` | `thiscall(head)`, no stack arguments, plain `RET`. Reads `head.next`, reads and detaches `successor.next`, destroys/frees that successor, advances `head.next`, and finally clears `head.data`. |
+| `0x004702F0` | Successor deleting destructor, `thiscall(node, flags)`, `RET 4`; calls `0x0046FFB0`, then native free `0x00401030` when flags bit 0 is set. |
+| `0x0046FFB0` | Calls `0x00470470` on the same node. The outer clear zeroes the successor link first, so this nested destruction does not traverse the remainder again. No borrowed payload is destroyed. |
+
+The `aar` reference survey discovers two direct calls to `0x009070A0`:
+destruction at `0x00907021`, and process reinitialization at `0x00910A78`
+inside `0x00910A60`. Both reach the same generic-location clear callsite.
+Indirect/plugin calls were not exhaustively enumerated. The selected internal
+callsite has one process owner, unlike the shared primitive's 420 discovered
+direct calls. Those other callers have not been classified for new protection.
+
+At the incident baseline, `lowprocess.rs` protected virtual slots `+0x47C`
+and `+0x480`, and serializer `0x00910450`. The destruction call above invoked
+none of those guards. `list_cleanup_guard.rs` hooked only `0x00B4DF30`; its activation log
+does not imply protection of the different clear at `0x00470470`. These are
+direct source-level coverage facts, not proof of the original corruptor.
+
+Raw evidence:
+
+- [Clear instructions and bytes](../analysis/radare2/output/crash_lowprocess_clear_primitive_20261104.txt),
+  [process cleanup](../analysis/radare2/output/crash_lowprocess_cleanup_owner_20261104.txt),
+  [node deleting destructor](../analysis/radare2/output/crash_lowprocess_chain_deleting_node_20261104.txt),
+  [node destructor](../analysis/radare2/output/crash_lowprocess_chain_node_destructor_20261104.txt).
+- [Cleanup callers](../analysis/radare2/output/crash_lowprocess_clear_callers_20261104.txt),
+  [complete call input/output bytes](../analysis/radare2/output/crash_lowprocess_clear_call_context_20261104.txt),
+  [reinitialization caller](../analysis/radare2/output/crash_lowprocess_reset_caller_20261104.txt),
+  [shared-primitive reference survey](../analysis/radare2/output/crash_lowprocess_clear_all_primitive_callers_20261104.txt).
+- [Actor process replacement](../analysis/radare2/output/crash_lowprocess_retirement_chain_20261104.txt),
+  [process deleting destructor](../analysis/radare2/output/crash_lowprocess_process_deleting_destructor_20261104.txt),
+  [destructor cascade and callsite bytes](../analysis/radare2/output/crash_lowprocess_destructor_cascade_20261104.txt).
+
+### Implemented candidate and owner-authorized offline gate
+
+For this incident, the owner explicitly authorized proceeding without a game
+reproduction and instructed that the issue be reproduced against executable
+code offline. This supersedes the earlier proposed game-reproduction gate for
+this scoped candidate. It is an incident-specific user instruction, not a
+change to repository-wide policy or an assertion that the reporter-only
+exception permits arbitrary ownership repair. No game run is requested or
+required for this implementation handoff. Game behavior remains unverified.
+
+`lowprocess.rs` now guards the direct call at `0x0090719E` under the existing
+`lowprocess_generic_locations_fix` setting. Both discovered native cleanup
+callers, destruction and reinitialization, reach this one internal site.
+Installation verifies the six argument-setup bytes before the call and ten
+continuation bytes after it. The ownership-aware call container captures the
+current E8 provider, rechecks its instruction before activation, and changes
+only that call. No destructor entry, shared primitive, vtable, third-party
+module, or reference count is hooked or changed by this addition.
+
+The provider is release-published before transactional activation. Admission
+becomes active only after commit. A rollback survivor retains its provider and
+forwards without uncommitted repair. An unknown caller shape leaves this
+protection unavailable, with a startup warning; other LowProcess protections
+remain independently installed. A later provider retains normal chaining
+responsibility; the candidate performs no repeated ownership takeover.
+
+Immediately before invoking the provider, the detour uses the production
+`list_cleanup_guard::prepare_owned_clear` preflight. This is the same
+implementation used by the existing shared-clear guard, whose installation
+remains independent. It follows only successor topology, validates complete
+writable node images, severs a verified incoming edge to an inaccessible
+suffix, and cuts cycles at the exact back edge. It never follows or frees a
+borrowed payload. Every unique admitted successor stays reachable for native
+cleanup; intact lists are not truncated at the live/save sanitizer's 256-node
+budget. Native clear still performs node destruction, and all later process
+cleanup, including the embedded head's second clear, continues normally.
+
+The empty path is a direct successor read. Nonempty preflight is linear, uses
+constant storage, and introduces no allocation, lock, periodic scan, permanent
+frame hook, or routine log. It preserves last-error before entering the
+provider. Sampled anomaly output includes
+`boundary=lowprocess-generic-clear`, the rejected edge and original memory
+failure. The existing shared guard reports `boundary=shared-clear`.
+
+The caller must retain the original native clear preconditions: a live
+writable head and exclusive chain lifetime until cleanup returns. Preflight
+neither pins storage nor makes a racing writer safe. It cannot distinguish a
+readable stale or foreign allocation from a live successor, and an inaccessible
+suffix may leak an unknown number of nodes. These limits are unchanged from
+the existing preflight, not proof that the originating race or lifetime defect
+has been repaired. No corrupting producer is identified by this candidate.
+
+### Offline reproduction and qualification
+
+The regression fixture is the unmodified 110-byte native clear body at
+`0x00470470`, extracted from the verified supported executable. Its raw image
+lives in `lowprocess_clear_native.bin` and is included only by the test module.
+Only invalid-first-successor and empty-chain paths execute from the relocated
+image. They do not reach its node-destructor call, so no relocation, mock
+allocator, replacement free, or reconstructed native loop is needed.
+
+Before production edits, the native-image test with `head.next=5` failed under
+Wine with a read fault at `0x00000009`, at native-body offset `+0x18`, matching
+the reported instruction. The failure and pre-change test source are preserved
+in `.reports/20261104-lowprocess-teardown/implementation/`. After the change,
+the regression invokes the actual production detour with that same native
+provider and input. It verifies the final empty head, untouched borrowed
+payload, preserved last-error, and successful second native clear. It also
+executes an unadmitted detour with a valid empty chain to verify provider
+forwarding on the rollback path.
+
+A supporting production-preflight regression checks an intact 1,024-node
+chain, then the same valid prefix ending in successor `5`: only the bad tail
+edge changes, with every prefix link and opaque payload retained. Existing
+production-preflight tests exercise complete OS page boundaries, inaccessible
+and read-only successors, head aliases and cycles. These are offline code
+results. The native multi-node deallocation path, actual game callsite
+activation, allocator-mode matrix, live concurrency, game images and workload
+latency are not executed by these tests.
+
+Local qualification passed the focused regression, affected core suite,
+supported i686 release build, formatting, `git diff --check`, final diff review,
+and pre/post core/helper import and TLS comparison. Core and helper imports and
+TLS layout/callback identities are unchanged. The additional startup
+work is one call container and its publication/admission atomics, caller
+context checks and one direct-call transaction inside the established core
+pre-CRT installation. No configuration layout, parser, TLS owner, worker,
+helper lifecycle or cross-DLL API is added. Code/static layout can still move;
+offline artifact comparison does not establish Proton startup acceptance.
+
+The original corrupting write remains unresolved. A durable producer repair
+requires direct write/free, allocation-identity, lifetime and thread-ownership
+evidence; this change does not attribute it to the companion, a content plugin,
+a native plugin, an allocator, or a race. Changes remain an unreleased
+candidate; deployment, packaging and commits are outside this task.
 
 ## Fix
 

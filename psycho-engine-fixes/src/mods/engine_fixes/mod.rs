@@ -1178,6 +1178,9 @@ fn install_lowprocess_fix(config: &EngineFixesConfig) -> anyhow::Result<()> {
             err
         );
     }
+    if let Err(err) = lowprocess::install_clear_containment() {
+        log::warn!("[LOWPROCESS] Generic-location clear containment unavailable: {err:#}");
+    }
     if let Err(err) = lowprocess::install_late_boundary() {
         lowprocess::disable();
         log::warn!("[LOWPROCESS] Root repair disabled: {:#}", err);

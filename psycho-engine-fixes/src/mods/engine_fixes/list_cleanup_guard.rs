@@ -1,4 +1,4 @@
-//! Contain invalid successor links at the shared native list-clear boundary.
+//! Contain invalid successor links before native non-owning list cleanup.
 //!
 //! The caller retains the native contract: a live writable eight-byte head and
 //! exclusive access to its chain throughout admission and cleanup. Preflight
@@ -13,7 +13,9 @@
 //! transactional inline hook. No third-party implementation is overwritten.
 //! Calls allocate and lock nothing. Empty chains bypass OS queries; nonempty
 //! chains add linear preflight with constant storage and per-call page caching.
-//! Repair counts log sparsely, with the original memory failure evidence. See the fast-travel fade-list contract in docs.
+//! Repair counts log sparsely, with the original memory failure evidence and
+//! the calling boundary. LowProcess also uses this preflight at its scoped
+//! generic-location clear call. See the fade-list and LowProcess contracts.
 
 use std::{
     ffi::c_void,
@@ -277,16 +279,8 @@ unsafe fn prepare_chain(head: *mut Entry, first: usize) -> Option<Repair> {
 
 unsafe extern "thiscall" fn clear(head: *mut Entry) {
     if ADMITTED.load(Ordering::Acquire) {
-        // SAFETY: The shared native method requires a live writable head.
-        let first = unsafe { head_next(head) };
-        if first != 0 {
-            let last_error = get_last_error_code();
-            // SAFETY: The original caller owns the chain throughout this call.
-            if let Some(repair) = unsafe { prepare_chain(head, first) } {
-                report(head, repair);
-            }
-            set_last_error(last_error);
-        }
+        // SAFETY: The shared native method retains the preflight contract.
+        unsafe { prepare_owned_clear(head.cast(), "shared-clear") };
     }
     // SAFETY: The exact-ABI trampoline is published before entry activation,
     // including any unadmitted rollback survivor. Native clear retains its
@@ -295,8 +289,42 @@ unsafe extern "thiscall" fn clear(head: *mut Entry) {
     unsafe { original(head) };
 }
 
+/// Admit topology for a native clear that owns nodes but borrows payloads.
+///
+/// Empty heads bypass page queries. Other chains receive linear preflight
+/// with constant storage; invalid suffixes may leak. No payload is followed.
+/// Preserves last-error before the caller invokes its native provider.
+///
+/// # Safety
+/// `head` must be a live writable eight-byte embedded head with payload at +0
+/// and successor at +4. The caller must retain the native exclusive chain
+/// lifetime across this preflight and the following native clear. Admission
+/// validates mapping capabilities, not allocation identity or synchronization.
+#[inline]
+pub(super) unsafe fn prepare_owned_clear(head: *mut c_void, boundary: &'static str) {
+    let head = head.cast::<Entry>();
+    // SAFETY: The caller supplies a live writable embedded head.
+    let first = unsafe { head_next(head) };
+    if first != 0 {
+        // SAFETY: The caller retains exclusive native lifetime through cleanup.
+        unsafe { prepare_nonempty_clear(head, first, boundary) };
+    }
+}
+
+// Keep traversal/copy stack storage outside the overwhelmingly common empty
+// head path in both callers. Native lifetime remains uninterrupted here.
+#[inline(never)]
+unsafe fn prepare_nonempty_clear(head: *mut Entry, first: usize, boundary: &'static str) {
+    let last_error = get_last_error_code();
+    // SAFETY: The caller retains the same exclusive live head/chain contract.
+    if let Some(repair) = unsafe { prepare_chain(head, first) } {
+        report(head, repair, boundary);
+    }
+    set_last_error(last_error);
+}
+
 #[cold]
-fn report(head: *mut Entry, repair: Repair) {
+fn report(head: *mut Entry, repair: Repair, boundary: &'static str) {
     let counter = &REPAIRS[repair.reason as usize];
     let previous = counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
@@ -316,7 +344,7 @@ fn report(head: *mut Entry, repair: Repair) {
         }
     };
     log::warn!(
-        "[LIST_CLEANUP] Cut {:?} link; reason_count={} saturated={} head={head:p}, \
+        "[LIST_CLEANUP] boundary={boundary} Cut {:?} link; reason_count={} saturated={} head={head:p}, \
          predecessor=0x{:08X}, rejected=0x{:08X}, inspected_steps={}; \
          native cleanup continues; {consequence}",
         repair.reason,

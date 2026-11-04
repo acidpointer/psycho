@@ -24,7 +24,7 @@
 //!
 //! # Runtime design
 //!
-//! This module contains corruption at three boundaries:
+//! This module contains corruption at four boundaries:
 //!
 //! 1. Cleanup wrappers sanitize `process + 0x6C`, remove every occurrence of
 //!    `removed_ref`, and then invoke the captured cleanup owner.
@@ -32,6 +32,10 @@
 //!    payload, then invoke the captured form-ID scan owner.
 //! 3. Save-only callsite wrappers terminate corrupt traversal and encode an
 //!    unreadable form as NULL without mutating uncertain memory.
+//! 4. The generic-location clear call at 0x0090719E admits topology before
+//!    chaining its provider. This covers process cleanup from destruction and
+//!    reinitialization without hooking a destructor or the shared clear entry.
+//!    Native cleanup still owns successor deallocation and borrows payloads.
 //!
 //! Each save callsite resolves its thread-owned traversal slot once. Only the
 //! slot address crosses a native call; context borrows end before chaining so
@@ -60,6 +64,11 @@
 //! before dereference. If a patch target is non-executable or ownership changes
 //! during installation, the site is left untouched and diagnostics report the
 //! unsupported state. Corruption logging is power-of-two sampled.
+//!
+//! Clear preflight reuses the non-owning list cleanup guard, with linear work
+//! and constant storage rather than the live/save traversal budget. It retains
+//! the native caller's exclusive lifetime requirement; page checks do not pin
+//! allocations or protect a racing writer. Unknown tails may leak.
 
 use std::{
     cell::UnsafeCell,
@@ -72,13 +81,17 @@ use std::{
 use anyhow::{Context, ensure};
 use libpsycho::{
     ffi::fnptr::FnPtr,
-    os::windows::winapi::{get_current_thread_id, safe_write_32, virtual_query},
+    os::windows::{
+        guarded_memory::{prepare_current_process_memory_reader, read_current_process_memory},
+        hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
+        winapi::{get_current_thread_id, safe_write_32, virtual_query},
+    },
 };
 
 use crate::{events, mods::diagnostics};
 
 use super::{
-    patching, statics,
+    list_cleanup_guard, patching, statics,
     types::{AppendRefIdFn, MainTaskDrainFn},
 };
 
@@ -104,6 +117,9 @@ const LIST_HEAD_REMOVE_ADDR: usize = 0x0063_F7B0;
 const LIST_REMOVE_ADDR: usize = 0x0090_5330;
 const LIST_NEXT_ADDR: usize = 0x0072_6070;
 const GENERIC_LOCATIONS_OFFSET: usize = 0x6C;
+const CLEAR_CALLSITE: usize = 0x0090_719E;
+const CLEAR_INPUT: &[u8] = &[0x8B, 0x4D, 0xCC, 0x83, 0xC1, 0x6C];
+const CLEAR_OUTPUT: &[u8] = &[0x8B, 0x4D, 0xCC, 0xC7, 0x41, 0x44, 0x00, 0x00, 0x00, 0x00];
 
 type ProcessCleanupFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 type ProcessReferenceScanFn = unsafe extern "thiscall" fn(*mut c_void, u32);
@@ -111,6 +127,7 @@ type ListDataFn = unsafe extern "fastcall" fn(*mut ListNode) -> *mut ListNode;
 type ListHeadRemoveFn = unsafe extern "fastcall" fn(*mut ListNode);
 type ListRemoveFn = unsafe extern "thiscall" fn(*mut ListNode, *mut *mut c_void);
 type ListNextFn = unsafe extern "fastcall" fn(*mut ListNode) -> *mut ListNode;
+type ListClearFn = unsafe extern "thiscall" fn(*mut ListNode);
 
 // Bethesda's tList stores the first element in an embedded head and allocates
 // only successor nodes. Head removal must therefore copy/clear fields rather
@@ -295,6 +312,9 @@ static SAVE_TRAVERSAL_SLOTS: [SaveTraversalSlot; SAVE_CONTEXT_SLOT_COUNT] =
 static NULL_LIST_DATA: usize = 0;
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
+static CLEAR_HOOK: Rel32CallHookContainer<ListClearFn> = Rel32CallHookContainer::new();
+static PREVIOUS_CLEAR: AtomicUsize = AtomicUsize::new(0);
+static CLEAR_ADMITTED: AtomicBool = AtomicBool::new(false);
 static OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 // Predecessors are release-published before their wrapper becomes reachable
 // from an engine callsite or vtable. Wrappers acquire-load before dispatch.
@@ -466,6 +486,64 @@ pub(super) fn disable() {
     for state in &REFERENCE_SCAN_SLOT_STATES {
         state.store(SLOT_DISABLED, Ordering::Release);
     }
+}
+
+/// Guard only the generic-location clear inside the native process cleanup.
+///
+/// Install at the existing quiescent pre-CRT boundary. The exact caller
+/// context proves thiscall(head in ECX), no stack arguments and a void result.
+/// Capture the live CALL provider unchanged; publish it before activation so
+/// a rollback survivor can forward without using uncommitted admission.
+pub(super) fn install_clear_containment() -> anyhow::Result<()> {
+    if CLEAR_ADMITTED.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    ensure!(
+        crate::entry::has_pre_crt_startup_boundary() && !crate::entry::is_initialized(),
+        "LowProcess clear installation requires the quiescent pre-CRT boundary"
+    );
+    prepare_current_process_memory_reader()?;
+    let mut input = [0; CLEAR_INPUT.len()];
+    let mut output = [0; CLEAR_OUTPUT.len()];
+    read_current_process_memory(CLEAR_CALLSITE - input.len(), &mut input)?;
+    read_current_process_memory(CLEAR_CALLSITE + 5, &mut output)?;
+    ensure!(
+        input == CLEAR_INPUT && output == CLEAR_OUTPUT,
+        "LowProcess generic-location clear caller context mismatch"
+    );
+    // SAFETY: The verified caller supplies a live writable embedded head with
+    // the ListClearFn ABI. The container captures and rechecks the live E8.
+    unsafe {
+        CLEAR_HOOK.init(
+            "lowprocess_generic_location_clear",
+            CLEAR_CALLSITE as *mut c_void,
+            checked_generic_location_clear,
+        )?;
+    }
+    PREVIOUS_CLEAR.store(CLEAR_HOOK.original()? as usize, Ordering::Release);
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_callsite(&CLEAR_HOOK)?;
+    transaction.commit();
+    CLEAR_ADMITTED.store(true, Ordering::Release);
+    log::info!("[LOWPROCESS] Generic-location clear containment active at 0x{CLEAR_CALLSITE:08X}");
+    Ok(())
+}
+
+/// Preserve native node cleanup after scoped topology admission.
+///
+/// The original caller retains its exclusive chain lifetime. This call does
+/// not inspect borrowed payloads or skip any later process cleanup. The
+/// published native provider remains callable for every installed detour.
+unsafe extern "thiscall" fn checked_generic_location_clear(head: *mut ListNode) {
+    if CLEAR_ADMITTED.load(Ordering::Acquire) {
+        // SAFETY: The exact native caller owns this writable head and chain.
+        unsafe { list_cleanup_guard::prepare_owned_clear(head.cast(), "lowprocess-generic-clear") };
+    }
+    // SAFETY: install publishes the exactly typed, live provider before the
+    // callsite becomes reachable, including on a failed activation rollback.
+    let original: ListClearFn =
+        unsafe { std::mem::transmute(PREVIOUS_CLEAR.load(Ordering::Acquire)) };
+    unsafe { original(head) };
 }
 
 /// Installs save traversal and payload containment at the audited serializer.
@@ -1752,6 +1830,9 @@ fn is_executable(address: usize) -> bool {
     };
     info.is_executable()
 }
+
+#[cfg(test)]
+mod clear_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,56 @@
+Psycho radare2 evidence
+UTC: 2026-11-04T13:08:28+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c pd 45 @ 0x00910A30 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 45 @ 0x00910A30
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+        ╎   0x00910a30      088b4df0e877   or byte [ebx + 0x77e8f04d], cl ; [0x77e8f04d:1]=255
+        ╎   0x00910a36      ed             in eax, dx
+        ╎   0x00910a37      d2ff           sar bh, cl
+       ┌──< 0x00910a39      eb11           jmp 0x910a4c
+       │╎   0x00910a3b      8b4df0         mov ecx, dword [ebp - 0x10]
+       │╎   0x00910a3e      894df4         mov dword [ebp - 0xc], ecx
+       │╎   0x00910a41      8b4df0         mov ecx, dword [ebp - 0x10]
+       │╎   0x00910a44      e82756e1ff     call 0x726070
+       │╎   0x00910a49      8945f0         mov dword [ebp - 0x10], eax
+       └└─< 0x00910a4c      e927ffffff     jmp 0x910978
+            0x00910a51      8be5           mov esp, ebp
+            0x00910a53      5d             pop ebp
+            0x00910a54      c20400         ret 4
+            0x00910a57      cc             int3
+            0x00910a58      cc             int3
+            0x00910a59      cc             int3
+            0x00910a5a      cc             int3
+            0x00910a5b      cc             int3
+            0x00910a5c      cc             int3
+            0x00910a5d      cc             int3
+            0x00910a5e      cc             int3
+            0x00910a5f      cc             int3
+            0x00910a60      55             push ebp
+            0x00910a61      8bec           mov ebp, esp
+            0x00910a63      83ec08         sub esp, 8
+            0x00910a66      894df8         mov dword [ebp - 8], ecx
+            0x00910a69      8b4508         mov eax, dword [ebp + 8]
+            0x00910a6c      50             push eax
+            0x00910a6d      8b4df8         mov ecx, dword [ebp - 8]
+            0x00910a70      e8fb05fcff     call 0x8d1070
+            0x00910a75      8b4df8         mov ecx, dword [ebp - 8]
+            0x00910a78      e82366ffff     call 0x9070a0
+            0x00910a7d      8b4df8         mov ecx, dword [ebp - 8]
+            0x00910a80      c741580000..   mov dword [ecx + 0x58], 0
+            0x00910a87      6a00           push 0
+            0x00910a89      8b55f8         mov edx, dword [ebp - 8]
+            0x00910a8c      8b02           mov eax, dword [edx]
+            0x00910a8e      8b4df8         mov ecx, dword [ebp - 8]
+            0x00910a91      8b902c010000   mov edx, dword [eax + 0x12c]
+            0x00910a97      ffd2           call edx
+            0x00910a99      8b45f8         mov eax, dword [ebp - 8]
+            0x00910a9c      d9ee           fldz
+            0x00910a9e      d998a4000000   fstp dword [eax + 0xa4]
+            0x00910aa4      8b4df8         mov ecx, dword [ebp - 8]
+            0x00910aa7      c741340000..   mov dword [ecx + 0x34], 0

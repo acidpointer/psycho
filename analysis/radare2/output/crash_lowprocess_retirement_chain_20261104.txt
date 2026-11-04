@@ -1,0 +1,56 @@
+Psycho radare2 evidence
+UTC: 2026-11-04T13:08:28+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=40 -c pd 45 @ 0x00882FE0 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 45 @ 0x00882FE0
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x00882fe0      688b55c08b     push 0x8bc0558b
+            0x00882fe5      42             inc edx
+            0x00882fe6      688b118bc8     push 0xc88b118b
+            0x00882feb      8b82c8040000   mov eax, dword [edx + 0x4c8]
+            0x00882ff1      ffd0           call eax
+            0x00882ff3      85c0           test eax, eax
+        ┌─< 0x00882ff5      741c           je 0x883013
+        │   0x00882ff7      6a00           push 0
+        │   0x00882ff9      6a00           push 0
+        │   0x00882ffb      6a00           push 0
+        │   0x00882ffd      8b4dc0         mov ecx, dword [ebp - 0x40]
+        │   0x00883000      8b5168         mov edx, dword [ecx + 0x68]
+        │   0x00883003      8b45c0         mov eax, dword [ebp - 0x40]
+        │   0x00883006      8b4868         mov ecx, dword [eax + 0x68]
+        │   0x00883009      8b12           mov edx, dword [edx]
+        │   0x0088300b      8b8240050000   mov eax, dword [edx + 0x540]
+        │   0x00883011      ffd0           call eax
+        └─> 0x00883013      8b4dc0         mov ecx, dword [ebp - 0x40]
+            0x00883016      8b5168         mov edx, dword [ecx + 0x68]
+            0x00883019      52             push edx
+            0x0088301a      8b45e8         mov eax, dword [ebp - 0x18]
+            0x0088301d      8b10           mov edx, dword [eax]
+            0x0088301f      8b4de8         mov ecx, dword [ebp - 0x18]
+            0x00883022      8b4204         mov eax, dword [edx + 4]
+            0x00883025      ffd0           call eax
+            0x00883027      8b4dc0         mov ecx, dword [ebp - 0x40]
+            0x0088302a      8b5168         mov edx, dword [ecx + 0x68]
+            0x0088302d      8955c4         mov dword [ebp - 0x3c], edx
+            0x00883030      8b45c4         mov eax, dword [ebp - 0x3c]
+            0x00883033      8945c8         mov dword [ebp - 0x38], eax
+            0x00883036      837dc800       cmp dword [ebp - 0x38], 0
+        ┌─< 0x0088303a      7413           je 0x88304f
+        │   0x0088303c      6a01           push 1                      ; 1
+        │   0x0088303e      8b4dc8         mov ecx, dword [ebp - 0x38]
+        │   0x00883041      8b11           mov edx, dword [ecx]
+        │   0x00883043      8b4dc8         mov ecx, dword [ebp - 0x38]
+        │   0x00883046      8b02           mov eax, dword [edx]
+        │   0x00883048      ffd0           call eax
+        │   0x0088304a      8945b0         mov dword [ebp - 0x50], eax
+       ┌──< 0x0088304d      eb07           jmp 0x883056
+       │└─> 0x0088304f      c745b00000..   mov dword [ebp - 0x50], 0
+       └──> 0x00883056      8b4dc0         mov ecx, dword [ebp - 0x40]
+            0x00883059      8b55e8         mov edx, dword [ebp - 0x18]
+            0x0088305c      895168         mov dword [ecx + 0x68], edx
+            0x0088305f      0fb645e7       movzx eax, byte [ebp - 0x19]
