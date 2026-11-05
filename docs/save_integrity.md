@@ -720,3 +720,263 @@ Validation recorded on 2026-07-27 after removing `ReplaceFileA` promotion:
   psycho-engine-fixes -p psycho-engine-fixes-helper`: passed;
 - successful quick, manual, automatic, and scripted saves through the
   reporter's MO2/Proton virtual save path remain mandatory runtime acceptance.
+
+## 2026-11-05 quicksave-load crash: unresolved radio FormIDs escape rejection
+
+### Incident and evidence boundary
+
+The owner reports a crash while loading a quicksave, including with runtime
+occlusion planes disabled and allocator mode `1`. The archived session confirms
+both effective settings. Its on-disk TOML later says occlusion planes are enabled;
+that snapshot does not override the session's explicit disabled marker. The
+loaded core reports the current source revision. The initial investigation
+made no production change. The subsequently authorized candidate is described
+below; no game reproduction was performed.
+
+[Incident inputs](../.reports/20261105-johnny-mainloop-crash/inputs.json)
+preserve the complete CrashLogger, Psycho, OMV and Atom logs. The current
+`quicksave.fos`, its `.nvse` companion and the preceding `.fos.bak` are archived
+with [save provenance](../.reports/20261105-johnny-mainloop-crash/save_and_dump_inputs.json).
+The current quicksave is a reproduction candidate; its identity as the exact
+file selected in the reported run has not been observed. The discovered game
+dump files are empty and predate this incident.
+
+The executable matches the supported PE32 x86 image at `0x00400000`, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Native evidence below was refreshed with radare2 on that image. The available
+JohnnyGuitar DLL was archived from its MO2 mod directory and analyzed read-only;
+its image layout, PDB path and fault instruction agree with the crash report,
+but the crashed process's mapped bytes were not captured. Raw captures identify
+the exact files and commands and are not patch authority.
+
+### Observed failure and native ownership
+
+The latest main-thread exception is JohnnyGuitar `MessageHandler+0x782`,
+preferred address `0x10030FB2`, runtime address `0x0E820FB2`. The instruction
+is `mov eax, [ecx+0x0C]`. `ECX=0x6E016B62` therefore attempts a read at
+`0x6E016B6E`. `EAX=0x1EFFA5E4` is the current list node and
+`ESI=EAX+4` is its successor field. Earlier reports ending at 14:35:59 and
+04:07:17 have the same instruction and ECX value with different node addresses.
+
+The [consumer disassembly](../analysis/radare2/output/crash_20261105_johnny_mainloop_20261105.txt)
+shows the exact path: call `0x0079C080`, load the node payload into ECX, check
+only for null, read the payload's FormID at `+0x0C`, then follow node `+4`.
+The [native accessor](../analysis/radare2/output/crash_20261105_radio_found_list_accessor_20261105.txt)
+returns `0x011DD59C`, the found-radio-reference list. This is not the actor
+process list. Its embedded head and successor nodes are engine-owned; payload
+words are borrowed references after fixup, not reference objects owned by nodes.
+
+The [plugin record extraction](../.reports/20261105-johnny-mainloop-crash/radio_form_record.json)
+finds local REFR `0x016B62` in `ATMOS Ambient Overhaul.esp`. Its NAME points
+to TACT `0x016B5B`, editor ID `ATMOSVaultRadio`, display name `Vault Radio`,
+and the reference has XRDO radio data. CrashLogger assigns that plugin index
+`0x6E`. Thus the fault value exactly matches a radio reference's FormID in the
+reported load order. This identifies the data being misinterpreted; it does
+not establish a defect in that plugin or authorize a plugin-specific fix.
+
+The [native loader](../analysis/radare2/output/crash_20261105_radio_load_owner_20261105.txt)
+at `0x008368B0` deliberately publishes temporary integer identities:
+
+- `0x00836AC0` calls the [serialized reference reader](../analysis/radare2/output/crash_20261105_serialized_refid_reader_20261105.txt)
+  at `0x008648E0`, which decodes a serialized reference into a FormID.
+- `0x00836AC9..0x00836ACE` appends that word to `0x011DD59C` through
+  `0x005AE3D0`, without converting it to a reference pointer.
+- The later [post-load owner](../analysis/radare2/output/crash_20261105_radio_postload_fixup_20261105.txt)
+  at `0x00836AF0` resolves each word through `0x004839C0`, casts the result
+  to TESObjectREFR, writes the pointer back at `0x00836DB4`, and removes
+  unresolved entries through the native list operations.
+
+The global-data dispatcher calls deserialization at `0x0084BF3B` and fixup
+at `0x0084C0B3`; each has one discovered direct caller. The fixup range wrapper
+`0x00848D10` invokes `0x0084BFB0(0, 12)`. Address references to the list and
+direct callers are preserved in the incident's `radio_list_xrefs`,
+`radio_deserialization_callers`, `radio_postload_callers`, and
+`global_fixup_callers` captures under `analysis/radare2/output/`.
+
+### Rejection path and root-cause assessment
+
+The session records live actor-container rejection at 12:37:45.043 UTC,
+another at .139, and `Malformed save data rejected; load owner forced to
+failure` at .159. Both live rejections report `ActorAllocation(Unowned)`.
+Retiring dynamic actors were also reported as owning unrecognized FormCount
+allocations immediately beforehand. The crash archive timestamp is 14:37:45
+local time, consistent with this load failure. The earlier log-header timestamp
+must not be used as the exception timestamp.
+
+`mark_load_rejected` sets owner `+0x244` bit `0x80`. The
+[native changed-form owner](../analysis/radare2/output/crash_20261105_changed_form_load_owner_20261105.txt)
+checks that bit through `0x00848CF0` at `0x00848A22`. An error takes the
+cleanup/zero-return path ending at `0x00848AED`, bypassing the normal
+`0x00848BD8 -> 0x00848D10` global fixup. The same
+[error-predicate and dispatch evidence](../analysis/radare2/output/crash_20261105_error_bit_and_global_fixup_dispatch_20261105.txt)
+proves the bit test and radio fixup call.
+
+The reconstructed incident chain is therefore:
+
+1. Quicksave global-data loading puts radio FormIDs into the found list.
+2. Actor validation rejects the changed-form load and sets the native error.
+3. The load exits before converting those IDs to live reference pointers.
+4. A subsequent main-loop radio consumer reads an ID as a pointer and faults.
+
+Steps 1-3 are a proven native/source control-flow path, and step 4 is the
+captured exception with the matching radio FormID. No runtime trace captures
+every intermediate step in this session, so the incident-level connection is
+a strongly supported reconstruction, not a witnessed branch trace. The
+concrete defect is failure to contain temporary load representations when a
+partially applied load is rejected. A damaged save, random overwrite, gheap
+failure, and an external plugin writer have not been established.
+
+There is a second failure-policy mismatch: `hook_load_owner` returns zero for
+malformed data, while the [native caller](../analysis/radare2/output/crash_20261105_load_failure_continuation_20261105.txt)
+at `0x0085085E` routes zero to the missing-content confirmation dialog.
+Its [callback](../analysis/radare2/output/crash_20261105_load_confirmation_callback_20261105.txt)
+can retry `0x00850760(..., 1)`. A terminal integrity rejection must not offer
+that continuation of a partially mutated load.
+
+The original actor rejection remains unresolved. `Unowned` means the classifier
+could not establish an admitted allocation, not that serialized inventory was
+proven corrupt. `allocation_state.rs` handles gheap, vanilla SBM cells, and
+cached Windows heaps. It has no branch for the native Default/File large-heap
+block metadata described in `gheap/vanilla_large_heap.rs`. Several rejected
+addresses lie within the logged Default heap reservation. That is evidence to
+investigate an ownership-coverage gap; range membership alone does not prove
+an individual allocation is live or valid. Do not weaken validation or declare
+these rejections false positives without that proof.
+
+### Authorized reporter-only candidate
+
+After the investigation, the owner explicitly stated that runtime reproduction
+is unavailable and authorized an exception and implementation for this incident.
+The [reporter-only engine-fix exception](psycho_engine_fix_exception.md) replaces
+the fail-first/same-runtime implementation prerequisite for this unreleased
+candidate. It does not authorize guessing actor ownership, modifying reference
+counts or engine containers, hooking object destructors, or patching a consumer
+plugin. The selected fix therefore owns publication of the invalid temporary
+representation at the shared engine accessor. Speculative abort cleanup and an
+allocator-classifier rewrite are outside this candidate.
+
+[Implementation](../psycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs)
+is part of the existing `engine_fixes.save_integrity_fix` transaction. It applies
+in every allocator mode and independently of `engine_fixes.radio_fix`. It adds
+no configuration field, helper ABI, lifecycle message, worker, dependency or
+TLS owner.
+
+| Boundary | Native contract and complete discovered executable caller set | Candidate action |
+|---|---|---|
+| Deserialization `0x008368B0` | cdecl(context), plain RET; one direct CALL at `0x0084BF3B`, caller removes four argument bytes | Withhold publication before chaining the captured provider; keep it withheld on return |
+| Fixup `0x00836AF0` | cdecl(context), plain RET; one direct CALL at `0x0084C0B3`, caller removes four argument bytes | Withhold during conversion; publish after the captured provider returns |
+| World radio reset `0x00832010` | cdecl(), plain RET; one direct CALL at `0x0086B7A4`, no argument setup/cleanup | Withhold during reset; publish the natively cleared list after return |
+| Found-reference accessor `0x0079C080` | cdecl(), pointer result in EAX, plain RET; one direct CALL at `0x0079BF04`, plus the captured external caller | Return NULL while unresolved; otherwise chain the retained accessor provider unchanged |
+
+The three lifecycle calls are wrapped in the executable, preserving their
+installed targets. The accessor entry uses the existing inline-hook container;
+its trampoline retains the pristine native body or an existing entry rel32 JMP.
+No target DLL is identified, inspected, or patched. Runtime fingerprints verify
+the argument setup, cleanup, branch continuations, reset caller context, and
+native accessor consumer before preparation. Ownership-aware containers capture
+and reverify the actual instruction bytes before activation. Other entry shapes
+decline the complete integrity installation rather than overwrite an unknown
+contract.
+
+The [native accessor caller](../analysis/radare2/output/crash_20261105_radio_accessor_native_consumer_20261105.txt)
+stores EAX at `0x0079BF09` and tests it at `0x0079BF19`; NULL skips its complete
+list loop at `0x0079C014`. The reported external consumer likewise tests EAX
+before reading a node. Thus unavailable is a tolerated result, not a fabricated
+reference, filtered station list, or successful-load result. Additional external
+consumers have not been exhaustively audited.
+
+[Accessor callers](../analysis/radare2/output/crash_20261105_radio_accessor_callers_20261105.txt),
+[reset callers](../analysis/radare2/output/crash_20261105_radio_reset_callers_20261105.txt),
+[reset context](../analysis/radare2/output/crash_20261105_radio_reset_caller_context_20261105.txt),
+[deserialization context](../analysis/radare2/output/crash_20261105_radio_deserialize_caller_context_20261105.txt)
+and [fixup context](../analysis/radare2/output/crash_20261105_radio_fixup_caller_context_20261105.txt)
+record the refreshed caller coverage and instruction/ABI proof. Native radio
+reset reaches `0x00470470` for `0x011DD59C` before returning, as shown in its
+[complete body](../analysis/radare2/output/crash_20261105_radio_native_reset_20261105.txt).
+Psycho does not call that reset out of sequence or manipulate its nodes.
+
+The gate starts open for the normal native empty list. Native deserialization
+makes it unresolved, and neither deserialization return nor integrity rejection
+reopens it. This is the critical invariant: a failed load cannot accidentally
+publish raw IDs. Fixup and world reset are the only successful publication
+events. Reset also recovers the gate for a subsequent new game or another load,
+so failure does not permanently suppress healthy radio data. During fixup/reset
+itself the accessor remains closed.
+
+All four hooks join the existing integrity rollback transaction before load
+owners activate. The gate is admitted only after that whole transaction commits.
+An unadmitted rollback survivor forwards its captured provider without imposing
+new policy. A missing predecessor on a lifecycle bridge leaves publication
+unresolved; it cannot manufacture a successful conversion.
+
+The candidate never reads a node, reference field, allocation descriptor, vtable
+or callback from engine data. The engine remains the only owner of list mutation
+and reference lifetimes. The native world-load sequence serializes the audited
+writers; the atomic gate only controls acquisition of the public view. It does
+not pin a pointer acquired before a later world transition or repair arbitrary
+cross-thread misuse by an external consumer. Deserialization/fixup remain
+synchronous calls, with their caller-owned context borrowed only until return.
+
+Runtime cost is a constant atomic gate check plus normal provider forwarding,
+without a station walk, mapping query, allocation, or additional lifetime lock.
+The first withheld accessor query per unavailable interval emits `[RADIO_LOAD]`
+with LastError preserved. This is event-only rejection logging, not per-frame
+telemetry. Runtime cost has not been measured.
+
+### Qualification and remaining limits
+
+The offline regression executes the actual production detour, entry hook, and
+captured trampoline with the complete native ten-byte accessor body. The fixture
+is extracted unchanged from the supported executable at `0x0079C080`; its only
+operation is returning the opaque global-head address. It needs no game
+initialization, relocation or replacement provider, and the test never invents
+or dereferences a game list. It verifies native forwarding, unresolved-query
+rejection, persistence without a publication event, later publication, reset
+interval behavior, rollback forwarding and LastError preservation. Publication
+events execute the same Rust operations used by the lifecycle bridges. Native
+orchestration and callback ABI are separately inspected, not simulated by mocks.
+
+The supplied exception permits this offline qualification alongside the real
+crash report; it does not turn the test into a reproduced game load. The actor
+allocation rejection, arbitrary partial-world rollback and missing-content
+confirmation policy remain unresolved/separate work. This candidate neither
+declares a rejected quicksave valid nor bypasses its inventory guard. The later
+reporter outcome is recorded below; comprehensive load, rejection-recovery and
+audible-radio acceptance remain outside the offline evidence.
+
+Pre-CRT changes are limited to three direct-call containers, one lazy accessor
+hook, three inert booleans, and their preparation/activation inside the existing
+integrity owner. No TLS, import API, configuration parsing, worker or helper
+startup path is intentionally added. The local pre-edit core/helper artifacts
+are preserved for static comparison; those snapshots alone do not establish an
+accepted startup baseline. Qualification results are recorded with the incident
+artifacts. The owner subsequently reported the crash gone and explicitly
+authorized committing this change. Deployment and packaging remain user-owned.
+
+The native-accessor regression and complete affected crate suite passed on the
+supported i686 target through Wine. The complete supported release build,
+scoped formatting, document links and diff checks passed. The
+[compiled bridge audit](../analysis/radare2/output/crash_20261105_radio_publication_compiled_abi_20261105.txt)
+confirms plain RET for all four cdecl bridges, context forwarding and local
+four-byte cleanup for the two data providers, no reopening after deserialization,
+and reopening only after fixup/reset provider return. The unresolved accessor
+returns zero before reaching its retained provider.
+
+[Startup comparison](../.reports/20261105-johnny-mainloop-crash/implementation/startup-comparison.json)
+finds identical core/helper imports, delay imports, CRT initializers and TLS
+shape/callbacks. The core's existing TLS template pointer relocates with code;
+its symbol-resolved words remain identical. These static checks do not certify
+the changed hook/static/code footprint as runtime accepted. The initial
+sandboxed suite attempt could not start Wine's server; rerunning the same suite
+outside that sandbox passed. No game reproduction was requested or performed.
+
+### Reporter outcome
+
+The owner reported "Crash gone" after the candidate handoff and explicitly
+requested a commit. This confirms the reported crash outcome for that tested
+workload. The [archived current session](../.reports/20261105-johnny-mainloop-crash/reporter-confirmation/inputs.json)
+records allocator mode `2`, the engine-ready marker and subsequent main-loop
+activity. It contains no `[RADIO_LOAD]` withholding event, so guard activation
+in that session is not claimed. Actor-allocation attribution, complete
+malformed-load recovery, audible radio behavior and broad startup compatibility
+remain unproven by this report.

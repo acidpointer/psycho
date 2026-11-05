@@ -1,0 +1,564 @@
+Psycho radare2 compiled ABI evidence
+UTC: 2026-11-05T13:07:59.573622+00:00
+Binary: /data/storage1/Workspace/psycho/target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+SHA-256: 06aa47aa84cc2ff43d905f62b043761c90a043478309b726db5b6e3d9d00d8bd
+Interface: r2mcp; backend version not exposed. Host CLI: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Calls: open_file(binary); analyze(level=1, timeout_seconds=20); disassemble_function(address, page_size=300) for each address below.
+Warnings: analysis requested calling-convention selection. ABI is established from instructions, not inferred prototypes.
+Scope: four emitted i686 bridge bodies and publication stores, not game orchestration, lifetime or startup acceptance.
+This file is not patch authority.
+
+=== deserialize @ 0x10152020 ===
+; psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize
+; DATA XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare @ 0x101528f5(w)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare
+317: sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize (int32_t arg_8h);
+`- args(sp[0x4..0x4]) vars(19:sp[0x8..0x61])
+0x10152020      push ebp
+0x10152021      mov ebp, esp
+0x10152023      push esi
+0x10152024      and esp, 0xfffffff8
+0x10152027      sub esp, 0x60
+; [0x1041d310:4]=3
+0x1015202a      mov eax, dword [0x1041d310]
+0x1015202f      test eax, eax
+; unlikely
+0x10152031      je 0x1015210d
+; [0xe:1]=255
+; 14
+0x10152037      mov byte [var_8h], 0xe
+0x1015203c      movsd xmm2, qword [var_10h]
+0x10152042      movsd xmm1, qword [var_18h]
+0x10152048      movsd xmm0, qword [var_8h]
+0x1015204e      movsd qword [var_48h], xmm2
+0x10152054      movsd qword [var_50h], xmm1
+0x1015205a      movsd qword [var_40h], xmm0
+0x10152060      cmp byte [var_40h], 0xff
+; likely
+0x10152065      je 0x10152149
+0x1015206b      lea ecx, [var_40h]
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x1015206f      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x1041e474:4]=0x10591910
+0x10152074      mov eax, dword [0x1041e474]
+; [0x10587eeb:1]=0
+0x10152079      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x10152080      mov byte [0x10587ee9], 1
+0x10152087      mov eax, dword [eax]
+0x10152089      test eax, eax
+; likely
+0x1015208b      je 0x10152107
+0x1015208d      lea eax, [var_8h]
+0x10152091      mov dword [var_8h], 1
+; [0xa1:4]=-1
+; 161
+0x10152099      mov dword [var_ch], 0xa1
+0x101520a1      mov dword [var_10h], 0
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x101520a9      mov dword [var_14h], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x101520b1      mov dword [var_18h], 0x43
+0x101520b9      mov dword [var_1ch], 0
+; [0x1044ece0:4]=0x63797370
+; "psycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs"
+0x101520c1      mov dword [var_20h], 0x1044ece0
+; 'F'
+; [0x46:4]=-1
+; 70
+0x101520c9      mov dword [var_24h], 0x46
+0x101520d1      mov dword [var_28h], 1
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x101520d9      mov dword [var_2ch], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x101520e1      mov dword [var_30h], 0x43
+; [0x1044ecac:4]=0x4441525b
+; "[RADIO_LOAD] Deserialization predecessor unavailablepsycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs"
+0x101520e9      mov dword [var_34h], str._RADIO_LOAD__Deserialization_predecessor_unavailablepsycho_engine_fixes_src_mods_engine_fixes_save_integrity_radio_load.rs
+; 'i'
+; [0x69:4]=-1
+; 105
+0x101520f1      mov dword [var_38h], 0x69
+0x101520f9      lea ecx, [var_7h]
+0x101520fd      push eax
+0x101520fe      push ecx
+; <log::__private_api::GlobalLogger as log::Log>::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log(0xffffff9c)
+0x101520ff      call sym._log::__private_api::GlobalLogger_as_log::Log_::log
+0x10152104      add esp, 8
+0x10152107      lea esp, [var_4h]
+0x1015210a      pop esi
+0x1015210b      pop ebp
+0x1015210c      ret
+; [0x1041d314:4]=0
+0x1015210d      mov esi, dword [0x1041d314]
+0x10152113      lea ecx, [var_8h]
+; [0xe:1]=255
+; 14
+0x10152117      mov byte [var_8h], 0xe
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x1015211c      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x10587eea:1]=0
+0x10152121      movzx ecx, byte [0x10587eea]
+0x10152128      mov eax, dword [arg_8h]
+0x1015212b      test cl, cl
+; likely
+0x1015212d      je 0x1015213d
+; [0x10587eeb:1]=0
+0x1015212f      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x10152136      mov byte [0x10587ee9], 1
+; CODE XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize @ 0x1015215b(x)
+0x1015213d      push eax
+; pe_dos_header(-1, 0x0, 0x0, 0x0)
+0x1015213e      call esi
+0x10152140      add esp, 4
+0x10152143      lea esp, [var_4h]
+0x10152146      pop esi
+0x10152147      pop ebp
+0x10152148      ret
+0x10152149      mov esi, dword [var_44h]
+; [0x10587eea:1]=0
+0x1015214d      movzx ecx, byte [0x10587eea]
+0x10152154      mov eax, dword [arg_8h]
+0x10152157      test cl, cl
+; unlikely
+0x10152159      jne 0x1015212f
+0x1015215b      jmp 0x1015213d
+
+
+=== found_references @ 0x10152160 ===
+; psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::found_references
+; NULL XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize @ 0x10152020(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize
+; DATA XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare @ 0x10152978(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare
+402: sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::found_references ();
+afv: vars(19:sp[0x8..0x61])
+0x10152160      push ebp
+0x10152161      mov ebp, esp
+0x10152163      push esi
+0x10152164      and esp, 0xfffffff8
+0x10152167      sub esp, 0x60
+; [0x10587eea:1]=0
+0x1015216a      movzx eax, byte [0x10587eea]
+0x10152171      test al, al
+; likely
+0x10152173      je 0x10152194
+; [0x10587ee9:1]=0
+0x10152175      movzx eax, byte [0x10587ee9]
+0x1015217c      test al, al
+; likely
+0x1015217e      je 0x10152194
+0x10152180      mov cl, 1
+0x10152182      xor eax, eax
+0x10152184      xchg byte [0x10587eeb], cl
+0x1015218a      test cl, cl
+; unlikely
+0x1015218c      je 0x101521f3
+0x1015218e      lea esp, [var_4h]
+0x10152191      pop esi
+0x10152192      pop ebp
+0x10152193      ret
+; [0x1041d404:4]=3
+0x10152194      mov eax, dword [0x1041d404]
+0x10152199      test eax, eax
+; likely
+0x1015219b      jne 0x10152297
+; [0x1041d3fc:4]=0
+0x101521a1      mov eax, dword [0x1041d3fc]
+0x101521a6      test eax, eax
+; likely
+0x101521a8      je 0x101522d4
+; [0x14:2]=0xffff
+; 20
+0x101521ae      mov word [var_8h], 0x14
+0x101521b5      movsd xmm2, qword [var_10h]
+0x101521bb      movsd xmm1, qword [var_18h]
+0x101521c1      movsd xmm0, qword [var_8h]
+0x101521c7      movsd qword [var_48h], xmm2
+0x101521cd      movsd qword [var_50h], xmm1
+0x101521d3      movsd qword [var_40h], xmm0
+0x101521d9      cmp word [var_40h], 0xffff
+; unlikely
+0x101521df      je 0x10152291
+0x101521e5      lea ecx, [var_40h]
+; fcn.1013ebf0
+0x101521e9      call fcn.1013ebf0
+0x101521ee      jmp 0x10152289
+; sym.libpsycho::os::windows::winapi::get_last_error_code
+0x101521f3      call sym.libpsycho::os::windows::winapi::get_last_error_code
+0x101521f8      mov esi, eax
+; [0x1041e474:4]=0x10591910
+0x101521fa      mov eax, dword [0x1041e474]
+0x101521ff      mov eax, dword [eax]
+; 2
+0x10152201      cmp eax, 2
+; likely
+0x10152204      jb 0x10152280
+0x10152206      lea eax, [var_8h]
+0x1015220a      mov dword [var_8h], 1
+; [0xd4:4]=-1
+; 212
+0x10152212      mov dword [var_ch], 0xd4
+0x1015221a      mov dword [var_10h], 0
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x10152222      mov dword [var_14h], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x1015222a      mov dword [var_18h], 0x43
+0x10152232      mov dword [var_1ch], 0
+; [0x1044ece0:4]=0x63797370
+; "psycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs"
+0x1015223a      mov dword [var_20h], 0x1044ece0
+; 'F'
+; [0x46:4]=-1
+; 70
+0x10152242      mov dword [var_24h], 0x46
+0x1015224a      mov dword [var_28h], 2
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x10152252      mov dword [var_2ch], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x1015225a      mov dword [var_30h], 0x43
+; [0x1044ed6a:4]=0x4441525b
+; "[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable\x8bE\fP\x83\xc4\x04\xb0\x01\xeb5\x8bU\fR\x83\xc4\x04\xb0\x01\xeb\x1b\u8245\x9c\xfc\xff\xff\x8b\x8d\x9c\xfc"
+0x10152262      mov dword [var_34h], 0x1044ed6a
+; [0xbf:4]=-1
+; 191
+0x1015226a      mov dword [var_38h], 0xbf
+0x10152272      lea ecx, [var_7h]
+0x10152276      push eax
+0x10152277      push ecx
+; <log::__private_api::GlobalLogger as log::Log>::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log(0x4)
+0x10152278      call sym._log::__private_api::GlobalLogger_as_log::Log_::log
+0x1015227d      add esp, 8
+0x10152280      push esi
+; sym.libpsycho::os::windows::winapi::set_last_error
+; sym.libpsycho::os::windows::winapi::set_last_error(0x4)
+0x10152281      call sym.libpsycho::os::windows::winapi::set_last_error
+0x10152286      add esp, 4
+; CODE XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::found_references @ 0x101521ee(x)
+0x10152289      xor eax, eax
+0x1015228b      lea esp, [var_4h]
+0x1015228e      pop esi
+0x1015228f      pop ebp
+0x10152290      ret
+0x10152291      mov esi, dword [var_44h]
+0x10152295      jmp 0x101522ea
+0x10152297      lea eax, [var_40h]
+; [0x1041d3ac:4]=0x1013fb40 sym.__RNvMs8_NtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook6inline10inlinehookINtB5_19InlineHookContainerFUK8thiscallONtNtCs32t_119
+0x1015229b      mov dword [var_40h], 0x1041d3ac
+0x101522a3      lea ecx, [0x1041d404]
+0x101522a9      mov dword [var_8h], eax
+0x101522ad      lea eax, [var_8h]
+0x101522b1      push 0x1044a47c
+0x101522b6      push 0x1044a630
+0x101522bb      push eax
+; 1
+0x101522bc      push 1
+0x101522be      push ecx
+; <std::sys::sync::once::futex::Once>::call
+; sym._std::sys::sync::once::futex::Once_::call
+; sym._std::sys::sync::once::futex::Once_::call(0xf, 0x0, 0x1041d404, 0x0)
+0x101522bf      call sym._std::sys::sync::once::futex::Once_::call
+0x101522c4      add esp, 0x14
+; [0x1041d3fc:4]=0
+0x101522c7      mov eax, dword [0x1041d3fc]
+0x101522cc      test eax, eax
+; unlikely
+0x101522ce      jne 0x101521ae
+; [0x1041d400:4]=0
+0x101522d4      mov esi, dword [0x1041d400]
+0x101522da      lea ecx, [var_8h]
+; [0x14:2]=0xffff
+; 20
+0x101522de      mov word [var_8h], 0x14
+; fcn.1013ebf0
+0x101522e5      call fcn.1013ebf0
+; CODE XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::found_references @ 0x10152295(x)
+; pe_dos_header(0x0, 0x0, 0xb, 0x0)
+0x101522ea      call esi
+0x101522ec      lea esp, [var_4h]
+0x101522ef      pop esi
+0x101522f0      pop ebp
+0x101522f1      ret
+
+
+=== fixup @ 0x10152310 ===
+; psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::fixup
+; NULL XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize @ 0x10152020(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize
+; DATA XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare @ 0x1015291f(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare
+334: sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::fixup (int32_t arg_8h);
+`- args(sp[0x4..0x4]) vars(19:sp[0x8..0x61])
+0x10152310      push ebp
+0x10152311      mov ebp, esp
+0x10152313      push esi
+0x10152314      and esp, 0xfffffff8
+0x10152317      sub esp, 0x60
+; [0x1041d344:4]=3
+0x1015231a      mov eax, dword [0x1041d344]
+0x1015231f      test eax, eax
+; unlikely
+0x10152321      je 0x101523fd
+; [0xe:1]=255
+; 14
+0x10152327      mov byte [var_8h], 0xe
+0x1015232c      movsd xmm2, qword [var_10h]
+0x10152332      movsd xmm1, qword [var_18h]
+0x10152338      movsd xmm0, qword [var_8h]
+0x1015233e      movsd qword [var_48h], xmm2
+0x10152344      movsd qword [var_50h], xmm1
+0x1015234a      movsd qword [var_40h], xmm0
+0x10152350      cmp byte [var_40h], 0xff
+; likely
+0x10152355      je 0x10152440
+0x1015235b      lea ecx, [var_40h]
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x1015235f      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x1041e474:4]=0x10591910
+0x10152364      mov eax, dword [0x1041e474]
+; [0x10587eeb:1]=0
+0x10152369      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x10152370      mov byte [0x10587ee9], 1
+0x10152377      mov eax, dword [eax]
+0x10152379      test eax, eax
+; likely
+0x1015237b      je 0x101523f7
+0x1015237d      lea eax, [var_8h]
+0x10152381      mov dword [var_8h], 1
+; [0xaf:4]=-1
+; 175
+0x10152389      mov dword [var_ch], 0xaf
+0x10152391      mov dword [var_10h], 0
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x10152399      mov dword [var_14h], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x101523a1      mov dword [var_18h], 0x43
+0x101523a9      mov dword [var_1ch], 0
+; [0x1044ece0:4]=0x63797370
+; "psycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs"
+0x101523b1      mov dword [var_20h], 0x1044ece0
+; 'F'
+; [0x46:4]=-1
+; 70
+0x101523b9      mov dword [var_24h], 0x46
+0x101523c1      mov dword [var_28h], 1
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x101523c9      mov dword [var_2ch], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x101523d1      mov dword [var_30h], 0x43
+; [0x1044edc9:4]=0x4441525b
+; "[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable\x8bE\fP\x83\xc4\x04\xb0\x01\xeb5\x8bU\fR\x83\xc4\x04\xb0\x01\xeb\x1b\u8245\x9c\xfc\xff\xff\x8b\x8d\x9c\xfc"
+0x101523d9      mov dword [var_34h], 0x1044edc9
+; 'U'
+; [0x55:4]=-1
+; 85
+0x101523e1      mov dword [var_38h], 0x55
+0x101523e9      lea ecx, [var_7h]
+0x101523ed      push eax
+0x101523ee      push ecx
+; <log::__private_api::GlobalLogger as log::Log>::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log(0xffffff9c)
+0x101523ef      call sym._log::__private_api::GlobalLogger_as_log::Log_::log
+0x101523f4      add esp, 8
+0x101523f7      lea esp, [var_4h]
+0x101523fa      pop esi
+0x101523fb      pop ebp
+0x101523fc      ret
+; [0x1041d348:4]=0
+0x101523fd      mov esi, dword [0x1041d348]
+0x10152403      lea ecx, [var_8h]
+; [0xe:1]=255
+; 14
+0x10152407      mov byte [var_8h], 0xe
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x1015240c      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x10587eea:1]=0
+0x10152411      movzx ecx, byte [0x10587eea]
+0x10152418      mov eax, dword [arg_8h]
+0x1015241b      test cl, cl
+; likely
+0x1015241d      je 0x10152452
+; [0x10587eeb:1]=0
+0x1015241f      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x10152426      mov byte [0x10587ee9], 1
+0x1015242d      push eax
+; pe_dos_header(-1, 0x0, 0x0, 0x0)
+0x1015242e      call esi
+0x10152430      add esp, 4
+; [0x10587ee9:1]=0
+0x10152433      mov byte [0x10587ee9], 0
+0x1015243a      lea esp, [var_4h]
+0x1015243d      pop esi
+0x1015243e      pop ebp
+0x1015243f      ret
+0x10152440      mov esi, dword [var_44h]
+; [0x10587eea:1]=0
+0x10152444      movzx ecx, byte [0x10587eea]
+0x1015244b      mov eax, dword [arg_8h]
+0x1015244e      test cl, cl
+; unlikely
+0x10152450      jne 0x1015241f
+0x10152452      push eax
+; 0xffffffff(-1, 0x0, 0x0, 0x0)
+0x10152453      call esi
+0x10152455      add esp, 4
+0x10152458      lea esp, [var_4h]
+0x1015245b      pop esi
+0x1015245c      pop ebp
+0x1015245d      ret
+
+
+=== reset @ 0x10152460 ===
+; psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::reset
+; NULL XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize @ 0x10152020(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::deserialize
+; DATA XREF from psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare @ 0x10152949(x)
+; sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::prepare
+320: sym.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load::reset ();
+afv: vars(19:sp[0x8..0x61])
+0x10152460      push ebp
+0x10152461      mov ebp, esp
+0x10152463      push esi
+0x10152464      and esp, 0xfffffff8
+0x10152467      sub esp, 0x60
+; [0x1041d378:4]=3
+0x1015246a      mov eax, dword [0x1041d378]
+0x1015246f      test eax, eax
+; unlikely
+0x10152471      je 0x1015254d
+; [0xe:1]=255
+; 14
+0x10152477      mov byte [var_8h], 0xe
+0x1015247c      movsd xmm2, qword [var_10h]
+0x10152482      movsd xmm1, qword [var_18h]
+0x10152488      movsd xmm0, qword [var_8h]
+0x1015248e      movsd qword [var_48h], xmm2
+0x10152494      movsd qword [var_50h], xmm1
+0x1015249a      movsd qword [var_40h], xmm0
+0x101524a0      cmp byte [var_40h], 0xff
+; likely
+0x101524a5      je 0x10152589
+0x101524ab      lea ecx, [var_40h]
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x101524af      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x1041e474:4]=0x10591910
+0x101524b4      mov eax, dword [0x1041e474]
+; [0x10587eeb:1]=0
+0x101524b9      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x101524c0      mov byte [0x10587ee9], 1
+0x101524c7      mov eax, dword [eax]
+0x101524c9      test eax, eax
+; likely
+0x101524cb      je 0x10152547
+0x101524cd      lea eax, [var_8h]
+0x101524d1      mov dword [var_8h], 1
+; [0xc1:4]=-1
+; 193
+0x101524d9      mov dword [var_ch], 0xc1
+0x101524e1      mov dword [var_10h], 0
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x101524e9      mov dword [var_14h], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x101524f1      mov dword [var_18h], 0x43
+0x101524f9      mov dword [var_1ch], 0
+; [0x1044ece0:4]=0x63797370
+; "psycho-engine-fixes/src/mods/engine_fixes/save_integrity/radio_load.rs"
+0x10152501      mov dword [var_20h], 0x1044ece0
+; 'F'
+; [0x46:4]=-1
+; 70
+0x10152509      mov dword [var_24h], 0x46
+0x10152511      mov dword [var_28h], 1
+; [0x1044ed27:4]=0x63797370
+; "psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load[RADIO_LOAD] Withheld unresolved radio references; waiting for native load fixup or world reset[RADIO_LOAD] Fixup predecessor unavailable[RADIO_LOAD] Reset predecessor unavailable"
+0x10152519      mov dword [var_2ch], str.psycho_engine_fixes::mods::engine_fixes::save_integrity::radio_load_RADIO_LOAD__Withheld_unresolved_radio_references__waiting_for_native_load_fixup_or_world_reset_RADIO_LOAD__Fixup_predecessor_unavailable_RADIO_LOAD__Reset_predecessor_unavailable
+; 'C'
+; [0x43:4]=-1
+; 67
+0x10152521      mov dword [var_30h], 0x43
+; [0x1044edf3:4]=0x4441525b
+; "[RADIO_LOAD] Reset predecessor unavailable\x8bE\fP\x83\xc4\x04\xb0\x01\xeb5\x8bU\fR\x83\xc4\x04\xb0\x01\xeb\x1b\u8245\x9c\xfc\xff\xff\x8b\x8d\x9c\xfc"
+0x10152529      mov dword [var_34h], 0x1044edf3
+; 'U'
+; [0x55:4]=-1
+; 85
+0x10152531      mov dword [var_38h], 0x55
+0x10152539      lea ecx, [var_7h]
+0x1015253d      push eax
+0x1015253e      push ecx
+; <log::__private_api::GlobalLogger as log::Log>::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log
+; sym._log::__private_api::GlobalLogger_as_log::Log_::log(0xffffff9c)
+0x1015253f      call sym._log::__private_api::GlobalLogger_as_log::Log_::log
+0x10152544      add esp, 8
+0x10152547      lea esp, [var_4h]
+0x1015254a      pop esi
+0x1015254b      pop ebp
+0x1015254c      ret
+; [0x1041d37c:4]=0
+0x1015254d      mov esi, dword [0x1041d37c]
+0x10152553      lea ecx, [var_8h]
+; [0xe:1]=255
+; 14
+0x10152557      mov byte [var_8h], 0xe
+; sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+0x1015255c      call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT_4
+; [0x10587eea:1]=0
+0x10152561      movzx eax, byte [0x10587eea]
+0x10152568      test al, al
+; likely
+0x1015256a      je 0x10152598
+; [0x10587eeb:1]=0
+0x1015256c      mov byte [0x10587eeb], 0
+; [0x10587ee9:1]=0
+0x10152573      mov byte [0x10587ee9], 1
+; pe_dos_header(0x0, 0x0, 0xc, 0x0)
+0x1015257a      call esi
+; [0x10587ee9:1]=0
+0x1015257c      mov byte [0x10587ee9], 0
+0x10152583      lea esp, [var_4h]
+0x10152586      pop esi
+0x10152587      pop ebp
+0x10152588      ret
+0x10152589      mov esi, dword [var_44h]
+; [0x10587eea:1]=0
+0x1015258d      movzx eax, byte [0x10587eea]
+0x10152594      test al, al
+; unlikely
+0x10152596      jne 0x1015256c
+; 0xffffffff(0x0, 0x0, 0xc, 0x0)
+0x10152598      call esi
+0x1015259a      lea esp, [var_4h]
+0x1015259d      pop esi
+0x1015259e      pop ebp
+0x1015259f      ret

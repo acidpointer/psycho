@@ -1,0 +1,133 @@
+Psycho radare2 evidence
+UTC: 2026-11-05T12:46:35.348654+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Tool: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Interface: CLI; relocations applied
+Command: r2 -q -e scr.color=0 -e bin.relocs.apply=true -c 's 0x00848CF0' -c af -c pdf -c 's 0x00848D10' -c af -c pdf -c 's 0x0084C030' -c af -c pdf -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+Scope: native error predicate and global-data post-load dispatch. No runtime execution or concurrency proof. Known warning: Invalid certificate table.
+This file is not patch authority.
+
+WARN: Invalid certificate table
+┌ 29: fcn.00848cf0 ();
+│ afv: vars(1:sp[0x8..0x8])
+│           0x00848cf0      55             push ebp
+│           0x00848cf1      8bec           mov ebp, esp
+│           0x00848cf3      51             push ecx
+│           0x00848cf4      894dfc         mov dword [var_4h], ecx
+│           0x00848cf7      8b45fc         mov eax, dword [var_4h]
+│           0x00848cfa      8b8844020000   mov ecx, dword [eax + 0x244]
+│           0x00848d00      81e180000000   and ecx, 0x80               ; 128
+│           0x00848d06      0f95c0         setne al
+│           0x00848d09      8be5           mov esp, ebp
+│           0x00848d0b      5d             pop ebp
+└           0x00848d0c      c3             ret
+┌ 17: fcn.00848d10 ();
+│           0x00848d10      55             push ebp
+│           0x00848d11      8bec           mov ebp, esp
+│           0x00848d13      6a0c           push 0xc                    ; 12
+│           0x00848d15      6a00           push 0
+│           0x00848d17      e894320000     call fcn.0084bfb0
+│           0x00848d1c      83c408         add esp, 8
+│           0x00848d1f      5d             pop ebp
+└           0x00848d20      c3             ret
+            ; CALL XREF from fcn.0084bfb0 @ 0x84c005(x)
+┌ 174: fcn.0084c030 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(1:sp[0x8..0x8])
+│           0x0084c030      55             push ebp
+│           0x0084c031      8bec           mov ebp, esp
+│           0x0084c033      51             push ecx
+│           0x0084c034      8b4508         mov eax, dword [arg_8h]
+│           0x0084c037      8945fc         mov dword [var_4h], eax
+│           0x0084c03a      817dfce803..   cmp dword [var_4h], 0x3e8
+│       ┌─< 0x0084c041      7719           ja 0x84c05c
+│       │   0x0084c043      817dfce803..   cmp dword [var_4h], 0x3e8
+│      ┌──< 0x0084c04a      7477           je 0x84c0c3
+│      ││   0x0084c04c      837dfc0b       cmp dword [var_4h], 0xb
+│     ┌───< 0x0084c050      7775           ja case.default.0x84c055
+│     │││   0x0084c052      8b4dfc         mov ecx, dword [var_4h]
+│     │││   ;-- switch:
+│     │││   0x0084c055      ff248de0c0..   jmp dword [ecx*4 + 0x84c0e0] ; switch table (12 cases) at 0x84c0e0
+│    ┌──└─> 0x0084c05c      eb69           jmp case.default.0x84c055
+│    │││    ;-- case 1:                                                ; from 0x0084c055
+│    │││    ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│    │││    0x0084c05e      32c0           xor al, al
+│    │││┌─< 0x0084c060      eb78           jmp 0x84c0da
+│    ││││   ;-- case 2:                                                ; from 0x0084c055
+│    ││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│    ││││   0x0084c062      32c0           xor al, al
+│   ┌─────< 0x0084c064      eb74           jmp 0x84c0da
+│   │││││   ;-- case 3:                                                ; from 0x0084c055
+│   │││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│   │││││   0x0084c066      32c0           xor al, al
+│  ┌──────< 0x0084c068      eb70           jmp 0x84c0da
+│  ││││││   ;-- case 4:                                                ; from 0x0084c055
+│  ││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│  ││││││   0x0084c06a      8b550c         mov edx, dword [arg_ch]
+│  ││││││   0x0084c06d      52             push edx
+│  ││││││   0x0084c06e      b9800e1e01     mov ecx, 0x11e0e80
+│  ││││││   0x0084c073      e8789a1200     call fcn.00975af0
+│  ││││││   0x0084c078      b001           mov al, 1
+│ ┌───────< 0x0084c07a      eb5e           jmp 0x84c0da
+│ │││││││   ;-- case 5:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c07c      8b450c         mov eax, dword [arg_ch]
+│ │││││││   0x0084c07f      50             push eax
+│ │││││││   0x0084c080      8b0d58191f01   mov ecx, dword [0x11f1958]  ; [0x11f1958:4]=0
+│ │││││││   0x0084c086      e875751400     call fcn.00993600
+│ │││││││   0x0084c08b      b001           mov al, 1
+│ ────────< 0x0084c08d      eb4b           jmp 0x84c0da
+│ │││││││   ;-- case 6:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c08f      32c0           xor al, al
+│ ────────< 0x0084c091      eb47           jmp 0x84c0da
+│ │││││││   ;-- case 7:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c093      32c0           xor al, al
+│ ────────< 0x0084c095      eb43           jmp 0x84c0da
+│ │││││││   ;-- case 0:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c097      32c0           xor al, al
+│ ────────< 0x0084c099      eb3f           jmp 0x84c0da
+│ │││││││   ;-- case 8:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c09b      32c0           xor al, al
+│ ────────< 0x0084c09d      eb3b           jmp 0x84c0da
+│ │││││││   ;-- case 9:                                                ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c09f      8b4d0c         mov ecx, dword [arg_ch]
+│ │││││││   0x0084c0a2      51             push ecx
+│ │││││││   0x0084c0a3      e86827e2ff     call fcn.0066e810
+│ │││││││   0x0084c0a8      83c404         add esp, 4
+│ │││││││   0x0084c0ab      b001           mov al, 1
+│ ────────< 0x0084c0ad      eb2b           jmp 0x84c0da
+│ │││││││   ;-- case 10:                                               ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c0af      8b550c         mov edx, dword [arg_ch]
+│ │││││││   0x0084c0b2      52             push edx
+│ │││││││   0x0084c0b3      e838aafeff     call fcn.00836af0
+│ │││││││   0x0084c0b8      83c404         add esp, 4
+│ │││││││   0x0084c0bb      b001           mov al, 1
+│ ────────< 0x0084c0bd      eb1b           jmp 0x84c0da
+│ │││││││   ;-- case 11:                                               ; from 0x0084c055
+│ │││││││   ; CODE XREF from fcn.0084c030 @ 0x84c055(x)
+│ │││││││   0x0084c0bf      32c0           xor al, al
+│ ────────< 0x0084c0c1      eb17           jmp 0x84c0da
+│ │││││└──> 0x0084c0c3      32c0           xor al, al
+│ │││││┌──< 0x0084c0c5      eb13           jmp 0x84c0da
+│ │││││││   ;-- default:                                               ; from 0x84c055
+│ │││││││   ; CODE XREFS from fcn.0084c030 @ 0x84c055(x), 0x84c05c(x)
+│ │││└└───> 0x0084c0c7      8b4508         mov eax, dword [arg_8h]
+│ │││  ││   0x0084c0ca      50             push eax
+│ │││  ││   0x0084c0cb      681cf60701     push str.DEFAULT:_Unknown_global_data_type__i_in_InitGlobalData__ ; 0x107f61c ; "DEFAULT: Unknown global data type %i in InitGlobalData()"
+│ │││  ││   0x0084c0d0      e8eb9bffff     call fcn.00845cc0
+│ │││  ││   0x0084c0d5      83c408         add esp, 8
+│ │││  ││   0x0084c0d8      32c0           xor al, al
+│ │││  ││   ; XREFS: CODE 0x0084c060  CODE 0x0084c064  CODE 0x0084c068
+│ │││  ││   ; XREFS: CODE 0x0084c07a  CODE 0x0084c08d  CODE 0x0084c091
+│ │││  ││   ; XREFS: CODE 0x0084c095  CODE 0x0084c099  CODE 0x0084c09d
+│ │││  ││   ; XREFS: CODE 0x0084c0ad  CODE 0x0084c0bd  CODE 0x0084c0c1
+│ │││  ││   ; XREFS: CODE 0x0084c0c5
+│ └└└──└└─> 0x0084c0da      8be5           mov esp, ebp
+│           0x0084c0dc      5d             pop ebp
+└           0x0084c0dd      c3             ret

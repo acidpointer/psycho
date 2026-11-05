@@ -1,0 +1,102 @@
+Psycho radare2 evidence
+UTC: 2026-11-05T12:44:51+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00470470 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00470470 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00470470
+name: fcn.00470470
+size: 110
+is-pure: true
+realsz: 110
+stackframe: 28
+callconv: cdecl
+cyclic-cost: 44
+cyclomatic-complexity: 3
+bits: 32
+type: fcn [NEW]
+num-bbs: 7
+num-instrs: 36
+edges: 8
+minaddr: 0x00470470
+maxaddr: 0x004704de
+is-lineal: true
+end-bbs: 1
+maxbbins: 14
+midbbins: 5.14
+ratbbins: 2.72
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 1
+locals: 5
+args: 0
+
+┌ 110: fcn.00470470 ();
+│ afv: vars(5:sp[0x8..0x18])
+│           0x00470470      55             push ebp
+│           0x00470471      8bec           mov ebp, esp
+│           0x00470473      83ec14         sub esp, 0x14
+│           0x00470476      894df0         mov dword [var_10h], ecx
+│           ; CODE XREF from fcn.00470470 @ 0x4704cf(x)
+│       ┌─> 0x00470479      8b45f0         mov eax, dword [var_10h]
+│       ╎   0x0047047c      83780400       cmp dword [eax + 4], 0
+│      ┌──< 0x00470480      744f           je 0x4704d1
+│      │╎   0x00470482      8b4df0         mov ecx, dword [var_10h]
+│      │╎   0x00470485      8b5104         mov edx, dword [ecx + 4]
+│      │╎   0x00470488      8b4204         mov eax, dword [edx + 4]
+│      │╎   0x0047048b      8945fc         mov dword [var_4h], eax
+│      │╎   0x0047048e      8b4df0         mov ecx, dword [var_10h]
+│      │╎   0x00470491      8b5104         mov edx, dword [ecx + 4]
+│      │╎   0x00470494      c742040000..   mov dword [edx + 4], 0
+│      │╎   0x0047049b      8b45f0         mov eax, dword [var_10h]
+│      │╎   0x0047049e      8b4804         mov ecx, dword [eax + 4]
+│      │╎   0x004704a1      894df4         mov dword [var_ch], ecx
+│      │╎   0x004704a4      8b55f4         mov edx, dword [var_ch]
+│      │╎   0x004704a7      8955f8         mov dword [var_8h], edx
+│      │╎   0x004704aa      837df800       cmp dword [var_8h], 0
+│     ┌───< 0x004704ae      740f           je 0x4704bf
+│     ││╎   0x004704b0      6a01           push 1                      ; 1
+│     ││╎   0x004704b2      8b4df8         mov ecx, dword [var_8h]
+│     ││╎   0x004704b5      e836feffff     call 0x4702f0
+│     ││╎   0x004704ba      8945ec         mov dword [var_14h], eax
+│    ┌────< 0x004704bd      eb07           jmp 0x4704c6
+│    │└───> 0x004704bf      c745ec0000..   mov dword [var_14h], 0
+│    │ │╎   ; CODE XREF from fcn.00470470 @ 0x4704bd(x)
+│    └────> 0x004704c6      8b45f0         mov eax, dword [var_10h]
+│      │╎   0x004704c9      8b4dfc         mov ecx, dword [var_4h]
+│      │╎   0x004704cc      894804         mov dword [eax + 4], ecx
+│      │└─< 0x004704cf      eba8           jmp 0x470479
+│      └──> 0x004704d1      8b55f0         mov edx, dword [var_10h]
+│           0x004704d4      c70200000000   mov dword [edx], 0
+│           0x004704da      8be5           mov esp, ebp
+│           0x004704dc      5d             pop ebp
+└           0x004704dd      c3             ret
+
+void __fastcall fcn.00470470(uint *param_1)
+
+{
+    uint uVar1;
+    int32_t var_14h;
+    int32_t var_10h;
+    int32_t var_ch;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    while (param_1[1] != 0) {
+        uVar1 = *(param_1[1] + 4);
+        *(param_1[1] + 4) = 0;
+        if (param_1[1] != 0) {
+            func_0x004702f0(1);
+        }
+        param_1[1] = uVar1;
+    }
+    *param_1 = 0;
+    return;
+}

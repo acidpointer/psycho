@@ -1,0 +1,96 @@
+Psycho radare2 evidence
+UTC: 2026-11-05T12:43:01+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x008648E0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x008648E0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x008648e0
+name: fcn.008648e0
+size: 92
+is-pure: true
+realsz: 92
+stackframe: 24
+callconv: cdecl
+cyclic-cost: 43
+cyclomatic-complexity: 3
+bits: 32
+type: fcn [NEW]
+num-bbs: 5
+num-instrs: 30
+edges: 6
+minaddr: 0x008648e0
+maxaddr: 0x0086493c
+is-lineal: true
+end-bbs: 1
+maxbbins: 20
+midbbins: 6.00
+ratbbins: 3.33
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 4
+locals: 3
+args: 1
+
+┌ 92: fcn.008648e0 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])
+│           0x008648e0      55             push ebp
+│           0x008648e1      8bec           mov ebp, esp
+│           0x008648e3      83ec0c         sub esp, 0xc
+│           0x008648e6      894df8         mov dword [var_8h], ecx
+│           0x008648e9      8d4dfc         lea ecx, [var_4h]
+│           0x008648ec      e8ffa1feff     call 0x84eaf0
+│           0x008648f1      6a03           push 3                      ; 3
+│           0x008648f3      8d45fc         lea eax, [var_4h]
+│           0x008648f6      50             push eax
+│           0x008648f7      8b4df8         mov ecx, dword [var_8h]
+│           0x008648fa      e821ffffff     call 0x864820
+│           0x008648ff      8d4dfc         lea ecx, [var_4h]
+│           0x00864902      e8f9ebfeff     call 0x853500
+│           0x00864907      8b4d08         mov ecx, dword [arg_8h]
+│           0x0086490a      8901           mov dword [ecx], eax
+│           0x0086490c      8d4dfc         lea ecx, [var_4h]
+│           0x0086490f      e82c000000     call 0x864940
+│           0x00864914      0fb6d0         movzx edx, al
+│           0x00864917      85d2           test edx, edx
+│       ┌─< 0x00864919      7511           jne 0x86492c
+│       │   0x0086491b      8b4508         mov eax, dword [arg_8h]
+│       │   0x0086491e      833800         cmp dword [eax], 0
+│      ┌──< 0x00864921      7509           jne 0x86492c
+│      ││   0x00864923      c745f40100..   mov dword [var_ch], 1
+│     ┌───< 0x0086492a      eb07           jmp 0x864933
+│     │└└─> 0x0086492c      c745f40000..   mov dword [var_ch], 0
+│     │     ; CODE XREF from fcn.008648e0 @ 0x86492a(x)
+│     └───> 0x00864933      8a45f4         mov al, byte [var_ch]
+│           0x00864936      8be5           mov esp, ebp
+│           0x00864938      5d             pop ebp
+└           0x00864939      c20400         ret 4
+
+uchar __cdecl fcn.008648e0(int32_t arg_8h)
+
+{
+    char cVar1;
+    uint uVar2;
+    int32_t var_ch;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    func_0x0084eaf0();
+    func_0x00864820(&var_4h,3);
+    uVar2 = func_0x00853500();
+    *arg_8h = uVar2;
+    cVar1 = func_0x00864940();
+    if ((cVar1 == '\0') && (*arg_8h == 0)) {
+        var_ch._0_1_ = 1;
+    }
+    else {
+        var_ch._0_1_ = 0;
+    }
+    return var_ch;
+}

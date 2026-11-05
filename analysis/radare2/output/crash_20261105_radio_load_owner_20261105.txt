@@ -1,0 +1,304 @@
+Psycho radare2 evidence
+UTC: 2026-11-05T12:42:26+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x008368B0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x008368B0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x008368b0
+name: fcn.008368b0
+size: 564
+is-pure: false
+realsz: 564
+stackframe: 128
+callconv: cdecl
+cyclic-cost: 226
+cyclomatic-complexity: 7
+bits: 32
+type: fcn [NEW]
+num-bbs: 20
+num-instrs: 164
+edges: 25
+minaddr: 0x008368b0
+maxaddr: 0x00836ae4
+is-lineal: true
+end-bbs: 1
+maxbbins: 40
+midbbins: 8.20
+ratbbins: 4.88
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 22
+locals: 19
+args: 1
+
+┌ 564: fcn.008368b0 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(19:sp[0x8..0x54])
+│           0x008368b0      55             push ebp
+│           0x008368b1      8bec           mov ebp, esp
+│           0x008368b3      6aff           push 0xffffffffffffffff
+│           0x008368b5      688620f100     push 0xf12086
+│           0x008368ba      64a100000000   mov eax, dword fs:[0]
+│           0x008368c0      50             push eax
+│           0x008368c1      83ec44         sub esp, 0x44
+│           0x008368c4      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x008368c9      33c5           xor eax, ebp
+│           0x008368cb      50             push eax
+│           0x008368cc      8d45f4         lea eax, [var_ch]
+│           0x008368cf      64a300000000   mov dword fs:[0], eax
+│           0x008368d5      6a04           push 4                      ; 4
+│           0x008368d7      6828d41d01     push 0x11dd428
+│           0x008368dc      8b4d08         mov ecx, dword [arg_8h]
+│           0x008368df      e89ce00200     call 0x864980
+│           0x008368e4      6a01           push 1                      ; 1
+│           0x008368e6      6834d41d01     push 0x11dd434
+│           0x008368eb      8b4d08         mov ecx, dword [arg_8h]
+│           0x008368ee      e88de00200     call 0x864980
+│           0x008368f3      6848d41d01     push 0x11dd448
+│           0x008368f8      8b4d08         mov ecx, dword [arg_8h]
+│           0x008368fb      e8a0e00200     call 0x8649a0
+│           0x00836900      8b4d08         mov ecx, dword [arg_8h]
+│           0x00836903      e858e10200     call 0x864a60
+│           0x00836908      8945e8         mov dword [var_18h], eax
+│           0x0083690b      c745e40000..   mov dword [var_1ch], 0
+│       ┌─< 0x00836912      eb09           jmp 0x83691d
+│       │   ; CODE XREF from fcn.008368b0 @ 0x836980(x)
+│      ┌──> 0x00836914      8b45e4         mov eax, dword [var_1ch]
+│      ╎│   0x00836917      83c001         add eax, 1
+│      ╎│   0x0083691a      8945e4         mov dword [var_1ch], eax
+│      ╎│   ; CODE XREF from fcn.008368b0 @ 0x836912(x)
+│      ╎└─> 0x0083691d      8b4de4         mov ecx, dword [var_1ch]
+│      ╎    0x00836920      3b4de8         cmp ecx, dword [var_18h]
+│      ╎┌─< 0x00836923      735d           jae 0x836982
+│      ╎│   0x00836925      6a20           push 0x20                   ; 32
+│      ╎│   0x00836927      e8d4a6bcff     call section..text
+│      ╎│   0x0083692c      83c404         add esp, 4
+│      ╎│   0x0083692f      8945c0         mov dword [var_40h], eax
+│      ╎│   0x00836932      c745fc0000..   mov dword [var_4h], 0
+│      ╎│   0x00836939      837dc000       cmp dword [var_40h], 0
+│     ┌───< 0x0083693d      740d           je 0x83694c
+│     │╎│   0x0083693f      8b4dc0         mov ecx, dword [var_40h]
+│     │╎│   0x00836942      e889beffff     call 0x8327d0
+│     │╎│   0x00836947      8945b4         mov dword [var_4ch], eax
+│    ┌────< 0x0083694a      eb07           jmp 0x836953
+│    │└───> 0x0083694c      c745b40000..   mov dword [var_4ch], 0
+│    │ ╎│   ; CODE XREF from fcn.008368b0 @ 0x83694a(x)
+│    └────> 0x00836953      8b55b4         mov edx, dword [var_4ch]
+│      ╎│   0x00836956      8955c4         mov dword [var_3ch], edx
+│      ╎│   0x00836959      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│      ╎│   0x00836960      8b45c4         mov eax, dword [var_3ch]
+│      ╎│   0x00836963      8945e0         mov dword [var_20h], eax
+│      ╎│   0x00836966      8b4d08         mov ecx, dword [arg_8h]
+│      ╎│   0x00836969      51             push ecx
+│      ╎│   0x0083696a      8b4de0         mov ecx, dword [var_20h]
+│      ╎│   0x0083696d      e80ef6ffff     call 0x835f80
+│      ╎│   0x00836972      8d55e0         lea edx, [var_20h]
+│      ╎│   0x00836975      52             push edx
+│      ╎│   0x00836976      b98cd51d01     mov ecx, 0x11dd58c
+│      ╎│   0x0083697b      e8507ad7ff     call 0x5ae3d0
+│      └──< 0x00836980      eb92           jmp 0x836914
+│       └─> 0x00836982      8b4d08         mov ecx, dword [arg_8h]
+│           0x00836985      e8d6e00200     call 0x864a60
+│           0x0083698a      8945dc         mov dword [var_24h], eax
+│           0x0083698d      c745d80000..   mov dword [var_28h], 0
+│       ┌─< 0x00836994      eb09           jmp 0x83699f
+│       │   ; CODE XREF from fcn.008368b0 @ 0x836a02(x)
+│      ┌──> 0x00836996      8b45d8         mov eax, dword [var_28h]
+│      ╎│   0x00836999      83c001         add eax, 1
+│      ╎│   0x0083699c      8945d8         mov dword [var_28h], eax
+│      ╎│   ; CODE XREF from fcn.008368b0 @ 0x836994(x)
+│      ╎└─> 0x0083699f      8b4dd8         mov ecx, dword [var_28h]
+│      ╎    0x008369a2      3b4ddc         cmp ecx, dword [var_24h]
+│      ╎┌─< 0x008369a5      735d           jae 0x836a04
+│      ╎│   0x008369a7      6a24           push 0x24                   ; '$' ; 36
+│      ╎│   0x008369a9      e852a6bcff     call section..text
+│      ╎│   0x008369ae      83c404         add esp, 4
+│      ╎│   0x008369b1      8945b8         mov dword [var_48h], eax
+│      ╎│   0x008369b4      c745fc0100..   mov dword [var_4h], 1
+│      ╎│   0x008369bb      837db800       cmp dword [var_48h], 0
+│     ┌───< 0x008369bf      740d           je 0x8369ce
+│     │╎│   0x008369c1      8b4db8         mov ecx, dword [var_48h]
+│     │╎│   0x008369c4      e887c7ffff     call 0x833150
+│     │╎│   0x008369c9      8945b0         mov dword [var_50h], eax
+│    ┌────< 0x008369cc      eb07           jmp 0x8369d5
+│    │└───> 0x008369ce      c745b00000..   mov dword [var_50h], 0
+│    │ ╎│   ; CODE XREF from fcn.008368b0 @ 0x8369cc(x)
+│    └────> 0x008369d5      8b55b0         mov edx, dword [var_50h]
+│      ╎│   0x008369d8      8955bc         mov dword [var_44h], edx
+│      ╎│   0x008369db      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│      ╎│   0x008369e2      8b45bc         mov eax, dword [var_44h]
+│      ╎│   0x008369e5      8945d4         mov dword [var_2ch], eax
+│      ╎│   0x008369e8      8b4d08         mov ecx, dword [arg_8h]
+│      ╎│   0x008369eb      51             push ecx
+│      ╎│   0x008369ec      8b4dd4         mov ecx, dword [var_2ch]
+│      ╎│   0x008369ef      e83cfcffff     call 0x836630
+│      ╎│   0x008369f4      8d55d4         lea edx, [var_2ch]
+│      ╎│   0x008369f7      52             push edx
+│      ╎│   0x008369f8      b954d51d01     mov ecx, 0x11dd554
+│      ╎│   0x008369fd      e8ce79d7ff     call 0x5ae3d0
+│      └──< 0x00836a02      eb92           jmp 0x836996
+│       └─> 0x00836a04      c745f00000..   mov dword [var_10h], 0
+│           0x00836a0b      6a00           push 0
+│           0x00836a0d      6808311801     push 0x1183108
+│           0x00836a12      6828301801     push 0x1183028
+│           0x00836a17      8b4d08         mov ecx, dword [arg_8h]
+│           0x00836a1a      e881de0200     call 0x8648a0
+│           0x00836a1f      50             push eax
+│           0x00836a20      e89bcfc4ff     call 0x4839c0
+│           0x00836a25      83c404         add esp, 4
+│           0x00836a28      6a00           push 0
+│           0x00836a2a      50             push eax
+│           0x00836a2b      e8cbd96800     call 0xec43fb
+│           0x00836a30      83c414         add esp, 0x14
+│           0x00836a33      8945f0         mov dword [var_10h], eax
+│           0x00836a36      8b45f0         mov eax, dword [var_10h]
+│           0x00836a39      a32cd41d01     mov dword [0x11dd42c], eax  ; [0x11dd42c:4]=0
+│           0x00836a3e      c745ec0000..   mov dword [var_14h], 0
+│           0x00836a45      6a00           push 0
+│           0x00836a47      6808311801     push 0x1183108
+│           0x00836a4c      6828301801     push 0x1183028
+│           0x00836a51      8b4d08         mov ecx, dword [arg_8h]
+│           0x00836a54      e847de0200     call 0x8648a0
+│           0x00836a59      50             push eax
+│           0x00836a5a      e861cfc4ff     call 0x4839c0
+│           0x00836a5f      83c404         add esp, 4
+│           0x00836a62      6a00           push 0
+│           0x00836a64      50             push eax
+│           0x00836a65      e891d96800     call 0xec43fb
+│           0x00836a6a      83c414         add esp, 0x14
+│           0x00836a6d      8945ec         mov dword [var_14h], eax
+│           0x00836a70      8b4dec         mov ecx, dword [var_14h]
+│           0x00836a73      890d30d41d01   mov dword [0x11dd430], ecx  ; [0x11dd430:4]=0
+│           0x00836a79      8b5508         mov edx, dword [arg_8h]
+│           0x00836a7c      8b02           mov eax, dword [edx]
+│           0x00836a7e      8b4d08         mov ecx, dword [arg_8h]
+│           0x00836a81      8b10           mov edx, dword [eax]
+│           0x00836a83      ffd2           call edx
+│           0x00836a85      0fb6c0         movzx eax, al
+│           0x00836a88      83f80a         cmp eax, 0xa                ; 10
+│       ┌─< 0x00836a8b      7c48           jl 0x836ad5
+│       │   0x00836a8d      8b4d08         mov ecx, dword [arg_8h]
+│       │   0x00836a90      e8cbdf0200     call 0x864a60
+│       │   0x00836a95      8945d0         mov dword [var_30h], eax
+│       │   0x00836a98      c745cc0000..   mov dword [var_34h], 0
+│      ┌──< 0x00836a9f      eb09           jmp 0x836aaa
+│      ││   ; CODE XREF from fcn.008368b0 @ 0x836ad3(x)
+│     ┌───> 0x00836aa1      8b4dcc         mov ecx, dword [var_34h]
+│     ╎││   0x00836aa4      83c101         add ecx, 1
+│     ╎││   0x00836aa7      894dcc         mov dword [var_34h], ecx
+│     ╎││   ; CODE XREF from fcn.008368b0 @ 0x836a9f(x)
+│     ╎└──> 0x00836aaa      8b55cc         mov edx, dword [var_34h]
+│     ╎ │   0x00836aad      3b55d0         cmp edx, dword [var_30h]
+│     ╎┌──< 0x00836ab0      7323           jae 0x836ad5
+│     ╎││   0x00836ab2      c745c80000..   mov dword [var_38h], 0
+│     ╎││   0x00836ab9      8d45c8         lea eax, [var_38h]
+│     ╎││   0x00836abc      50             push eax
+│     ╎││   0x00836abd      8b4d08         mov ecx, dword [arg_8h]
+│     ╎││   0x00836ac0      e81bde0200     call 0x8648e0
+│     ╎││   0x00836ac5      8d4dc8         lea ecx, [var_38h]
+│     ╎││   0x00836ac8      51             push ecx
+│     ╎││   0x00836ac9      b99cd51d01     mov ecx, 0x11dd59c
+│     ╎││   0x00836ace      e8fd78d7ff     call 0x5ae3d0
+│     └───< 0x00836ad3      ebcc           jmp 0x836aa1
+│      └└─> 0x00836ad5      8b4df4         mov ecx, dword [var_ch]
+│           0x00836ad8      64890d0000..   mov dword fs:[0], ecx
+│           0x00836adf      59             pop ecx
+│           0x00836ae0      8be5           mov esp, ebp
+│           0x00836ae2      5d             pop ebp
+└           0x00836ae3      c3             ret
+
+void __cdecl fcn.008368b0(int32_t arg_8h)
+
+{
+    uint8_t uVar1;
+    uint32_t uVar2;
+    int iVar3;
+    uint uVar4;
+    int *unaff_FS_OFFSET;
+    int32_t var_50h;
+    int32_t var_4ch;
+    int32_t var_48h;
+    int32_t var_44h;
+    int32_t var_40h;
+    int32_t var_3ch;
+    int32_t var_38h;
+    int32_t var_34h;
+    int32_t var_30h;
+    int32_t var_2ch;
+    int32_t var_28h;
+    int32_t var_24h;
+    int32_t var_20h;
+    int32_t var_1ch;
+    int32_t var_18h;
+    int32_t var_14h;
+    int32_t var_10h;
+    int32_t var_ch;
+    uint uStack_c;
+    int32_t var_4h;
+
+    var_4h = -1;
+    uStack_c = 0xf12086;
+    var_ch = *unaff_FS_OFFSET;
+    uVar2 = *0x11c16bc ^ &stack0xfffffffc;
+    *unaff_FS_OFFSET = &var_ch;
+    func_0x00864980(0x11dd428,4,uVar2);
+    func_0x00864980(0x11dd434,1);
+    func_0x008649a0(0x11dd448);
+    var_18h = func_0x00864a60();
+    for (var_1ch = 0; var_1ch < var_18h; var_1ch = var_1ch + 1) {
+        iVar3 = func_0x00401000(0x20);
+        var_4h = 0;
+        if (iVar3 == 0) {
+            var_4ch = 0;
+        }
+        else {
+            var_4ch = func_0x008327d0();
+        }
+        var_4h = -1;
+        var_20h = var_4ch;
+        func_0x00835f80(arg_8h);
+        func_0x005ae3d0(&var_20h);
+    }
+    var_24h = func_0x00864a60();
+    for (var_28h = 0; var_28h < var_24h; var_28h = var_28h + 1) {
+        iVar3 = func_0x00401000(0x24);
+        var_4h = 1;
+        if (iVar3 == 0) {
+            var_50h = 0;
+        }
+        else {
+            var_50h = func_0x00833150();
+        }
+        var_4h = -1;
+        var_2ch = var_50h;
+        func_0x00836630(arg_8h);
+        func_0x005ae3d0(&var_2ch);
+    }
+    var_10h = 0;
+    uVar4 = func_0x008648a0(0x1183028,0x1183108,0);
+    uVar4 = func_0x004839c0(uVar4);
+    *0x11dd42c = func_0x00ec43fb(uVar4,0);
+    var_14h = 0;
+    var_10h = *0x11dd42c;
+    uVar4 = func_0x008648a0(0x1183028,0x1183108,0);
+    uVar4 = func_0x004839c0(uVar4);
+    *0x11dd430 = func_0x00ec43fb(uVar4,0);
+    var_14h = *0x11dd430;
+    uVar1 = (***arg_8h)();
+    if (9 < uVar1) {
+        var_30h = func_0x00864a60();
+        for (var_34h = 0; var_34h < var_30h; var_34h = var_34h + 1) {
+            var_38h = 0;
+            func_0x008648e0(&var_38h);
+            func_0x005ae3d0(&var_38h);
+        }
+    }
+    *unaff_FS_OFFSET = var_ch;
+    return;
+}

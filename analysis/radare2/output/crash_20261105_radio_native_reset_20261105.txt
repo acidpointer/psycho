@@ -1,0 +1,194 @@
+Psycho radare2 evidence
+UTC: 2026-11-05T12:45:38+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00832010 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00832010 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00832010
+name: fcn.00832010
+size: 327
+is-pure: false
+realsz: 327
+stackframe: 52
+callconv: cdecl
+cyclic-cost: 139
+cyclomatic-complexity: 9
+bits: 32
+type: fcn [NEW]
+num-bbs: 20
+num-instrs: 92
+edges: 27
+minaddr: 0x00832010
+maxaddr: 0x00832157
+is-lineal: true
+end-bbs: 1
+maxbbins: 9
+midbbins: 4.60
+ratbbins: 1.96
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 16
+locals: 11
+args: 0
+
+┌ 327: fcn.00832010 ();
+│ afv: vars(11:sp[0x8..0x30])
+│           0x00832010      55             push ebp
+│           0x00832011      8bec           mov ebp, esp
+│           0x00832013      83ec2c         sub esp, 0x2c
+│           0x00832016      c60536d41d..   mov byte [0x11dd436], 1     ; [0x11dd436:1]=0
+│           0x0083201d      6a01           push 1                      ; 1
+│           0x0083201f      e87c090000     call 0x8329a0
+│           0x00832024      83c404         add esp, 4
+│           0x00832027      c745f854d5..   mov dword [var_8h], 0x11dd554
+│           ; CODE XREF from fcn.00832010 @ 0x8320d8(x)
+│       ┌─> 0x0083202e      837df800       cmp dword [var_8h], 0
+│      ┌──< 0x00832032      0f84a5000000   je 0x8320dd
+│      │╎   0x00832038      8b4df8         mov ecx, dword [var_8h]
+│      │╎   0x0083203b      e89036ffff     call 0x8256d0
+│      │╎   0x00832040      0fb6c0         movzx eax, al
+│      │╎   0x00832043      85c0           test eax, eax
+│     ┌───< 0x00832045      0f8592000000   jne 0x8320dd
+│     ││╎   0x0083204b      8b4df8         mov ecx, dword [var_8h]
+│     ││╎   0x0083204e      e86df5e4ff     call 0x6815c0
+│     ││╎   0x00832053      8b08           mov ecx, dword [eax]
+│     ││╎   0x00832055      83790400       cmp dword [ecx + 4], 0
+│    ┌────< 0x00832059      7443           je 0x83209e
+│    │││╎   0x0083205b      8b4df8         mov ecx, dword [var_8h]
+│    │││╎   0x0083205e      e85df5e4ff     call 0x6815c0
+│    │││╎   0x00832063      8b10           mov edx, dword [eax]
+│    │││╎   0x00832065      8b4204         mov eax, dword [edx + 4]
+│    │││╎   0x00832068      8945f0         mov dword [var_10h], eax
+│    │││╎   0x0083206b      8b4df0         mov ecx, dword [var_10h]
+│    │││╎   0x0083206e      894df4         mov dword [var_ch], ecx
+│    │││╎   0x00832071      837df400       cmp dword [var_ch], 0
+│   ┌─────< 0x00832075      740f           je 0x832086
+│   ││││╎   0x00832077      6a01           push 1                      ; 1
+│   ││││╎   0x00832079      8b4df4         mov ecx, dword [var_ch]
+│   ││││╎   0x0083207c      e8cf63f6ff     call 0x798450
+│   ││││╎   0x00832081      8945dc         mov dword [var_24h], eax
+│  ┌──────< 0x00832084      eb07           jmp 0x83208d
+│  │└─────> 0x00832086      c745dc0000..   mov dword [var_24h], 0
+│  │ │││╎   ; CODE XREF from fcn.00832010 @ 0x832084(x)
+│  └──────> 0x0083208d      8b4df8         mov ecx, dword [var_8h]
+│    │││╎   0x00832090      e82bf5e4ff     call 0x6815c0
+│    │││╎   0x00832095      8b10           mov edx, dword [eax]
+│    │││╎   0x00832097      c742040000..   mov dword [edx + 4], 0
+│    └────> 0x0083209e      8b4df8         mov ecx, dword [var_8h]
+│     ││╎   0x008320a1      e81af5e4ff     call 0x6815c0
+│     ││╎   0x008320a6      8b00           mov eax, dword [eax]
+│     ││╎   0x008320a8      8945e8         mov dword [var_18h], eax
+│     ││╎   0x008320ab      8b4de8         mov ecx, dword [var_18h]
+│     ││╎   0x008320ae      894dec         mov dword [var_14h], ecx
+│     ││╎   0x008320b1      837dec00       cmp dword [var_14h], 0
+│    ┌────< 0x008320b5      740f           je 0x8320c6
+│    │││╎   0x008320b7      6a01           push 1                      ; 1
+│    │││╎   0x008320b9      8b4dec         mov ecx, dword [var_14h]
+│    │││╎   0x008320bc      e89f000000     call 0x832160
+│    │││╎   0x008320c1      8945d8         mov dword [var_28h], eax
+│   ┌─────< 0x008320c4      eb07           jmp 0x8320cd
+│   │└────> 0x008320c6      c745d80000..   mov dword [var_28h], 0
+│   │ ││╎   ; CODE XREF from fcn.00832010 @ 0x8320c4(x)
+│   └─────> 0x008320cd      8b4df8         mov ecx, dword [var_8h]
+│     ││╎   0x008320d0      e89b3fefff     call 0x726070
+│     ││╎   0x008320d5      8945f8         mov dword [var_8h], eax
+│     ││└─< 0x008320d8      e951ffffff     jmp 0x83202e
+│     └└──> 0x008320dd      b954d51d01     mov ecx, 0x11dd554
+│           0x008320e2      e889e3c3ff     call 0x470470
+│           0x008320e7      c745fc8cd5..   mov dword [var_4h], 0x11dd58c
+│           ; CODE XREF from fcn.00832010 @ 0x83213d(x)
+│       ┌─> 0x008320ee      837dfc00       cmp dword [var_4h], 0
+│      ┌──< 0x008320f2      744b           je 0x83213f
+│      │╎   0x008320f4      8b4dfc         mov ecx, dword [var_4h]
+│      │╎   0x008320f7      e8d435ffff     call 0x8256d0
+│      │╎   0x008320fc      0fb6d0         movzx edx, al
+│      │╎   0x008320ff      85d2           test edx, edx
+│     ┌───< 0x00832101      753c           jne 0x83213f
+│     ││╎   0x00832103      8b4dfc         mov ecx, dword [var_4h]
+│     ││╎   0x00832106      e8b5f4e4ff     call 0x6815c0
+│     ││╎   0x0083210b      8b00           mov eax, dword [eax]
+│     ││╎   0x0083210d      8945e0         mov dword [var_20h], eax
+│     ││╎   0x00832110      8b4de0         mov ecx, dword [var_20h]
+│     ││╎   0x00832113      894de4         mov dword [var_1ch], ecx
+│     ││╎   0x00832116      837de400       cmp dword [var_1ch], 0
+│    ┌────< 0x0083211a      740f           je 0x83212b
+│    │││╎   0x0083211c      6a01           push 1                      ; 1
+│    │││╎   0x0083211e      8b4de4         mov ecx, dword [var_1ch]
+│    │││╎   0x00832121      e86a000000     call 0x832190
+│    │││╎   0x00832126      8945d4         mov dword [var_2ch], eax
+│   ┌─────< 0x00832129      eb07           jmp 0x832132
+│   │└────> 0x0083212b      c745d40000..   mov dword [var_2ch], 0
+│   │ ││╎   ; CODE XREF from fcn.00832010 @ 0x832129(x)
+│   └─────> 0x00832132      8b4dfc         mov ecx, dword [var_4h]
+│     ││╎   0x00832135      e8363fefff     call 0x726070
+│     ││╎   0x0083213a      8945fc         mov dword [var_4h], eax
+│     ││└─< 0x0083213d      ebaf           jmp 0x8320ee
+│     └└──> 0x0083213f      b98cd51d01     mov ecx, 0x11dd58c
+│           0x00832144      e827e3c3ff     call 0x470470
+│           0x00832149      b99cd51d01     mov ecx, 0x11dd59c
+│           0x0083214e      e81de3c3ff     call 0x470470
+│           0x00832153      8be5           mov esp, ebp
+│           0x00832155      5d             pop ebp
+└           0x00832156      c3             ret
+
+//WARNING: Variable defined which should be unmapped: var_2ch
+
+void fcn.00832010(void)
+
+{
+    char cVar1;
+    int *piVar2;
+    int32_t var_2ch;
+    int32_t var_28h;
+    int32_t var_24h;
+    int32_t var_20h;
+    int32_t var_1ch;
+    int32_t var_18h;
+    int32_t var_14h;
+    int32_t var_10h;
+    int32_t var_ch;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    *0x11dd436 = 1;
+    func_0x008329a0(1);
+    var_8h = 0x11dd554;
+    while ((var_8h != 0 && (cVar1 = func_0x008256d0(), cVar1 == '\0'))) {
+        piVar2 = func_0x006815c0();
+        if (*(*piVar2 + 4) != 0) {
+            piVar2 = func_0x006815c0();
+            if (*(*piVar2 + 4) != 0) {
+                func_0x00798450(1);
+            }
+            piVar2 = func_0x006815c0();
+            *(*piVar2 + 4) = 0;
+        }
+        piVar2 = func_0x006815c0();
+        if (*piVar2 != 0) {
+            func_0x00832160(1);
+        }
+        var_8h = func_0x00726070();
+    }
+    func_0x00470470();
+    var_4h = 0x11dd58c;
+    while ((var_4h != 0 && (cVar1 = func_0x008256d0(), cVar1 == '\0'))) {
+        piVar2 = func_0x006815c0();
+        if (*piVar2 == 0) {
+            var_2ch = 0;
+        }
+        else {
+            var_2ch = func_0x00832190(1);
+        }
+        var_4h = func_0x00726070(var_2ch);
+    }
+    func_0x00470470();
+    func_0x00470470();
+    return;
+}

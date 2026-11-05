@@ -46,6 +46,12 @@
 //! loaded-form registry identity. A corrupt live container is never detached
 //! or partially repaired; its changed record and the whole load are rejected
 //! before vanilla can dereference the malformed list.
+//!
+//! Radio global data contains FormIDs until its post-load fixup completes.
+//! `radio_load` prevents the shared accessor from publishing that temporary
+//! representation after a rejected load. It never modifies the engine list.
+
+mod radio_load;
 
 use std::{
     cell::Cell,
@@ -390,6 +396,7 @@ pub(super) fn install() -> anyhow::Result<()> {
         transaction.enable_inline(&PLAYER_LOAD_HOOK)?;
         transaction.enable_callsite(&ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK)?;
         transaction.enable_callsite(&ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK)?;
+        radio_load::enable(&mut transaction)?;
 
         transaction.enable_inline(&SAVE_FACTORY_HOOK)?;
 
@@ -407,6 +414,7 @@ pub(super) fn install() -> anyhow::Result<()> {
         return Err(error).context("activate complete save-integrity transaction");
     }
     transaction.commit();
+    radio_load::admit();
 
     install_failure_ui_branch();
     SAVE_INSTALLED.store(true, Ordering::Release);
@@ -671,6 +679,7 @@ pub(super) fn reject_inventory_save(buffer: usize) -> bool {
 }
 
 fn initialize_hooks() -> anyhow::Result<()> {
+    radio_load::prepare()?;
     unsafe {
         SAVE_WRITE_HOOK.init(
             "save_integrity_write_result",

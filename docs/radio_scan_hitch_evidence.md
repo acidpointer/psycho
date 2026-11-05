@@ -11,6 +11,17 @@ when the scan bridge is disabled. The helper's **Radio fixes** checkbox writes
 the same next-launch setting. The gheap-owned stale radio-form load guard is
 independent allocator safety and is not controlled by this switch.
 
+The [2026-11-05 quicksave-load investigation](save_integrity.md#2026-11-05-quicksave-load-crash-unresolved-radio-formids-escape-rejection)
+identifies a separate load-lifecycle failure: rejected changed-form loading can
+skip the native pass that converts found-radio FormIDs to reference pointers.
+The subsequent main-loop consumer then reads a saved ID as a pointer. The
+evidence, unresolved actor-allocation rejection and implemented publication
+guard belong to the save-integrity contract. Its reporter-only candidate
+withholds the shared accessor until native fixup or reset completes; it does
+not modify a consumer plugin or discard valid radio entries.
+The owner subsequently reported that the crash was gone and authorized the
+commit; the save-integrity contract records the scope of that confirmation.
+
 The owner authorized offline-only implementation and qualification of this
 toggle. Existing fields keep their order and types; the new bool is appended
 to core, raw-parser, and helper settings. No startup phase, hook, import, TLS,
