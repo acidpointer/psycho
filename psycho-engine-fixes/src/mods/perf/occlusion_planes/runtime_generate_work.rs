@@ -64,6 +64,11 @@ impl MergeWork {
                         self.phase = Phase::Compare;
                         continue;
                     };
+                    if plane.camera.is_some() {
+                        self.output.push((plane.size[0] * plane.size[1], plane));
+                        self.pending = None;
+                        continue;
+                    }
                     let normal = basis(plane.rotation).1;
                     if self.search == self.groups.len() {
                         self.groups.push((normal, vec![plane]));
@@ -140,7 +145,9 @@ struct Scored {
 }
 impl PartialEq for Scored {
     fn eq(&self, other: &Self) -> bool {
-        self.score.to_bits() == other.score.to_bits() && self.ordinal == other.ordinal
+        self.score.to_bits() == other.score.to_bits()
+            && self.ordinal == other.ordinal
+            && self.plane.camera.is_none() == other.plane.camera.is_none()
     }
 }
 impl Eq for Scored {}
@@ -151,9 +158,17 @@ impl PartialOrd for Scored {
 }
 impl Ord for Scored {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.score
-            .total_cmp(&other.score)
-            .then_with(|| other.ordinal.cmp(&self.ordinal))
+        // Additional coverage fills unused capacity. It cannot evict an
+        // existing legacy occluder or change legacy score/tie arithmetic.
+        self.plane
+            .camera
+            .is_none()
+            .cmp(&other.plane.camera.is_none())
+            .then_with(|| {
+                self.score
+                    .total_cmp(&other.score)
+                    .then_with(|| other.ordinal.cmp(&self.ordinal))
+            })
     }
 }
 

@@ -465,6 +465,7 @@ fn engine_camera_side_contract_matches_the_outward_normal() {
     let tangent = [1.0f32, 0.0, 0.0];
     let bitangent = cross(tangent, stored_normal);
     let plane = PlaneRecord {
+        camera: None,
         position: [0.0, 0.0, 0.0],
         size: [200.0, 200.0],
         rotation: [
@@ -573,6 +574,7 @@ fn base_type_admission_covers_static_content() {
 #[test]
 fn plane_signature_changes_with_the_set() {
     let record = |x: f32| PlaneRecord {
+        camera: None,
         position: [x, 0.0, 0.0],
         size: [100.0, 200.0],
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
@@ -592,6 +594,7 @@ fn plane_signature_changes_with_the_set() {
 #[test]
 fn plane_signature_is_order_independent() {
     let record = |x: f32, id: u32| PlaneRecord {
+        camera: None,
         position: [x, id as f32, 0.0],
         size: [100.0, 200.0],
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
@@ -745,6 +748,7 @@ fn support_rect_finds_offset_support_inside_the_hull() {
 
 fn merge_plane(position: [f32; 3], size: [f32; 2]) -> PlaneRecord {
     PlaneRecord {
+        camera: None,
         position,
         size,
         // Identity basis: tangent X, normal Y, bitangent Z.
@@ -1064,6 +1068,7 @@ fn coplanar_tiles(count: usize, step: f32) -> Vec<(f32, PlaneRecord)> {
         .map(|index| {
             let u = index as f32 * size * step;
             let plane = PlaneRecord {
+                camera: None,
                 position: [u + size * 0.5, 0.0, 0.0],
                 size: [size, size],
                 rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],

@@ -60,16 +60,20 @@ impl Drop for Surface {
 
 /// Hashing accelerates lookup only. Complete input equality below is mandatory.
 fn fingerprint(vertices: &[[f32; 3]], triangles: &[[u16; 3]]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for value in vertices
-        .iter()
-        .flatten()
-        .map(|f| f.to_bits())
-        .chain(triangles.iter().flatten().map(|i| u32::from(*i)))
-    {
-        hash = (hash ^ u64::from(value)).wrapping_mul(0x100_0000_01b3);
+    use std::hash::Hasher;
+    // This is only a resident lookup accelerator, not the persisted checksum
+    // or semantic identity. Native-width arithmetic avoids a serial 64-bit
+    // multiply for every coordinate/index on the supported 32-bit target.
+    let mut hash = rustc_hash::FxHasher::default();
+    hash.write_usize(vertices.len());
+    hash.write_usize(triangles.len());
+    for value in vertices.iter().flatten() {
+        hash.write_u32(value.to_bits());
     }
-    hash
+    for value in triangles.iter().flatten() {
+        hash.write_u16(*value);
+    }
+    hash.finish()
 }
 
 /// Resident LRU entries are expendable; active snapshots retain their inputs.
@@ -345,7 +349,7 @@ fn decode<R: Read>(reader: R) -> io::Result<SurfacePool> {
             return Err(invalid());
         }
         let faces: [OnceLock<LocalFace>; 6] = std::array::from_fn(|_| OnceLock::new());
-        let local = aabb_of(&vertices);
+        let local = finite_aabb_of(&vertices);
         for (i, slot) in faces.iter().enumerate() {
             if mask & (1 << i) == 0 {
                 continue;
@@ -742,6 +746,28 @@ mod tests {
     }
 
     #[test]
+    fn actual_content_survives_a_lookup_collision() {
+        let (mut pool, original) = actual();
+        let mut moved = original.vertices.to_vec();
+        moved[0][0] += 128.0;
+        let triangles = original.triangles.to_vec();
+        drop(original);
+        // Force a resident hash collision without changing the actual arrays.
+        Arc::get_mut(pool.entries.front_mut().unwrap())
+            .unwrap()
+            .fingerprint = fingerprint(&moved, &triangles);
+        let original = pool.entries[0].clone();
+        let changed = pool
+            .capture(finite_aabb_of(&moved), &moved, &triangles)
+            .unwrap();
+        assert!(!Arc::ptr_eq(&changed, &original));
+        assert!(Arc::ptr_eq(
+            &changed,
+            &pool.capture(changed.local, &moved, &triangles).unwrap()
+        ));
+    }
+
+    #[test]
     fn worker_checkpoint_replaces_and_preserves_old_on_failure() {
         use std::os::windows::fs::OpenOptionsExt;
         let (pool, _surface) = actual();
@@ -872,6 +898,156 @@ mod tests {
         println!(
             "captured meshes={} vertices={vertices} triangles={triangles} transformed_planes={planes}",
             pool.entries.len()
+        );
+    }
+
+    /// Execute the production owned scheduler and populated cache with actual
+    /// supplied mesh arrays. Identity placement is an offline local workload,
+    /// not a reconstruction of the captured scene or its materials.
+    #[test]
+    #[ignore = "serial complete owned-pipeline benchmark on supplied meshes"]
+    fn benchmark_captured_owned_pipeline() {
+        let path = std::env::var("PSYCHO_OCCLUSION_CAPTURE").expect("supplied cache path");
+        let bytes = std::fs::read(path).unwrap();
+        let world = WorldTransform {
+            rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            translation: [0.0; 3],
+            scale: 1.0,
+        };
+        let mut expected = None;
+        for round in 0..6 {
+            let mut pool = decode(bytes.as_slice()).unwrap();
+            for surface in &mut pool.entries {
+                // Decode owns each entry exclusively before snapshots exist.
+                Arc::get_mut(surface).unwrap().faces = std::array::from_fn(|_| OnceLock::new());
+            }
+            // Cache hits reorder residency; source admission order must remain
+            // fixed because coplanar merging preserves its original pair order.
+            let input: Vec<_> = pool.entries.iter().cloned().collect();
+            for warm in [false, true] {
+                let mut generation = Generation::new(128, None);
+                generation.done = true;
+                generation.stats.refs = pool.entries.len();
+                for surface in &input {
+                    generation.snapshots.push_back(MeshSnapshot {
+                        surface: surface.clone(),
+                        world,
+                        source_form_id: 0,
+                        reference: ReferenceIdentity {
+                            form_id: 0,
+                            address: 0,
+                        },
+                        geometry: 0,
+                        recorded: true,
+                        face: 0,
+
+                        produced: false,
+                        sides: Sides::Unknown,
+                    });
+                }
+                let mut slices = Vec::new();
+                let started = std::time::Instant::now();
+                loop {
+                    let frame = std::time::Instant::now();
+                    let done = generation.advance(frame);
+                    slices.push(frame.elapsed().as_secs_f64() * 1e6);
+                    if done {
+                        break;
+                    }
+                }
+                let (planes, raw, ready, _) = generation.finish();
+                let total_us = started.elapsed().as_secs_f64() * 1e6;
+                let signature = super::super::super::runtime::plane_signature(&planes);
+                if let Some(expected) = &expected {
+                    assert_eq!(&signature, expected);
+                } else {
+                    expected = Some(signature);
+                }
+                assert!(ready);
+                let advances = slices.len();
+                slices.sort_by(f64::total_cmp);
+                println!(
+                    "owned round={round} warm={warm} meshes={} selected={} raw={raw} total_us={total_us:.2} advances={advances} median_us={:.2} p95_us={:.2} p99_us={:.2} max_us={:.2}",
+                    pool.entries.len(),
+                    planes.len(),
+                    slices[advances / 2],
+                    slices[(advances - 1) * 95 / 100],
+                    slices[(advances - 1) * 99 / 100],
+                    slices[advances - 1]
+                );
+                // Include populated lookup, exact equality and owned bounds.
+                let started = std::time::Instant::now();
+                for surface in &input {
+                    let hit = pool
+                        .capture(
+                            finite_aabb_of(&surface.vertices),
+                            &surface.vertices,
+                            &surface.triangles,
+                        )
+                        .unwrap();
+                    assert!(Arc::ptr_eq(&hit, surface));
+                }
+                println!(
+                    "reuse round={round} warm={warm} meshes={} total_us={:.2}",
+                    input.len(),
+                    started.elapsed().as_secs_f64() * 1e6
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "compare complete local face output against a supplied offline baseline"]
+    fn captured_local_face_baseline() {
+        let path = std::env::var("PSYCHO_OCCLUSION_CAPTURE").expect("supplied cache path");
+        let pool = decode(std::fs::read(path).unwrap().as_slice()).unwrap();
+        let mut result = Vec::new();
+        for surface in &pool.entries {
+            for face in 0..6 {
+                match local_face(
+                    &surface.local,
+                    &surface.vertices,
+                    &surface.triangles,
+                    face,
+                    &mut Vec::new(),
+                    &mut Vec::new(),
+                    &mut Vec::new(),
+                    &mut CoverageScratch::default(),
+                ) {
+                    LocalFace::Unsupported => result.push(0),
+                    LocalFace::Opening => result.push(1),
+                    LocalFace::Rectangle {
+                        center_u,
+                        center_v,
+                        half_u,
+                        half_v,
+                        coverage,
+                    } => {
+                        result.push(2);
+                        for value in [center_u, center_v, half_u, half_v, coverage] {
+                            result.extend_from_slice(&value.to_bits().to_le_bytes());
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(path) = std::env::var("PSYCHO_OCCLUSION_FACE_OUTPUT") {
+            std::fs::write(path, &result).unwrap();
+        } else {
+            let expected = std::fs::read(
+                std::env::var("PSYCHO_OCCLUSION_FACE_EXPECT").expect("baseline path"),
+            )
+            .unwrap();
+            assert_eq!(result.len(), expected.len());
+            assert!(
+                result == expected,
+                "complete local face descriptors changed"
+            );
+        }
+        println!(
+            "local faces={} encoded_bytes={}",
+            pool.entries.len() * 6,
+            result.len()
         );
     }
     #[test]

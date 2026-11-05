@@ -1730,3 +1730,406 @@ an overall FPS improvement. Native list repair/admission, streaming, images and
 actual gameplay performance remain unrun under the owner waiver. The original
 ownership repair, side policy, cap, radius, enablement and decoded input limits
 are preserved. Deployment remains user-only.
+
+## 14. Geometry-driven coverage expansion: theoretical design
+
+The owner reports that planes appear around buildings while outdoor locations
+without buildings often show `0/0`. The owner requests theoretical improvement
+without obtaining runtime evidence. This section proposes a design; it does not
+attribute the stopped location to a particular filter, change production behavior,
+or claim restored effectiveness. No further game run or runtime capture is a gate
+for this research. The supplied mesh inputs can support offline geometry work.
+
+### Existing limitations and the correctness objective
+
+Direct source inspection establishes that collection accepts STAT/SCOL references
+only, not landscape terrain. Geometry admission requires three positive AABB
+extents and a largest world extent in `256..=8192`. Candidate extraction searches
+only six local AABB faces, considers vertices/triangles near those extreme planes,
+and excludes world normals with `abs(z) >= 0.8`. These restrictions predate the
+post-stability redesign. They do not establish whether an arbitrary natural
+location has useful occluders, but they exclude flat geometry and orientations
+which a general surface extractor could consider.
+
+For every admitted camera and target, a proxy rejection must imply that the
+rendered source also occludes the target. A sufficient surface construction is
+a rectangle contained in an actually opaque planar surface, with matching side
+visibility and depth. Projected coverage alone is insufficient when triangles
+lie at different depths. Neither a convex hull, a near-plane tolerance, nor
+shrinking in two dimensions proves the required three-dimensional containment.
+Numeric error and the native plane construction also belong to this proof.
+
+The verified consumer in sections 2.3 and 12 rejects a bound using one rectangle's
+pyramid; it does not combine several small rectangles to prove that rejection.
+Consequently, plane count or summed area alone is a poor effectiveness measure.
+Large useful rectangles and low redundancy matter under the shared native cap.
+
+### Proposed additive extraction
+
+1. Keep the current extractor as the baseline candidate source. Introduce a
+   separate surface-patch candidate source so expansion need not remove existing
+   building candidates. Final selection still uses one shared configured cap;
+   extra candidates can displace old ones, so selected-set usefulness needs its
+   own comparison even when the candidate set grows.
+2. Derive patch frames from actual nondegenerate mesh triangles. Build bounded
+   adjacency and group compatible opaque surfaces. Compare membership against a
+   fixed supporting plane rather than allowing accumulated pairwise angle or
+   offset drift. Approximate grouping may propose candidates, but cannot certify
+   their coverage. Exact shared geometry can connect duplicated-index seams;
+   proximity alone cannot authorize welding across gaps.
+3. Fit one or more rectangles inside each patch's actual triangle union,
+   preserving openings and disconnected components. Require full rectangle
+   containment, not covered grid centers or corners alone. A grid may accelerate
+   candidate search; the final geometric certificate must cover the entire
+   rectangle and account for depth/numeric error. Candidate orientation is not
+   limited to the six AABB planes.
+4. Apply usefulness and size decisions to proven rectangles rather than requiring
+   nonzero mesh thickness or rejecting an entire large mesh. A valid planar
+   source needs triangle area, not three positive box dimensions. Horizontal
+   orientation is not itself a proof of uselessness: a supported roof or slope
+   can occlude geometry for some cameras. Do not remove those gates from the old
+   path before qualifying the new coverage rule.
+5. Match the source's rendered side visibility. Thickness and a rectangular hull
+   do not prove two-sided rendering. Triangle winding, material culling, signed
+   transforms and the native activation convention must agree before a new
+   candidate can publish. Their unresolved native facts remain explicit; no new
+   side flag is inferred from the theoretical construction.
+
+This first extension can recover supported oblique surfaces. It cannot guarantee
+large rectangles on a smoothly curved rock. The latter motivates a second,
+independent construction: planar sections inside a verified opaque solid.
+An interior rectangle is conservative for rays entering that solid from outside.
+Watertightness, consistent orientation, absence of intersecting/ambiguous shells,
+opaque rendering and camera-domain validity must be established before relying
+on that argument. Open or ambiguous meshes retain the surface-only path.
+Closing holes by flood fill is not an exact substitute for those conditions.
+Terrain requires a separately verified source/lifetime collector; improved STAT
+math cannot make currently uncollected LAND geometry appear in the input.
+
+### Cost, selection and offline qualification
+
+Compute content-dependent patch analysis once per validated local mesh and reuse
+it across instances. Keep instance transform, material admission and world
+eligibility at the live boundary. Extend the existing bounded/resumable jobs;
+retain the approved decoded-input budget, native plane cap and lifecycle repair.
+Patch topology, scratch and cached rectangle metadata need explicit accounting
+as well; they are not free merely because decoded arrays fit. Persisted analysis
+changes require a schema/signature change and old-data rejection.
+
+Evaluate candidate selection using projected usefulness, overlap and the native
+whole-bound criterion. The current distance/area score lacks orientation and
+redundancy terms. Projected area is still a heuristic for saved work, not a proof
+of frame-rate gain. Camera-dependent reselection must be bounded and avoid
+per-frame native object churn; thresholds are to be established by executable
+comparisons rather than invented here.
+
+Offline acceptance must execute production extraction on actual asset meshes.
+Compare baseline and expanded candidate sets; check every new rectangle's
+support, depth and side certificate; preserve holes; test equivalent rigid
+representations and signed scales; and measure total work, maximum slice cost,
+completion latency and memory. Offline visibility evaluation should distinguish
+false rejection from missed rejection against original mesh triangles and use
+whole bounds, not only point rays. Sampled views can measure usefulness and find
+counterexamples, but do not replace the geometric conservativeness proof. Such
+evaluation does not reproduce the game's material/composition or establish FPS.
+
+### Research basis and limits
+
+- Silvennoinen et al., [Occluder Simplification Using Planar Sections](https://users.aalto.fi/~laines9/publications/silvennoinen2014cgf_paper.pdf),
+  2014: motivates interior slices and direction-dependent occlusion quality.
+  Its voxel discretization can fill small holes and permits bounded error; it
+  is not a drop-in exact coverage certificate for this native consumer.
+- Wu et al., [Occluder Generation for Buildings in Digital Games](https://gaoxifeng.github.io/papers/2022/occluder.pdf),
+  2022: combines surface patches and volumetric candidates, and evaluates false
+  culling separately from recovered occlusion. Its sampled optimization and
+  preprocessing costs do not establish our conservativeness or frame budget.
+
+The proposed first delivery is surface-patch extraction with explicit coverage
+certificates and offline comparison. Interior sections, terrain acquisition and
+camera-dependent selection remain separate extensions, each with its own proof
+and budget. This design neither promises a nonzero plane count in every cell nor
+treats the owner's coverage report as a demonstrated cause of the recent changes.
+
+## 15. Coverage and per-frame performance implementation plan
+
+Status: implementation authorized by the owner's subsequent `proceed`. The
+performance phases are in qualification; coverage research has the additional
+gate below. The owner explicitly
+excludes obtaining runtime evidence; offline execution of owned geometry remains
+available. Separate coverage expansion from output-preserving optimization so
+neither can hide a regression in the other. Preserve the accepted graph/plane
+lifetime repair, main-thread/native phase boundary, default enablement, shared
+plane cap and approved decoded-input budget throughout.
+
+### Findings that determine the order
+
+- `vertices_local_aabb` validates all coordinates, copies them into owned input,
+  then calls `aabb_of`. The decoder also rejects nonfinite vertices before its
+  bounds call. The current `wide::f32x4` bounds loop gathers AoS coordinates into
+  vectors and keeps six min/max accumulators. The local 32-bit release code
+  contains packed min/max but also scalar coordinate loads, NaN-selection masks
+  and stack traffic. Thus explicit SIMD already exists, but its source notation
+  is not evidence of an efficient kernel. `wide` 1.7.1 has `fast_min/fast_max`
+  without that NaN-selection work; using them requires the finite-input contract
+  and equivalence checks, not a global floating-point mode change. Raw function
+  disassembly and target features are retained under
+  `.reports/20261105-occlusion-plan/`.
+- Near-face filtering, projected triangle membership, boundary intersection and
+  recovery-grid evaluation are written as scalar indexed loops. LLVM can still
+  vectorize some expressions: inspect the owning generated loop before claiming
+  that all its arithmetic is scalar. Their regular point/triangle arithmetic is
+  a better SIMD candidate than native linked-list traversal or heap updates.
+- A face remains an indivisible CPU unit in `Generation::advance_owned`. It can
+  inspect the mesh triangles, sort boundary keys, visit the recovery grid and
+  search rectangles before yielding. The 1 ms elapsed admission is therefore a
+  soft target, not a bound on a generation frame. Completion also performs
+  proof/signature work, record copies, union selection and native injection
+  outside that inner face budget.
+- `refresh_neighbors` starts a fresh clock before input validation rather than
+  consuming the presentation's original deadline. Its effect is conditional on
+  nonzero radius; the default radius is zero. It must nevertheless participate
+  in the same frame-work accounting as center generation and maintenance.
+- Every mesh lookup computes a serial 64-bit FNV recurrence, scans a VecDeque,
+  compares full input on a hit and moves the hit to the front. The 32-bit
+  generated fingerprint uses multi-instruction 64-bit multiplication. Lookup
+  complexity, hashing, equality, ownership and copying all count toward reuse
+  cost; the earlier one-mesh warm benchmark did not qualify a populated pool or
+  full collection. No unverified engine-address shortcut replaces input equality.
+- Additional candidates increase extraction/selection work and may replace
+  existing useful planes under the cap. Increasing candidate or active counts
+  is not itself acceptance. The native whole-bound rejection and per-plane cost
+  remain the effectiveness constraints described in section 14.
+
+### Delivery sequence
+
+| Phase | Concrete outcome | Owning implementation | Acceptance before proceeding |
+| --- | --- | --- | --- |
+| A | Establish whole-owned-pipeline comparisons on actual meshes, including cold/warm and populated-cache cases | Existing geometry tests/ignored benchmarks and cache test helpers | Baseline outputs, stage work, slice distributions, completion frames and peak memory recorded; no new engine mocks |
+| B | Reduce finite-validation/bounds and cache-hit overhead without changing rectangles | `runtime_generate.rs`, `runtime_generate_cache.rs`, private SIMD helpers if needed | Full descriptors, side policy and rejection decisions unchanged; complete offline input-preparation/reuse cost improves on repeated comparisons |
+| C | Make expensive owned faces resumable and use one presentation deadline | `runtime_generate.rs`, `runtime_generate_work.rs`, `runtime.rs` | Same final output for sliced/uninterrupted execution; interrupted owned stages retain progress; worst slices and completion latency compared |
+| D | Vectorize regular coverage work with bounded scratch | Geometry kernels and production owned face job | Scalar/SIMD equivalence on actual inputs and edge cases; codegen inspection plus end-to-end timing includes preparation and tails |
+| E | Add certified, arbitrarily oriented surface patches | Private owned surface-extraction module, generator/cache | Recover supported candidates missed by six-face extraction; preserve existing candidate source; every new rectangle has a coverage/depth/side certificate |
+| F | Improve usefulness of the capped selected set and bounded refresh | Selection work and runtime publication preparation | Compare actual-mesh whole-bound rejection, redundancy, CPU and native object churn; no weakening of correctness or increase in shared cap |
+| G | Extend to verified interior sections and terrain sources | Separate geometry and collector work | Solid/camera-domain proof for interior sections; verified engine lifetime/layout for terrain; independent budgets and qualification |
+
+Phases A-F are the implementation plan for the existing loaded-static feature.
+Phase G is separate research, not a reason to delay the earlier improvements or
+claim that their static-only input covers landscape terrain. Each phase is
+reviewable separately; do not combine all stages into another large redesign.
+
+### SIMD work: specific kernels and constraints
+
+Use SSE2 as the initial implementation baseline: it is enabled for the supported
+`i686-pc-windows-gnu` target. Start with safe `wide` operations. Do not enable
+AVX2/FMA globally, use `target-cpu=native`, or add CPU detection in frame work.
+A wider optional path is justified only after the SSE2 implementation, with
+existing usable-feature detection at the admitted lifecycle boundary and an
+equivalent fallback. AVX register width alone does not establish a speedup.
+
+1. **Finite input and bounds.** Compare a finite-specialized version of the
+   current four-vertex reduction with a lower-register-pressure coordinate-lane
+   reduction. Evaluate fused validation/copy/bounds against separate optimized
+   streaming passes; fusion is not automatically faster. Keep public/generic
+   nonfinite behavior distinct if needed. Test signed zeros, empty input, tails,
+   subnormal coordinates and rejected nonfinite input. Engine vertices are only
+   four-byte aligned and 12 bytes each: no assumed 16-byte alignment or load past
+   the last vertex. Count copying and AoS conversion in the benchmark.
+2. **Four recovery cells per triangle.** Broadcast one projected triangle and
+   evaluate four adjacent cell centers in parallel. This avoids indexed gathers
+   for four unrelated triangles. Prepare the triangle deltas/area once, retain
+   the scalar operation order per lane, and form coverage bits from comparisons.
+   Skip fully covered groups and handle partial rows with masks or scalar tails.
+   Keep the current tolerance/edge semantics unchanged in this performance phase;
+   reassociated edge equations or a new raster rule are separate semantic work.
+3. **Boundary clearing and mask storage.** Evaluate groups of four cell rectangles
+   against one boundary segment where profitable. A 16-bit row mask can replace
+   a boolean row and accelerate covered-group checks and OR/clear operations;
+   the histogram search must preserve its current rectangle and tie rule.
+   Coverage samples generate candidates, never certify new geometric support.
+4. **Patch classification/setup.** For new surface extraction, batch signed
+   distances, triangle bounds and normal tests on owned input. Use transient
+   SoA/AoSoA blocks only where their construction is amortized. Do not permanently
+   duplicate the decoded vertex/triangle arrays merely to obtain vector loads.
+   A triangle-index gather, transposition and packing cost belongs to the kernel
+   comparison, not to an unmeasured setup stage.
+5. **Selection and exact equality.** Consider bounded batches for distance/facing
+   scores and bitwise input equality only after the preceding work. Compare
+   compiler-generated slice equality before replacing it manually. Float equality
+   cannot replace `to_bits` identity. Preserve score/tie arithmetic during B-D:
+   removing the current sqrt-then-square can change floating-point rankings and
+   belongs to the explicitly changed selection policy in F.
+
+No fast-math, approximate reciprocal, FMA contraction or new epsilon is a hidden
+optimization. The current predicates have boundary-sensitive float semantics.
+For new coverage certificates, use proven error bounds and a robust scalar
+fallback for ambiguous lanes rather than treating SIMD comparison masks as
+exact topology. Shewchuk's adaptive predicate work supplies a basis for that
+approach, but orientation predicates alone do not prove complete rectangle or
+three-dimensional depth containment. Audit precision/rounding on this actual
+32-bit target before adopting any predicate implementation.
+Keep the caller's floating-point control state unchanged. Include finite-input
+overflow, cancellation and the active rounding/denormal behavior in scalar/SIMD
+comparisons; finite source coordinates alone do not guarantee finite arithmetic.
+
+### Remove repeated work and budget the complete frame
+
+For B, evaluate hash-to-collision-bucket lookup and bounded recency bookkeeping
+instead of scanning/moving the whole deque for every hit. A faster fingerprint
+may use the existing target-native hasher as a measured candidate; on this target
+its state is 32 bits, so retain length checks and complete input comparison and
+benchmark collision-heavy cases. It is an index, never a source certificate.
+Separate resident lookup identity from persisted format/signature decisions.
+Do not rehash/redecode unchanged Rust-owned arrays within one owned job, and
+preserve weak provenance identities across safe resident reuse.
+
+For C, introduce explicit owned face stages: source-triangle filtering, support
+construction, boundary preparation, grid fill/clear, rectangle recovery and
+certificate/output. Retain triangle/row cursors and mask state across advances.
+Publish a cached local result only when its whole face job completes. Share the
+original frame deadline among presence repair, center/neighbor work, completion
+and publication preparation. Use both bounded operation batches and elapsed
+admission; do not pay a clock call for every SIMD lane. Choose batch sizes from
+executable comparisons and make at least one admitted bounded unit progress.
+
+Keep native snapshot acquisition at its proven lock/lifetime boundary. Splitting
+an owned face is safe; splitting an engine array copy across frames by retaining
+a borrowed pointer is not. Fresh membership validation remains required until
+an alternative is proved. If restarts consume repeated work, use per-reference
+owned dependencies to explore scoped invalidation, with budget/accounting and
+removal proofs; do not simply ignore source changes to guarantee completion.
+
+Measure uninterruptible sorts, snapshot copies and bounded native calls
+separately. Prefer bounded scratch reuse and moving owned records over cloning
+full candidate lists where ownership permits. Stage native construction only if
+its measured/static work justifies it: retain unpublished objects, reject stale
+targets, roll back partial work and publish at the existing safe atomic boundary.
+The engine list must never expose a partially assembled unsafe set. Native lock
+wait/destructors remain outside a hard wall-clock guarantee. No new geometry
+worker, shader path, provider hook or startup/config owner is part of A-F.
+
+### Offline comparison and release criteria
+
+Use the existing complete WoodShack fixture and already supplied mesh corpus,
+and add provenance-backed on-disk rock/cliff, oblique, flat and opening-bearing
+assets as needed for the new surface path. No new game capture is required.
+Archived meshes without instance/material metadata support local extraction
+comparisons, not assertions about their actual game placements or side flags.
+The existing tessellated-wall and merge probes remain component stress measures;
+the 64x64 wall exceeds production's vertex admission cap and is not a shipped
+complete-mesh workload. Do not invent scene fixtures to replace unavailable
+native integration evidence.
+
+For every performance candidate, compare unchanged production code with the
+candidate on identical inputs, build settings and hardware. Run serial warm-up
+and repeated interleaved baseline/candidate rounds; report variance. Measure:
+
+- total owned input-preparation/reuse and extraction time, including
+  conversion/hash/equality;
+- per-advance median, p95, p99 and maximum; bounded work per advance and number
+  of advances to publish, so shorter slices cannot conceal a stalled generator;
+- cold, warm, populated-cache, eviction and interrupted-job behavior, including
+  zero-output inputs; allocations and peak decoded/scratch/metadata residency;
+- exact descriptors/rejections for B-D; certified candidate coverage and
+  whole-bound occlusion precision/recall for E-F under explicitly described
+  offline viewpoints. Sampled visibility is an effectiveness comparison, not
+  proof of zero false culling for all viewpoints.
+
+Execute input preparation through the same production kernels used by native
+capture, factored out where necessary; never fabricate native cells or replace
+CellRefLock traversal with a timing model. Offline geometric whole-bound metrics
+evaluate actual output rectangles against mesh geometry. They are not execution
+of the engine consumer and must not be reported as native integration evidence.
+
+Retain an optimization only when full-work comparisons establish its benefit;
+inspect the affected release loop for actual packed instructions, conversions,
+tails and spills. Do not trade additional total work, completion latency, output
+coverage or precision for a flattering kernel average. When implementing, run
+the relevant production-path regressions, affected crate suite, supported 32-bit
+release build, formatting and diff checks. Recheck startup contracts only when
+their inputs change. No runtime test is requested; game-only composition,
+material integration, lock timing and FPS remain explicitly unmeasured.
+
+### Additional primary references
+
+- Intel, [Vectorization Programming Guidelines](https://www.intel.com/content/www/us/en/docs/dpcpp-cpp-compiler/developer-guide-reference/2023-1/vectorization-programming-guidelines.html):
+  data access, alignment and AoS/SoA tradeoffs. This does not justify converting
+  every array or assuming native input alignment.
+- LLVM, [Auto-Vectorization](https://llvm.org/docs/Vectorizers.html): gather cost,
+  vectorizer cost models and floating-point reduction restrictions. Compiler
+  vectorization still needs inspection and complete-work measurement.
+- Hasselgren et al., [Masked Software Occlusion Culling](https://www.intel.com/content/www/us/en/developer/articles/technical/masked-software-occlusion-culling.html):
+  SIMD/mask organization as a design reference. Replacing the game's occlusion
+  consumer with that rasterizer is outside this plan.
+- Shewchuk, [Adaptive Precision Floating-Point Arithmetic and Fast Robust Predicates](https://www.cs.cmu.edu/~quake/robust.html):
+  adaptive treatment of ambiguous geometric tests and the warning about extended
+  precision on older x86. A robust predicate is one part of a coverage proof.
+
+### Coverage experiment and revised integration gate
+
+The offline natural corpus contains 317 complete physical rock/cliff geometry
+blocks. It is not a reconstructed scene, material-admission record, or installed
+override winner. Provenance and complete decoded inputs are retained under
+`.reports/20261105-occlusion-plan/`. At identity placement, the legacy extractor
+produces 83 rectangles. A single-triangle inscribed-rectangle experiment on
+eligible meshes with zero legacy output fits 19 additional size-admitted
+rectangles, but none passes exact coplanarity of the native f32 corners with the
+source triangle. The unqualified experiment is archived there and is not part
+of production. This does not disprove grouped coplanar patches; it does not
+qualify a broad curved-rock improvement either.
+
+Individual blocks and an untransformed per-file union also fail an exact welded
+oriented-edge closure screen. The latter is not an assembled-object certificate:
+NIF hierarchy transforms and material admission were not established. Do not
+infer solid interiors, close small gaps, or call a convex hull an occluder from
+these inputs. Geometry tolerances cannot silently replace the coverage proof.
+
+The next candidate is camera-region-certified mesh projection, an extension of
+the surface phase rather than unconditional interior filling:
+
+1. Preserve the legacy candidate source. For an otherwise unproductive admitted
+   opaque mesh, choose a world-axis proxy plane behind its source vertices as
+   seen from a reference camera outside the source AABB. Perspective-project
+   admitted source triangles onto that plane and search for a fully supported
+   rectangle. A curved/open source need not enclose a volume.
+2. Establish actual source winding from live stencil state. Binary verification
+   closes `NiGeometry +0x9C` property-state ownership, stencil slot `+0x10`, flags
+   `+0x18`, draw-mode bits 10-11, and the renderer's handedness mapping. Preserve
+   unknown or stencil-tested sources on the legacy path. The renderer couples
+   projection-X reversal with cull-map selection; do not copy the shadow
+   renderer's fallback D3D constants as a front-side oracle.
+3. Certify initial rectangle support against actual triangles and oriented
+   boundary edges. Preserve depth order and holes. Require exact orientation
+   signs for certification; a sampled mask only proposes the rectangle.
+4. Form camera half-space constraints which preserve source-triangle facing,
+   source/proxy depth order, and separation of every projected source boundary
+   from the rectangle. Their connected intersection containing the reference
+   camera preserves the rectangle's positive coverage winding. Prove this
+   invariant before publishing candidates; mere corner samples are insufficient.
+5. Derive a camera AABB inside that intersection. Certify its eight corners
+   against every constraint, with fail-closed robust predicates. Store only that
+   bounded validity domain with the native rectangle; regenerate constraints
+   during certification rather than retaining an unbounded per-plane list.
+6. Validate the actual camera at the native admission call, not a prior Present.
+   Static research finds one call at `0x00B5AD8C` to `0x00C358A0`, with thiscall
+   plane and three by-value camera floats, AL result and `RET 0xC`. The original
+   result is ANDed with the frustum test. A prepared inert callsite bridge can
+   chain that provider and reject only our additional camera-scoped records
+   outside their certified domain. Authored and legacy records keep provider
+   behavior. Activation, signature ownership, reentry and metadata publication
+   still require qualification; no projected record may publish without the
+   active guard. Existing main-frame reader quiescence and strong graph/plane
+   ownership remain mandatory.
+7. Refresh invalidated domains through bounded owned generation and exact native
+   diffing. Include the domain in semantic identity, and keep old validated
+   candidates while replacement work progresses. Limit extra candidates and
+   metadata within the existing shared plane/input constraints. Compare useful
+   coverage, refresh latency, complete CPU cost and native churn offline before
+   accepting the extension. No game run is requested.
+
+Raw binary evidence is in
+`analysis/radare2/output/occlusion_patch_cull_contract_20261105.txt`. It also
+reconfirms that the native occlusion frustum has six storage slots with bit 1
+disabled: one rectangle plane and four side planes are active before further
+clipping masks. There is no far plane or general camera-inside-source guard.
+The guard above is therefore a necessary part of any accepted camera-scoped
+proxy, not optional diagnostics or a new assumption about camera movement.

@@ -247,6 +247,7 @@ impl CellSlot {
 struct TrackedPlane {
     pointer: usize,
     key: PlaneIdentity,
+    camera: Option<super::data::CameraBounds>,
 }
 
 /// Own the graph as well as its injected planes. Active selection may change
@@ -665,6 +666,7 @@ pub(super) fn observe_event(kind: u32, frame_phase: i32) {
 /// Invalidates only Rust work identities. Loading/unknown callbacks never
 /// dereference cells, traverse lists or release a native object.
 fn invalidate_world() {
+    super::camera_guard::invalidate();
     WORLD_EPOCH.fetch_add(1, Ordering::AcqRel);
     RESET_PENDING.store(true, Ordering::Release);
 }
@@ -685,6 +687,11 @@ fn activate() {
         return;
     }
     let _ = FNS.set(EngineFns::resolve());
+    if let Err(error) = super::camera_guard::publish(MAX_PER_CELL.load(Ordering::Acquire)) {
+        log::warn!(
+            "[OCCLUSION_PLANES] Camera-scoped admission unavailable; retaining legacy extraction: {error:#}"
+        );
+    }
     // Disk data contains local analysis only. Every live hit compares complete
     // mesh input; world placements are ephemeral and require source validation.
     let cache_path = CACHE_PATH.get().map(String::as_str).unwrap_or_default();
@@ -830,9 +837,20 @@ fn frame_tick_inner(frame_started: Instant) {
             clear_pending_target();
         }
         let settle_left = SETTLE_RETRIES_LEFT.load(Ordering::Acquire);
+        if !pending && same_target && super::camera_guard::take_refresh() {
+            consume_outcome(reconcile(
+                fns,
+                scene_graph,
+                cell,
+                read_observer(owner),
+                false,
+                frame_started,
+            ));
+            return;
+        }
         if !pending && same_target {
             if settle_left == 0 && !RESCAN_PENDING.load(Ordering::Acquire) {
-                refresh_neighbors(fns, scene_graph, cell, read_observer(owner));
+                refresh_neighbors(fns, scene_graph, cell, read_observer(owner), frame_started);
                 tick_cache_save();
                 return;
             }
@@ -842,7 +860,7 @@ fn frame_tick_inner(frame_started: Instant) {
             if countdown > 1 {
                 SETTLE_COUNTDOWN.store(countdown - 1, Ordering::Release);
                 if settle_left == 0 {
-                    refresh_neighbors(fns, scene_graph, cell, read_observer(owner));
+                    refresh_neighbors(fns, scene_graph, cell, read_observer(owner), frame_started);
                 }
                 tick_cache_save();
                 return;
@@ -1294,6 +1312,7 @@ fn refresh_neighbors(
     scene_graph: *mut c_void,
     cell: *mut c_void,
     observer: Option<[f32; 3]>,
+    frame_started: Instant,
 ) {
     let radius = GRID_RADIUS.load(Ordering::Acquire);
     if radius == 0 {
@@ -1354,9 +1373,12 @@ fn refresh_neighbors(
     if let Some(job) = jobs.active.as_mut() {
         let current = unsafe { resolve_neighbor(cell, job.key) };
         let result = if let Some(current) = current.filter(|ptr| *ptr as usize == job.cell) {
-            let frame_started = Instant::now();
-            let _cell_lock = unsafe { CellRefLock::acquire(current, fns) };
-            unsafe { job.work.validate_inputs(current, frame_started) }
+            if Generation::budget_remaining(frame_started) {
+                let _cell_lock = unsafe { CellRefLock::acquire(current, fns) };
+                unsafe { job.work.validate_inputs(current, frame_started) }
+            } else {
+                None
+            }
         } else {
             Some(None)
         };
@@ -1409,6 +1431,10 @@ unsafe fn apply_union(
                 continue;
             }
             for plane in &entry.records {
+                // Neighbor source validation cannot refresh its viewpoint.
+                if key != neighborhood.center && plane.camera.is_some() {
+                    continue;
+                }
                 // Two cells can only produce the same rectangle if a reference
                 // was duplicated; dedupe so the diff cannot create a duplicate
                 // native plane for one key.
@@ -1504,6 +1530,7 @@ struct Maintenance {
     by_key: HashMap<PlaneIdentity, usize>,
     used: Vec<bool>,
     next: Vec<TrackedPlane>,
+    camera: Vec<(usize, super::data::CameraBounds)>,
 }
 
 static MAINTENANCE: OnceLock<Mutex<Maintenance>> = OnceLock::new();
@@ -1519,6 +1546,7 @@ unsafe fn inject(
     let mut _retired_graph = None;
     let mut _empty_graph = None;
     let _publication = super::native_list::lock();
+    let admission = super::camera_guard::update();
     let mut tracked = TRACKED.lock();
     let previous_count = tracked.planes.len();
     if tracked.graph != scene_graph as usize {
@@ -1584,6 +1612,7 @@ unsafe fn inject(
             next.push(TrackedPlane {
                 pointer: plane as usize,
                 key,
+                camera: record.camera,
             });
             created += 1;
         }
@@ -1614,6 +1643,15 @@ unsafe fn inject(
     by_key.clear();
     used.clear();
     next.clear();
+    scratch.camera.clear();
+    scratch.camera.extend(
+        tracked
+            .planes
+            .iter()
+            .filter_map(|item| item.camera.map(|bounds| (item.pointer, bounds))),
+    );
+    scratch.camera.sort_unstable_by_key(|item| item.0);
+    admission.replace(&scratch.camera);
     if tracked.planes.is_empty() && tracked.graph != 0 {
         let graph = core::mem::replace(&mut tracked.graph, 0);
         // Release the graph after the publication guard has dropped.
@@ -1668,11 +1706,13 @@ fn reset_world(fns: &EngineFns) {
     GENERATION_ACTIVE.store(false, Ordering::Release);
     let retired_graph = {
         let _publication = super::native_list::lock();
+        let admission = super::camera_guard::update();
         let mut tracked = TRACKED.lock();
         let removed = tracked.planes.len();
         // SAFETY: only a normal main-thread presentation calls reset_world.
         // The tracked graph is strongly owned until retirement returns.
         let graph = unsafe { retire_injection(fns, &mut tracked) };
+        admission.replace(&[]);
         DASH_REMOVED.fetch_add(removed as u64, Ordering::Relaxed);
         graph
     };
@@ -1753,9 +1793,17 @@ unsafe fn reconcile(
             let mut guard = GENERATION.lock();
             let restart = force || guard.as_ref().is_none_or(|job| job.target != target);
             if restart {
+                let mut work = Generation::new(max, observer);
+                // Publish the legacy set at its original cold latency first.
+                if !force
+                    && (DASH_LAST_SELECTED.load(Ordering::Relaxed) < max as u64
+                        || super::camera_guard::has_scoped())
+                {
+                    work.enable_projected();
+                }
                 *guard = Some(GenerationJob {
                     target,
-                    work: Generation::new(max, observer),
+                    work,
                     initial: force,
                 });
             }
@@ -1808,6 +1856,7 @@ unsafe fn reconcile(
         let proof = finished.work.source_proof();
         from_cache = finished.work.used_analysis();
         source_pending = finished.work.source_pending();
+        let projected_reference = finished.work.projected_reference();
         let (generated_planes, generated_raw, ready, generation_ms) = finished.work.finish();
         generate_ms = generation_ms;
         DASH_REBUILDS.fetch_add(1, Ordering::Relaxed);
@@ -1818,6 +1867,11 @@ unsafe fn reconcile(
         }
         render_ready = ready;
         planes = generated_planes;
+        let needs_viewpoint_retry = planes.len() < max && planes.iter().all(|p| p.camera.is_none());
+        super::camera_guard::record_reference(
+            projected_reference.filter(|_| needs_viewpoint_retry),
+        );
+        super::camera_guard::acknowledge_refresh();
         raw = generated_raw;
         store_in_cache(&key, &planes, proof);
     }
@@ -1868,6 +1922,9 @@ unsafe fn reconcile(
         }
     }
     let report = unsafe { apply_union(fns, scene_graph, observer) };
+    if initial && report.selected < max && super::camera_guard::epoch().is_some() {
+        super::camera_guard::request_refresh();
+    }
     if !report.injected.complete {
         // An allocation failed; keep the bounded settle window alive so the
         // missing plane is retried instead of being silently absent.
@@ -1956,6 +2013,11 @@ fn mark_cache_complete(key: &CellKey) {
 }
 
 unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_void> {
+    if let Some(bounds) = record.camera
+        && super::camera_guard::epoch() != Some(bounds.epoch)
+    {
+        return None;
+    }
     if !record.valid_native() {
         return None;
     }

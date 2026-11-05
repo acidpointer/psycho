@@ -42,8 +42,10 @@
 //! schedule periodic desired-set repair. See docs/fnv_runtime_occlusion_plane_implementation_plan.md.
 
 mod cache;
+mod camera_guard;
 mod contract;
 mod data;
+mod exact;
 mod native_list;
 mod raw;
 mod runtime;
@@ -61,6 +63,9 @@ pub(crate) fn install(performance: &PerformanceConfig) {
     if enabled && let Err(error) = native_list::install() {
         log::error!("[OCCLUSION_PLANES] Native publication contract unavailable: {error:#}");
         enabled = false;
+    }
+    if enabled && let Err(error) = camera_guard::install() {
+        log::warn!("[OCCLUSION_PLANES] Camera-scoped extraction unavailable: {error:#}");
     }
     runtime::configure(
         enabled,
